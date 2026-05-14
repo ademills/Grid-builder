@@ -9,15 +9,17 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, w
   const width = workArea?.width ?? 800;
   const height = workArea?.height ?? 600;
 
-  // Center the SVG in the viewport on mount / when work area dimensions change
+  // Fit the SVG to the viewport on mount / when work area dimensions change
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const { width: cw, height: ch } = el.getBoundingClientRect();
+    const { width: vw, height: vh } = el.getBoundingClientRect();
+    const padding = 80;
+    const scale = Math.min((vw - padding * 2) / width, (vh - padding * 2) / height, 1);
     setViewTransform({
-      x: (cw - width) / 2,
-      y: (ch - height) / 2,
-      scale: 1,
+      x: (vw - width * scale) / 2,
+      y: (vh - height * scale) / 2,
+      scale,
     });
   }, [width, height, setViewTransform]);
 
