@@ -1,0 +1,26 @@
+.container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.container[data-tool="hand"] {
+  cursor: grab;
+}
+
+.container[data-tool="hand"]:active {
+  cursor: grabbing;
+}
+
+.viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.svg {
+  display: block;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
+}

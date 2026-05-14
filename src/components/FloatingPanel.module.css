@@ -1,0 +1,253 @@
+.panel {
+  position: fixed;
+  z-index: 1000;
+  width: 268px;
+  background: #18191f;
+  border: 1px solid #2c2d38;
+  border-radius: 10px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+  color: #d4d4d8;
+  user-select: none;
+  font-size: 13px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: grab;
+  border-bottom: 1px solid #2c2d38;
+  border-radius: 10px 10px 0 0;
+}
+
+.header:active {
+  cursor: grabbing;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #7c3aed;
+  flex-shrink: 0;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 12px;
+  color: #f4f4f5;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.collapseBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #52525b;
+  padding: 2px 4px;
+  font-size: 10px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.collapseBtn:hover {
+  color: #d4d4d8;
+  background: #2c2d38;
+}
+
+.body {
+  padding: 4px 0;
+  max-height: 72vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3b44 transparent;
+}
+
+.section {
+  padding: 10px 12px;
+  border-bottom: 1px solid #22232c;
+}
+
+.section:last-child {
+  border-bottom: none;
+}
+
+.sectionTitle {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: #52525b;
+  margin-bottom: 8px;
+}
+
+/* Tool toggle */
+.toolToggle {
+  display: flex;
+  gap: 5px;
+}
+
+.toolBtn {
+  flex: 1;
+  padding: 6px 8px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 6px;
+  color: #71717a;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.toolBtn:hover {
+  background: #2c2d38;
+  color: #d4d4d8;
+  border-color: #44455080;
+}
+
+.toolBtn.active {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: #7c3aed;
+  color: #c4b5fd;
+}
+
+/* Color row */
+.colorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.colorInput {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #33343e;
+  border-radius: 6px;
+  padding: 2px;
+  cursor: pointer;
+  background: #23242c;
+  flex-shrink: 0;
+}
+
+.colorInput::-webkit-color-swatch-wrapper {
+  padding: 0;
+  border-radius: 4px;
+}
+
+.colorInput::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.colorLabel {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #71717a;
+}
+
+/* Placeholder text */
+.placeholder {
+  font-size: 11px;
+  color: #3f4052;
+  font-style: italic;
+  margin: 0;
+}
+
+/* Action buttons */
+.actionBtns {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.actionBtn {
+  padding: 7px 10px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 6px;
+  color: #71717a;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  width: 100%;
+}
+
+.actionBtn:hover:not(:disabled) {
+  background: #2c2d38;
+  color: #d4d4d8;
+  border-color: #444550;
+}
+
+.actionBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.actionBtnPrimary {
+  background: rgba(124, 58, 237, 0.15);
+  border-color: #7c3aed80;
+  color: #a78bfa;
+}
+
+.actionBtnPrimary:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.25);
+  border-color: #7c3aed;
+  color: #c4b5fd;
+}
+
+/* Zoom controls */
+.zoomRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zoomBtn {
+  width: 26px;
+  height: 26px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 5px;
+  color: #a1a1aa;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.zoomBtn:hover {
+  background: #2c2d38;
+  color: #d4d4d8;
+}
+
+.zoomLabel {
+  flex: 1;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #71717a;
+}
+
+.resetBtn {
+  font-size: 10px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
