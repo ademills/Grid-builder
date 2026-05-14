@@ -214,8 +214,26 @@ function App() {
     });
   }, [workArea]);
 
-  // Placeholder — wired up in Phase 5
-  const handleExport = () => {};
+  const handleExport = useCallback(() => {
+    const svgEl = document.getElementById('main-canvas');
+    if (!svgEl) return;
+
+    const clone = svgEl.cloneNode(true);
+    clone.querySelectorAll('[data-noexport]').forEach(el => el.remove());
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    const serialized = new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([serialized], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'grid-layout.svg';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
 
   return (
     <DndContext
