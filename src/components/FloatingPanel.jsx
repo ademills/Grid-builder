@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { PRESETS } from '../gridPresets';
-import { PALETTES, PALETTE_KEYS } from '../utils/colorize';
+import { PALETTES, PALETTE_GROUPS } from '../utils/colorize';
 import styles from './FloatingPanel.module.css';
 
 function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues }) {
@@ -42,6 +42,13 @@ export function FloatingPanel({
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState('main'); // 'main' | 'palette'
+  // Groups open by default; others collapsed
+  const [openGroups, setOpenGroups] = useState(new Set(['Design', 'NBA']));
+  const toggleGroup = name => setOpenGroups(prev => {
+    const next = new Set(prev);
+    next.has(name) ? next.delete(name) : next.add(name);
+    return next;
+  });
   const isDragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const fileInputRef = useRef(null);
@@ -114,20 +121,36 @@ export function FloatingPanel({
                 </button>
                 <span className={styles.palettePickerBackLabel}>Choose palette</span>
               </div>
-              {PALETTE_KEYS.map(k => (
-                <button
-                  key={k}
-                  className={`${styles.palettePickerItem} ${k === paletteKey ? styles.palettePickerItemActive : ''}`}
-                  onClick={() => onPaletteKeyChange(k)}
-                >
-                  <span className={styles.palettePickerName}>{k}</span>
-                  <span className={styles.palettePickerSwatches}>
-                    {PALETTES[k].map((c, i) => (
-                      <span key={i} className={styles.palettePickerSwatch} style={{ background: c }} />
-                    ))}
-                  </span>
-                  {k === paletteKey && <span className={styles.palettePickerTick}>✓</span>}
-                </button>
+
+              {PALETTE_GROUPS.map(group => (
+                <div key={group.name}>
+                  <button
+                    className={styles.paletteGroupHeader}
+                    onClick={() => toggleGroup(group.name)}
+                  >
+                    <span className={styles.paletteGroupArrow}>
+                      {openGroups.has(group.name) ? '▼' : '▶'}
+                    </span>
+                    <span className={styles.paletteGroupName}>{group.name}</span>
+                    <span className={styles.paletteGroupCount}>{group.keys.length}</span>
+                  </button>
+
+                  {openGroups.has(group.name) && group.keys.map(k => (
+                    <button
+                      key={k}
+                      className={`${styles.palettePickerItem} ${k === paletteKey ? styles.palettePickerItemActive : ''}`}
+                      onClick={() => onPaletteKeyChange(k)}
+                    >
+                      <span className={styles.palettePickerName}>{k}</span>
+                      <span className={styles.palettePickerSwatches}>
+                        {PALETTES[k]?.map((c, i) => (
+                          <span key={i} className={styles.palettePickerSwatch} style={{ background: c }} />
+                        ))}
+                      </span>
+                      {k === paletteKey && <span className={styles.palettePickerTick}>✓</span>}
+                    </button>
+                  ))}
+                </div>
               ))}
             </>
           )}

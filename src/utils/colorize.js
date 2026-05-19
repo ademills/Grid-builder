@@ -54,9 +54,89 @@ export const PALETTES = {
   Harvest:  ['#4F372D', '#CC2A36', '#EB6841', '#EDC951', '#00A0B0', '#BEE5D3'],
   // Classic preppy navy
   Navy:     ['#1E1F26', '#283655', '#4D648D', '#7395AE', '#D0E1F9', '#FFFFFF'],
+
+  // ── NBA Current (30 teams) ───────────────────────────────
+  Hawks:         ['#E03A3E', '#C1D32F', '#26282A', '#000000', '#FFFFFF', '#A02028'],
+  Celtics:       ['#007A33', '#BA9653', '#963821', '#000000', '#FFFFFF', '#004F20'],
+  Nets:          ['#000000', '#FFFFFF', '#444444', '#888888', '#BBBBBB', '#1A1A1A'],
+  Hornets:       ['#1D1160', '#00788C', '#A1A1A4', '#FFFFFF', '#140B40', '#005A6B'],
+  Bulls:         ['#CE1141', '#000000', '#FFFFFF', '#9E1030', '#D4D4D4', '#600010'],
+  Cavaliers:     ['#860038', '#041E42', '#FDBB30', '#000000', '#FFFFFF', '#680028'],
+  Mavericks:     ['#00538C', '#002B5E', '#B8C4CA', '#000000', '#FFFFFF', '#003A6A'],
+  Nuggets:       ['#0E2240', '#FEC524', '#8B2131', '#1D428A', '#FFFFFF', '#C8A020'],
+  Pistons:       ['#C8102E', '#1D42BA', '#BEC0C2', '#002D62', '#FFFFFF', '#8A0018'],
+  Warriors:      ['#1D428A', '#FFC72C', '#000000', '#FFFFFF', '#002060', '#D4A820'],
+  Rockets:       ['#CE1141', '#000000', '#C4CED4', '#FFFFFF', '#9E1030', '#A0A8B0'],
+  Pacers:        ['#002D62', '#FDBB30', '#BEC0C2', '#000000', '#FFFFFF', '#001840'],
+  Clippers:      ['#C8102E', '#1D428A', '#BEC0C2', '#000000', '#FFFFFF', '#8A0018'],
+  Lakers:        ['#552583', '#FDB927', '#000000', '#FFFFFF', '#3A1A6B', '#C8941E'],
+  Grizzlies:     ['#5D76A9', '#12173F', '#F5B112', '#707271', '#FFFFFF', '#3A5080'],
+  Heat:          ['#98002E', '#F9A01B', '#000000', '#FFFFFF', '#700020', '#C88010'],
+  Bucks:         ['#00471B', '#EEE1C6', '#0077C0', '#000000', '#FFFFFF', '#003010'],
+  Wolves:        ['#0C2340', '#236192', '#9EA2A2', '#78BE20', '#FFFFFF', '#1A4060'],
+  Pelicans:      ['#0C2340', '#C8102E', '#85714D', '#FFFFFF', '#001830', '#A08030'],
+  Knicks:        ['#006BB6', '#F58426', '#BEC0C2', '#000000', '#FFFFFF', '#003F7E'],
+  Thunder:       ['#007AC1', '#EF3B24', '#002D62', '#FDBB30', '#FFFFFF', '#005A90'],
+  Magic:         ['#0077C0', '#C4CED4', '#000000', '#FFFFFF', '#005490', '#A0B0C0'],
+  '76ers':       ['#006BB6', '#ED174C', '#002B5C', '#C4CED4', '#FFFFFF', '#001E4A'],
+  Suns:          ['#1D1160', '#E56020', '#63727A', '#000000', '#FFFFFF', '#F9AD1B'],
+  Blazers:       ['#E03A3E', '#000000', '#FFFFFF', '#BA0C2F', '#AAAAAA', '#D4D4D4'],
+  Kings:         ['#5A2D81', '#63727A', '#000000', '#FFFFFF', '#3D1F5B', '#888888'],
+  Raptors:       ['#CE1141', '#000000', '#A1A1A4', '#B4975A', '#FFFFFF', '#8C0D2E'],
+  Jazz:          ['#002B5C', '#00471B', '#F9A01B', '#000000', '#FFFFFF', '#A0B030'],
+  Wizards:       ['#002B5C', '#E31837', '#C4CED4', '#000000', '#FFFFFF', '#001A3A'],
+
+  // ── NBA Retro / Historic / City ──────────────────────────
+  // New Jersey Nets (1997–2012) — red/navy before the Brooklyn rebrand
+  'NJ Nets':         ['#002A60', '#CD1041', '#777D84', '#C6CFD4', '#FFFFFF', '#001840'],
+  // Original Charlotte Hornets (1988–2002) — true teal & purple
+  'Hornets Classic': ['#280071', '#00B2D4', '#D4AF37', '#000000', '#FFFFFF', '#008FA0'],
+  // Utah Jazz mountain era (1985–96) — navy, forest green, gold
+  'Jazz Classic':    ['#002060', '#2A6F30', '#FFB81C', '#FFFFFF', '#001040', '#1A5020'],
+  // Milwaukee Bucks deer era (1968–93) — forest green & maroon
+  'Bucks Classic':   ['#00471B', '#A50034', '#C8AA64', '#FFFFFF', '#003010', '#780028'],
+  // Miami Heat Vice City editions (2018–present)
+  'Heat Vice':       ['#000000', '#F0548B', '#98D0D0', '#BEA865', '#1A1A1A', '#E8A0C0'],
+  // Denver Nuggets rainbow skyline (1981–93)
+  'Nuggets Rainbow': ['#0E2240', '#4FA8D5', '#FDB927', '#8B2131', '#FEC524', '#FFFFFF'],
+  // Seattle SuperSonics final era (2001–08)
+  SuperSonics:       ['#00653A', '#FFC200', '#FFFFFF', '#004A28', '#D4A000', '#002818'],
+  // SuperSonics bold alternate era (1995–2001) — teal, red, bronze
+  'Sonics 95-01':    ['#173F35', '#9E2A2F', '#FFA300', '#8B634B', '#FFFFFF', '#0F2820'],
+  // Vancouver Grizzlies (1995–2001) — teal, copper, navy
+  'Van Grizzlies':   ['#00B2A9', '#BA8F62', '#002B5C', '#FFFFFF', '#008A80', '#9A7040'],
+  // Toronto Raptors dino era (1995–2008) — purple & red
+  'Raptors Classic': ['#753BBD', '#CE1141', '#8A8D8F', '#000000', '#FFFFFF', '#5A28A0'],
+  // Dallas Mavericks original green era (1980–92)
+  'Mavs Classic':    ['#007041', '#002B5E', '#B8C4CA', '#FFFFFF', '#004A28', '#D4D4D4'],
+  // Indiana Pacers ABA era — vibrant gold & blue
+  'Pacers ABA':      ['#BF9B30', '#001F70', '#FFFFFF', '#8A7020', '#000F50', '#D4B840'],
 };
 
 export const PALETTE_KEYS = Object.keys(PALETTES);
+
+export const PALETTE_GROUPS = [
+  {
+    name: 'Design',
+    keys: ['Vibrant', 'Bold', 'Pastel', 'Earth', 'Nordic', 'Sunset', 'Forest', 'Mono'],
+  },
+  {
+    name: 'Popular',
+    keys: ['Rainbow', 'Metro', 'Ocean', 'Cosmic', 'Cafe', 'Garden', 'Tropical', 'Midnight', 'Harvest', 'Navy'],
+  },
+  {
+    name: 'Art & Decades',
+    keys: ['Synthwave', 'Vaporwave', 'Neon 80s', 'Miami 80s', 'Grunge 90s', 'Pop 90s', 'Groovy 70s', 'Disco', 'Art Deco', 'Bauhaus', 'Pop Art', 'Postmodern', 'Minimalist', 'Brutalist', 'Urban', 'Memphis', 'Cyberpunk', 'Lo-Fi', 'Kodachrome', 'Cassette'],
+  },
+  {
+    name: 'NBA',
+    keys: ['Hawks', 'Celtics', 'Nets', 'Hornets', 'Bulls', 'Cavaliers', 'Mavericks', 'Nuggets', 'Pistons', 'Warriors', 'Rockets', 'Pacers', 'Clippers', 'Lakers', 'Grizzlies', 'Heat', 'Bucks', 'Wolves', 'Pelicans', 'Knicks', 'Thunder', 'Magic', '76ers', 'Suns', 'Blazers', 'Kings', 'Raptors', 'Jazz', 'Wizards', 'Spurs'],
+  },
+  {
+    name: 'NBA Retro',
+    keys: ['NJ Nets', 'Hornets Classic', 'Jazz Classic', 'Bucks Classic', 'Heat Vice', 'Nuggets Rainbow', 'SuperSonics', 'Sonics 95-01', 'Van Grizzlies', 'Raptors Classic', 'Mavs Classic', 'Pacers ABA'],
+  },
+];
 
 // Mulberry32 seeded PRNG — gives consistent colours per block across re-renders
 function mulberry32(seed) {

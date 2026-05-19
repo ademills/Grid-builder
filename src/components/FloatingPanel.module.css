@@ -587,6 +587,48 @@
   color: #52525b;
 }
 
+/* Group headers */
+.paletteGroupHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #13141a;
+  border: none;
+  border-bottom: 1px solid #22232c;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.paletteGroupHeader:hover {
+  background: #1a1b22;
+}
+
+.paletteGroupArrow {
+  font-size: 7px;
+  color: #52525b;
+  flex-shrink: 0;
+  width: 8px;
+}
+
+.paletteGroupName {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #71717a;
+  flex: 1;
+}
+
+.paletteGroupCount {
+  font-size: 9px;
+  color: #3f4052;
+  font-family: ui-monospace, monospace;
+  flex-shrink: 0;
+}
+
 .palettePickerItem {
   width: 100%;
   display: flex;
