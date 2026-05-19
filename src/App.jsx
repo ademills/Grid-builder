@@ -14,6 +14,7 @@ function App() {
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [activeTool, setActiveTool] = useState('select');
   const [bgColor, setBgColor] = useState('#2d2d2d');
+  const [canvasBg, setCanvasBg] = useState('#ffffff');
 
   // Scale placement
   const [maxScale, setMaxScale] = useState(1);       // 1 | 2 | 3 | 4
@@ -275,7 +276,7 @@ function App() {
     const bgRect = document.createElementNS(svgNS, 'rect');
     bgRect.setAttribute('width', String(width));
     bgRect.setAttribute('height', String(height));
-    bgRect.setAttribute('fill', 'white');
+    bgRect.setAttribute('fill', canvasBg);
     out.appendChild(bgRect);
 
     placedBlocks.forEach(block => {
@@ -331,7 +332,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, customWhite, customBlack]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, customWhite, customBlack, canvasBg]);
 
   return (
     <DndContext
@@ -346,6 +347,7 @@ function App() {
           setViewTransform={setViewTransform}
           activeTool={activeTool}
           bgColor={bgColor}
+          canvasBg={canvasBg}
           workArea={workArea}
         >
           <Grid workArea={workArea} gridSettings={gridSettings} />
@@ -369,6 +371,8 @@ function App() {
           onToolChange={setActiveTool}
           bgColor={bgColor}
           onBgColorChange={setBgColor}
+          canvasBg={canvasBg}
+          onCanvasBgChange={setCanvasBg}
           viewTransform={viewTransform}
           onZoom={handleZoom}
           onResetView={handleResetView}

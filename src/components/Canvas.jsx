@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import styles from './Canvas.module.css';
 
-export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, workArea, children }) {
+export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, canvasBg, workArea, children }) {
   const containerRef = useRef(null);
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
@@ -86,7 +86,7 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, w
           xmlns="http://www.w3.org/2000/svg"
           className={styles.svg}
         >
-          <rect width={width} height={height} fill="white" />
+          <rect width={width} height={height} fill={canvasBg ?? '#ffffff'} />
           {children}
         </svg>
       </div>

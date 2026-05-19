@@ -24,6 +24,7 @@ function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues
 export function FloatingPanel({
   activeTool, onToolChange,
   bgColor, onBgColorChange,
+  canvasBg, onCanvasBgChange,
   viewTransform, onZoom, onResetView,
   presetKey, onPresetChange,
   customSize, onCustomSizeChange,
@@ -263,9 +264,19 @@ export function FloatingPanel({
               {/* Background */}
               <div className={styles.section}>
                 <div className={styles.sectionTitle}>Background</div>
-                <div className={styles.colorRow}>
-                  <input type="color" value={bgColor} onChange={e => onBgColorChange(e.target.value)} className={styles.colorInput} />
-                  <span className={styles.colorLabel}>{bgColor}</span>
+                <div className={styles.formRow}>
+                  <span className={styles.label}>Canvas</span>
+                  <div className={styles.colorRow}>
+                    <input type="color" value={canvasBg} onChange={e => onCanvasBgChange(e.target.value)} className={styles.colorInput} />
+                    <span className={styles.colorLabel}>{canvasBg}</span>
+                  </div>
+                </div>
+                <div className={styles.formRow}>
+                  <span className={styles.label}>Outer</span>
+                  <div className={styles.colorRow}>
+                    <input type="color" value={bgColor} onChange={e => onBgColorChange(e.target.value)} className={styles.colorInput} />
+                    <span className={styles.colorLabel}>{bgColor}</span>
+                  </div>
                 </div>
               </div>
 
