@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { PRESETS } from '../gridPresets';
+import { PALETTES, PALETTE_KEYS } from '../utils/colorize';
 import styles from './FloatingPanel.module.css';
 
 /**
@@ -44,6 +45,9 @@ export function FloatingPanel({
   gridSettings, onGridSettingsChange, gridComputed, validCols,
   assets, onIngestAssets,
   onFillGrid, onExport, canFill, canExport,
+  colorMode, onColorModeChange,
+  paletteKey, onPaletteKeyChange,
+  bgChoice, onBgChoiceChange,
 }) {
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [collapsed, setCollapsed] = useState(false);
@@ -220,6 +224,73 @@ export function FloatingPanel({
               />
               <span className={styles.colorLabel}>{bgColor}</span>
             </div>
+          </div>
+
+          {/* Colour Palette */}
+          <div className={styles.section}>
+            <div className={styles.sectionTitle}>Colour Palette</div>
+
+            {/* Mode */}
+            <div className={styles.formRow}>
+              <span className={styles.label}>Mode</span>
+              <div className={styles.modeToggle}>
+                {['none', 'uniform', 'random'].map(m => (
+                  <button
+                    key={m}
+                    className={`${styles.modeBtn} ${colorMode === m ? styles.modeBtnActive : ''}`}
+                    onClick={() => onColorModeChange(m)}
+                  >
+                    {m === 'none' ? 'None' : m === 'uniform' ? 'Uniform' : 'Random'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {colorMode === 'uniform' && (
+              <>
+                {/* Palette selector */}
+                <div className={styles.formRow}>
+                  <span className={styles.label}>Palette</span>
+                  <select
+                    className={styles.select}
+                    value={paletteKey}
+                    onChange={e => onPaletteKeyChange(e.target.value)}
+                  >
+                    {PALETTE_KEYS.map(k => (
+                      <option key={k} value={k}>{k}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Colour swatches */}
+                <div className={styles.swatchRow}>
+                  {PALETTES[paletteKey].map((color, i) => (
+                    <span
+                      key={i}
+                      className={styles.swatch}
+                      style={{ background: color }}
+                      title={color}
+                    />
+                  ))}
+                </div>
+
+                {/* Background layer colour */}
+                <div className={styles.formRow} style={{ marginTop: 8 }}>
+                  <span className={styles.label}>BG</span>
+                  <div className={styles.modeToggle}>
+                    {['white', 'black', 'primary'].map(c => (
+                      <button
+                        key={c}
+                        className={`${styles.modeBtn} ${bgChoice === c ? styles.modeBtnActive : ''}`}
+                        onClick={() => onBgChoiceChange(c)}
+                      >
+                        {c === 'white' ? 'White' : c === 'black' ? 'Black' : 'Primary'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Ingest Assets */}

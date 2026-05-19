@@ -6,6 +6,7 @@ import { Grid } from './components/Grid';
 import { PlacedBlocks } from './components/PlacedBlocks';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
+import { PALETTE_KEYS } from './utils/colorize';
 import './App.css';
 import styles from './App.module.css';
 
@@ -13,6 +14,11 @@ function App() {
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [activeTool, setActiveTool] = useState('select');
   const [bgColor, setBgColor] = useState('#2d2d2d');
+
+  // Colour palette
+  const [colorMode, setColorMode] = useState('none'); // 'none' | 'uniform' | 'random'
+  const [paletteKey, setPaletteKey] = useState(PALETTE_KEYS[0]);
+  const [bgChoice, setBgChoice] = useState('white'); // 'white' | 'black' | 'primary'
 
   // Work area
   const [presetKey, setPresetKey] = useState('a4-portrait');
@@ -92,7 +98,11 @@ function App() {
 
   const handleFillGrid = useCallback(() => {
     if (!assets.length || !gridComputed) return;
-    setPlacedBlocks(fillGrid(assets, gridComputed));
+    const blocks = fillGrid(assets, gridComputed).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+    }));
+    setPlacedBlocks(blocks);
   }, [assets, gridComputed]);
 
   const handleDeleteBlock = useCallback((id) => {
@@ -258,6 +268,9 @@ function App() {
             activeTool={activeTool}
             onDelete={handleDeleteBlock}
             dragShadow={dragShadow}
+            colorMode={colorMode}
+            paletteKey={paletteKey}
+            bgChoice={bgChoice}
           />
         </Canvas>
 
@@ -283,6 +296,12 @@ function App() {
           onExport={handleExport}
           canFill={assets.length > 0 && gridComputed !== null}
           canExport={placedBlocks.length > 0}
+          colorMode={colorMode}
+          onColorModeChange={setColorMode}
+          paletteKey={paletteKey}
+          onPaletteKeyChange={setPaletteKey}
+          bgChoice={bgChoice}
+          onBgChoiceChange={setBgChoice}
         />
       </div>
     </DndContext>

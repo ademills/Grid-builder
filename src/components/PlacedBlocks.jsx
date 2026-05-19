@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useDraggable } from '@dnd-kit/core';
+import { colorizeSvg, PALETTES } from '../utils/colorize';
 
-function DraggableBlock({ block, cellSize, gridOriginX, gridOriginY, viewTransform, activeTool, onDelete }) {
+function DraggableBlock({ block, cellSize, gridOriginX, gridOriginY, viewTransform, activeTool, onDelete, colorMode, paletteKey, bgChoice }) {
   const [hovered, setHovered] = useState(false);
 
   const { setNodeRef, listeners, attributes, isDragging, transform } = useDraggable({
@@ -21,11 +22,15 @@ function DraggableBlock({ block, cellSize, gridOriginX, gridOriginY, viewTransfo
   const svgDy = transform ? transform.y / viewTransform.scale : 0;
 
   const dataUrl = useMemo(() => {
-    const clean = block.svgContent
+    const palette = PALETTES[paletteKey] ?? PALETTES[Object.keys(PALETTES)[0]];
+    const svg = colorMode !== 'none'
+      ? colorizeSvg(block.svgContent, colorMode, palette, bgChoice, block.colorSeed ?? 0)
+      : block.svgContent;
+    const clean = svg
       .replace(/^<\?xml[^>]*\?>\s*/i, '')
       .replace(/<!DOCTYPE[^>]*>\s*/gi, '');
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-  }, [block.svgContent]);
+  }, [block.svgContent, block.colorSeed, colorMode, paletteKey, bgChoice]);
 
   const isInteractive = activeTool === 'select';
   const showOverlay = isInteractive && (hovered || isDragging);
@@ -107,7 +112,7 @@ function DraggableBlock({ block, cellSize, gridOriginX, gridOriginY, viewTransfo
   );
 }
 
-export function PlacedBlocks({ placedBlocks, gridComputed, viewTransform, activeTool, onDelete, dragShadow }) {
+export function PlacedBlocks({ placedBlocks, gridComputed, viewTransform, activeTool, onDelete, dragShadow, colorMode, paletteKey, bgChoice }) {
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;
 
   const { cellSize, gridOriginX, gridOriginY } = gridComputed;
@@ -144,6 +149,9 @@ export function PlacedBlocks({ placedBlocks, gridComputed, viewTransform, active
           viewTransform={viewTransform}
           activeTool={activeTool}
           onDelete={onDelete}
+          colorMode={colorMode}
+          paletteKey={paletteKey}
+          bgChoice={bgChoice}
         />
       ))}
     </g>

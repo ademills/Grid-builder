@@ -449,6 +449,54 @@
   justify-content: center;
 }
 
+/* ── Colour palette controls ───────────────────────────── */
+
+.modeToggle {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+}
+
+.modeBtn {
+  flex: 1;
+  padding: 4px 4px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 5px;
+  color: #71717a;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.modeBtn:hover {
+  background: #2c2d38;
+  color: #d4d4d8;
+  border-color: #44455080;
+}
+
+.modeBtnActive {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: #7c3aed;
+  color: #c4b5fd;
+}
+
+.swatchRow {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.swatch {
+  flex: 1;
+  height: 14px;
+  border-radius: 3px;
+  display: block;
+  min-width: 0;
+}
+
 /* Grid info summary */
 .gridInfo {
   margin-top: 8px;
