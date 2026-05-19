@@ -77,7 +77,7 @@ function applyFill(el, color, classFillMap) {
   }
 }
 
-export function colorizeSvg(svgContent, mode, palette, seed = 0) {
+export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgWhite = '#ffffff', bgBlack = '#000000') {
   if (mode === 'none') return svgContent;
 
   let doc;
@@ -117,23 +117,23 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0) {
       });
     }
   } else if (mode === 'uniform') {
-    // Background randomly draws from: white, black, or palette[0] (seeded per block)
-    const bgOptions = ['#ffffff', '#000000', palette[0]];
+    // Background randomly draws from: customWhite, customBlack, or palette[0] (seeded per block)
+    const bgOptions = [bgWhite, bgBlack, palette[0]];
     const bgColor   = bgOptions[Math.floor(rand() * bgOptions.length)];
 
     if (hasLayers) {
       if (bgLayer) {
         bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, bgColor, classFillMap));
       }
-      // Shapes → palette[1], palette[2], palette[3] … in order
+      // Shapes → palette colours in order, starting at index 1, shifted by colorOffset
       if (shapeLayer) {
         const shapes = [...shapeLayer.querySelectorAll(SHAPE_SEL)];
-        shapes.forEach((el, i) => applyFill(el, palette[(i + 1) % palette.length], classFillMap));
+        shapes.forEach((el, i) => applyFill(el, palette[(i + 1 + colorOffset) % palette.length], classFillMap));
       }
     } else {
-      // No named layers — sequential from palette[0]
+      // No named layers — sequential from palette[0], shifted by colorOffset
       const shapes = [...root.querySelectorAll(SHAPE_SEL)];
-      shapes.forEach((el, i) => applyFill(el, palette[i % palette.length], classFillMap));
+      shapes.forEach((el, i) => applyFill(el, palette[(i + colorOffset) % palette.length], classFillMap));
     }
   }
 

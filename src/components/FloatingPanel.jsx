@@ -47,6 +47,10 @@ export function FloatingPanel({
   onFillGrid, onExport, canFill, canExport,
   colorMode, onColorModeChange,
   paletteKey, onPaletteKeyChange,
+  includeWhite, onIncludeWhiteChange,
+  includeBlack, onIncludeBlackChange,
+  customWhite, onCustomWhiteChange,
+  customBlack, onCustomBlackChange,
 }) {
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [collapsed, setCollapsed] = useState(false);
@@ -272,6 +276,33 @@ export function FloatingPanel({
                     />
                   ))}
                 </div>
+
+                {/* Custom white / black — hex inputs with optional include toggles for random */}
+                {[
+                  { label: 'White', value: customWhite, onChange: onCustomWhiteChange, included: includeWhite, onToggle: () => onIncludeWhiteChange(!includeWhite) },
+                  { label: 'Black', value: customBlack, onChange: onCustomBlackChange, included: includeBlack, onToggle: () => onIncludeBlackChange(!includeBlack) },
+                ].map(({ label, value, onChange, included, onToggle }) => (
+                  <div key={label} className={styles.customColourRow}>
+                    {colorMode === 'random' && (
+                      <button
+                        className={`${styles.includeToggle} ${included ? styles.modeBtnActive : ''}`}
+                        onClick={onToggle}
+                        title={`${included ? 'Remove' : 'Add'} ${label.toLowerCase()} to palette`}
+                      >{included ? '✓' : '+'}</button>
+                    )}
+                    <span className={styles.customColourLabel}>{label}</span>
+                    <input
+                      type="text"
+                      className={styles.hexInput}
+                      value={value}
+                      onChange={e => onChange(e.target.value)}
+                      placeholder={label === 'White' ? '#ffffff' : '#000000'}
+                      maxLength={7}
+                      spellCheck={false}
+                    />
+                    <span className={styles.hexSwatch} style={{ background: value }} />
+                  </div>
+                ))}
               </>
             )}
           </div>

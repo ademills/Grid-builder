@@ -497,6 +497,68 @@
   min-width: 0;
 }
 
+/* Custom white / black colour rows */
+.customColourRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.includeToggle {
+  width: 20px;
+  height: 20px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 4px;
+  color: #71717a;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition: all 0.15s;
+}
+
+.includeToggle:hover {
+  background: #2c2d38;
+  color: #d4d4d8;
+}
+
+.customColourLabel {
+  font-size: 11px;
+  color: #71717a;
+  width: 30px;
+  flex-shrink: 0;
+}
+
+.hexInput {
+  flex: 1;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 5px;
+  color: #d4d4d8;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 3px 6px;
+  min-width: 0;
+}
+
+.hexInput:focus {
+  outline: none;
+  border-color: #7c3aed;
+}
+
+.hexSwatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  border: 1px solid #33343e;
+}
+
 /* Grid info summary */
 .gridInfo {
   margin-top: 8px;

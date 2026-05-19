@@ -18,6 +18,22 @@ function App() {
   // Colour palette
   const [colorMode, setColorMode] = useState('none'); // 'none' | 'uniform' | 'random'
   const [paletteKey, setPaletteKey] = useState(PALETTE_KEYS[0]);
+  const [includeWhite, setIncludeWhite] = useState(false);
+  const [includeBlack, setIncludeBlack] = useState(false);
+  const [customWhite, setCustomWhite] = useState('#ffffff');
+  const [customBlack, setCustomBlack] = useState('#000000');
+
+  // In random mode the effective palette includes the custom white/black if toggled on.
+  // In uniform mode white/black are passed separately as bg options, so palette stays clean.
+  const effectivePalette = useMemo(() => {
+    const base = PALETTES[paletteKey] ?? PALETTES[PALETTE_KEYS[0]];
+    if (colorMode !== 'random') return base;
+    return [
+      ...base,
+      ...(includeWhite ? [customWhite] : []),
+      ...(includeBlack ? [customBlack] : []),
+    ];
+  }, [colorMode, paletteKey, includeWhite, includeBlack, customWhite, customBlack]);
 
   // Work area
   const [presetKey, setPresetKey] = useState('a4-portrait');
@@ -100,6 +116,7 @@ function App() {
     const blocks = fillGrid(assets, gridComputed).map(b => ({
       ...b,
       colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
     }));
     setPlacedBlocks(blocks);
   }, [assets, gridComputed]);
@@ -107,6 +124,17 @@ function App() {
   const handleDeleteBlock = useCallback((id) => {
     setPlacedBlocks(prev => prev.filter(b => b.id !== id));
   }, []);
+
+  const handleRefreshBlock = useCallback((id) => {
+    setPlacedBlocks(prev => prev.map(b => {
+      if (b.id !== id) return b;
+      if (colorMode === 'random') {
+        return { ...b, colorSeed: Math.floor(Math.random() * 0x80000000) };
+      }
+      // uniform — cycle through colour offset
+      return { ...b, colorOffset: (b.colorOffset ?? 0) + 1 };
+    }));
+  }, [colorMode]);
 
   // ── Drag & drop ─────────────────────────────────────────────────────────
   const sensors = useSensors(
@@ -228,7 +256,7 @@ function App() {
 
     const { width, height } = workArea;
     const { cellSize, gridOriginX, gridOriginY } = gridComputed;
-    const palette = PALETTES[paletteKey] ?? PALETTES[PALETTE_KEYS[0]];
+    const palette = effectivePalette;
     const svgNS = 'http://www.w3.org/2000/svg';
     const parser = new DOMParser();
 
@@ -254,7 +282,7 @@ function App() {
 
       // Apply the same colorisation used in the live preview
       const svgText = colorMode !== 'none'
-        ? colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0)
+        ? colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0, block.colorOffset ?? 0, customWhite, customBlack)
         : block.svgContent;
 
       const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
@@ -299,7 +327,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [placedBlocks, gridComputed, workArea, colorMode, paletteKey]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, customWhite, customBlack]);
 
   return (
     <DndContext
@@ -323,9 +351,12 @@ function App() {
             viewTransform={viewTransform}
             activeTool={activeTool}
             onDelete={handleDeleteBlock}
+            onRefresh={handleRefreshBlock}
             dragShadow={dragShadow}
             colorMode={colorMode}
-            paletteKey={paletteKey}
+            effectivePalette={effectivePalette}
+            customWhite={customWhite}
+            customBlack={customBlack}
           />
         </Canvas>
 
@@ -355,6 +386,14 @@ function App() {
           onColorModeChange={setColorMode}
           paletteKey={paletteKey}
           onPaletteKeyChange={setPaletteKey}
+          includeWhite={includeWhite}
+          onIncludeWhiteChange={setIncludeWhite}
+          includeBlack={includeBlack}
+          onIncludeBlackChange={setIncludeBlack}
+          customWhite={customWhite}
+          onCustomWhiteChange={setCustomWhite}
+          customBlack={customBlack}
+          onCustomBlackChange={setCustomBlack}
         />
       </div>
     </DndContext>
