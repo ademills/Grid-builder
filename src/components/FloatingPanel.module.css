@@ -497,6 +497,130 @@
   min-width: 0;
 }
 
+/* ── Palette custom select ─────────────────────────────── */
+
+.paletteSelect {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.paletteSelectBtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  min-width: 0;
+}
+
+.paletteSelectBtn:hover {
+  border-color: #7c3aed;
+}
+
+.paletteBtnName {
+  font-size: 11px;
+  color: #d4d4d8;
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.paletteBtnSwatches {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.paletteBtnSwatch {
+  width: 10px;
+  height: 14px;
+  border-radius: 2px;
+  display: block;
+}
+
+.paletteBtnArrow {
+  font-size: 7px;
+  color: #71717a;
+  flex-shrink: 0;
+}
+
+/* Portal dropdown — position:fixed so it escapes the panel's overflow */
+.paletteDropdown {
+  position: fixed;
+  background: #18191f;
+  border: 1px solid #2c2d38;
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+  z-index: 9999;
+  max-height: 280px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3b44 transparent;
+}
+
+.paletteOption {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.paletteOption:hover {
+  background: #23242c;
+}
+
+.paletteOptionActive {
+  background: rgba(124, 58, 237, 0.12);
+}
+
+.paletteOptionName {
+  font-size: 11px;
+  color: #71717a;
+  width: 76px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.paletteOption:hover .paletteOptionName {
+  color: #d4d4d8;
+}
+
+.paletteOptionActive .paletteOptionName {
+  color: #c4b5fd;
+}
+
+.paletteOptionSwatches {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.paletteOptionSwatch {
+  flex: 1;
+  height: 16px;
+  border-radius: 2px;
+  display: block;
+  min-width: 0;
+}
+
 /* ── Scale sliders ─────────────────────────────────────── */
 
 .sliderRow {

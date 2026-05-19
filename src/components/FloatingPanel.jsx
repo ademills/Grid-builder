@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { PRESETS } from '../gridPresets';
 import { PALETTES, PALETTE_KEYS } from '../utils/colorize';
 import styles from './FloatingPanel.module.css';
@@ -32,6 +33,74 @@ function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues
         onClick={() => nextVal != null && onChange(nextVal)}
         disabled={nextVal == null}
       >+</button>
+    </div>
+  );
+}
+
+function PaletteSelect({ value, onChange }) {
+  const [open, setOpen]       = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef  = useRef(null);
+  const dropdownRef = useRef(null);
+
+  const toggle = () => {
+    if (!open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setDropPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    }
+    setOpen(o => !o);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = e => {
+      if (!triggerRef.current?.contains(e.target) && !dropdownRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    const onScroll = () => setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [open]);
+
+  return (
+    <div className={styles.paletteSelect} ref={triggerRef}>
+      <button className={styles.paletteSelectBtn} onClick={toggle}>
+        <span className={styles.paletteBtnName}>{value}</span>
+        <span className={styles.paletteBtnSwatches}>
+          {PALETTES[value]?.map((c, i) => (
+            <span key={i} className={styles.paletteBtnSwatch} style={{ background: c }} />
+          ))}
+        </span>
+        <span className={styles.paletteBtnArrow}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          className={styles.paletteDropdown}
+          style={{ top: dropPos.top, left: dropPos.left, width: dropPos.width }}
+        >
+          {PALETTE_KEYS.map(k => (
+            <button
+              key={k}
+              className={`${styles.paletteOption} ${k === value ? styles.paletteOptionActive : ''}`}
+              onClick={() => { onChange(k); setOpen(false); }}
+            >
+              <span className={styles.paletteOptionName}>{k}</span>
+              <span className={styles.paletteOptionSwatches}>
+                {PALETTES[k].map((c, i) => (
+                  <span key={i} className={styles.paletteOptionSwatch} style={{ background: c }} />
+                ))}
+              </span>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -282,30 +351,10 @@ export function FloatingPanel({
 
             {colorMode !== 'none' && (
               <>
-                {/* Palette selector */}
+                {/* Palette selector with inline colour preview */}
                 <div className={styles.formRow}>
                   <span className={styles.label}>Palette</span>
-                  <select
-                    className={styles.select}
-                    value={paletteKey}
-                    onChange={e => onPaletteKeyChange(e.target.value)}
-                  >
-                    {PALETTE_KEYS.map(k => (
-                      <option key={k} value={k}>{k}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Colour swatches */}
-                <div className={styles.swatchRow}>
-                  {PALETTES[paletteKey].map((color, i) => (
-                    <span
-                      key={i}
-                      className={styles.swatch}
-                      style={{ background: color }}
-                      title={colorMode === 'uniform' && i === 0 ? `${color} (bg primary)` : color}
-                    />
-                  ))}
+                  <PaletteSelect value={paletteKey} onChange={onPaletteKeyChange} />
                 </div>
 
                 {/* Custom white / black — hex inputs with optional include toggles for random */}

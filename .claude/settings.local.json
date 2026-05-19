@@ -6,7 +6,11 @@
       "Bash(git config *)",
       "WebFetch(domain:nbacolors.com)",
       "WebSearch",
-      "WebFetch(domain:teamcolorcodes.com)"
+      "WebFetch(domain:teamcolorcodes.com)",
+      "WebFetch(domain:colorhunt.co)",
+      "WebFetch(domain:www.color-hex.com)",
+      "WebFetch(domain:coolors.co)",
+      "WebFetch(domain:digitalsynopsis.com)"
     ]
   }
 }
