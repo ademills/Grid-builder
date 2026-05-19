@@ -7,6 +7,8 @@ export const PALETTES = {
   Sunset:   ['#FF3D00', '#FF6E40', '#FF9100', '#FFAB40', '#FFD740', '#FF6D00'],
   Forest:   ['#1B4332', '#2D6A4F', '#40916C', '#52B788', '#74C69D', '#95D5B2'],
   Mono:     ['#1a1a1a', '#404040', '#666666', '#8C8C8C', '#B3B3B3', '#D9D9D9'],
+  // San Antonio Spurs — current black + silver, plus retro fuchsia/teal/orange (1989–2002)
+  Spurs:    ['#000000', '#C4CED4', '#8D9093', '#EF426F', '#00B2A9', '#FF8200'],
 };
 
 export const PALETTE_KEYS = Object.keys(PALETTES);

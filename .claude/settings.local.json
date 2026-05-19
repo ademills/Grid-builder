@@ -3,7 +3,10 @@
     "allow": [
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\" -Force)",
       "Bash(Select-Object Name, Mode)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "WebFetch(domain:nbacolors.com)",
+      "WebSearch",
+      "WebFetch(domain:teamcolorcodes.com)"
     ]
   }
 }
