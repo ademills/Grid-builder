@@ -497,16 +497,10 @@
   min-width: 0;
 }
 
-/* ── Palette custom select ─────────────────────────────── */
+/* ── Palette chooser button (in main view) ─────────────── */
 
-.paletteSelect {
+.paletteChooserBtn {
   flex: 1;
-  position: relative;
-  min-width: 0;
-}
-
-.paletteSelectBtn {
-  width: 100%;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -519,11 +513,11 @@
   min-width: 0;
 }
 
-.paletteSelectBtn:hover {
+.paletteChooserBtn:hover {
   border-color: #7c3aed;
 }
 
-.paletteBtnName {
+.paletteChooserName {
   font-size: 11px;
   color: #d4d4d8;
   flex: 1;
@@ -534,91 +528,128 @@
   min-width: 0;
 }
 
-.paletteBtnSwatches {
+.paletteChooserSwatches {
   display: flex;
   gap: 2px;
   flex-shrink: 0;
 }
 
-.paletteBtnSwatch {
+.paletteChooserSwatch {
   width: 10px;
   height: 14px;
   border-radius: 2px;
   display: block;
 }
 
-.paletteBtnArrow {
-  font-size: 7px;
+.paletteChooserArrow {
+  font-size: 14px;
   color: #71717a;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* ── Palette picker view ───────────────────────────────── */
+
+.palettePickerBack {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #18191f;
+  border-bottom: 1px solid #22232c;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.palettePickerBackBtn {
+  background: none;
+  border: 1px solid #33343e;
+  border-radius: 5px;
+  color: #71717a;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 3px 8px;
+  transition: color 0.15s, border-color 0.15s;
   flex-shrink: 0;
 }
 
-/* Portal dropdown — position:fixed so it escapes the panel's overflow */
-.paletteDropdown {
-  position: fixed;
-  background: #18191f;
-  border: 1px solid #2c2d38;
-  border-radius: 6px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
-  z-index: 9999;
-  max-height: 280px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #3a3b44 transparent;
+.palettePickerBackBtn:hover {
+  color: #d4d4d8;
+  border-color: #7c3aed;
 }
 
-.paletteOption {
+.palettePickerBackLabel {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #52525b;
+}
+
+.palettePickerItem {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
+  gap: 8px;
+  padding: 7px 12px;
   background: none;
   border: none;
+  border-bottom: 1px solid #1a1b22;
   cursor: pointer;
   text-align: left;
   transition: background 0.1s;
 }
 
-.paletteOption:hover {
-  background: #23242c;
+.palettePickerItem:hover {
+  background: #1e1f28;
 }
 
-.paletteOptionActive {
-  background: rgba(124, 58, 237, 0.12);
+.palettePickerItemActive {
+  background: rgba(124, 58, 237, 0.1);
 }
 
-.paletteOptionName {
+.palettePickerItemActive:hover {
+  background: rgba(124, 58, 237, 0.15);
+}
+
+.palettePickerName {
   font-size: 11px;
   color: #71717a;
-  width: 76px;
+  width: 72px;
   flex-shrink: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.paletteOption:hover .paletteOptionName {
+.palettePickerItem:hover .palettePickerName {
   color: #d4d4d8;
 }
 
-.paletteOptionActive .paletteOptionName {
+.palettePickerItemActive .palettePickerName {
   color: #c4b5fd;
 }
 
-.paletteOptionSwatches {
+.palettePickerSwatches {
   display: flex;
-  gap: 2px;
+  gap: 3px;
   flex: 1;
   min-width: 0;
 }
 
-.paletteOptionSwatch {
+.palettePickerSwatch {
   flex: 1;
-  height: 16px;
-  border-radius: 2px;
+  height: 18px;
+  border-radius: 3px;
   display: block;
   min-width: 0;
+}
+
+.palettePickerTick {
+  font-size: 10px;
+  color: #7c3aed;
+  flex-shrink: 0;
 }
 
 /* ── Scale sliders ─────────────────────────────────────── */
@@ -672,6 +703,37 @@
   color: #d4d4d8;
   min-width: 28px;
   text-align: right;
+  flex-shrink: 0;
+}
+
+.sliderNumInput {
+  width: 34px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 4px;
+  color: #d4d4d8;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 2px 4px;
+  text-align: right;
+  flex-shrink: 0;
+  -moz-appearance: textfield;
+}
+
+.sliderNumInput::-webkit-outer-spin-button,
+.sliderNumInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.sliderNumInput:focus {
+  outline: none;
+  border-color: #7c3aed;
+}
+
+.sliderUnit {
+  font-size: 11px;
+  color: #71717a;
   flex-shrink: 0;
 }
 
