@@ -21,9 +21,6 @@ function mulberry32(seed) {
   };
 }
 
-function randHsl(rand) {
-  return `hsl(${Math.floor(rand() * 360)},${Math.floor(40 + rand() * 60)}%,${Math.floor(30 + rand() * 40)}%)`;
-}
 
 const SHAPE_SEL = 'rect, circle, ellipse, path, polygon, polyline';
 
@@ -101,9 +98,11 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0) {
 
   if (mode === 'random') {
     if (hasLayers) {
-      // Background → truly random colour
+      // Background → random pick from the palette
       if (bgLayer) {
-        bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, randHsl(rand), classFillMap));
+        bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => {
+          applyFill(el, palette[Math.floor(rand() * palette.length)], classFillMap);
+        });
       }
       // Shapes → random picks from the selected palette
       if (shapeLayer) {

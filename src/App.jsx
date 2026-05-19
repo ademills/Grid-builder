@@ -6,7 +6,7 @@ import { Grid } from './components/Grid';
 import { PlacedBlocks } from './components/PlacedBlocks';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
-import { PALETTE_KEYS } from './utils/colorize';
+import { PALETTE_KEYS, PALETTES, colorizeSvg } from './utils/colorize';
 import './App.css';
 import styles from './App.module.css';
 
@@ -224,17 +224,74 @@ function App() {
   }, [workArea]);
 
   const handleExport = useCallback(() => {
-    const svgEl = document.getElementById('main-canvas');
-    if (!svgEl) return;
+    if (!placedBlocks.length || !gridComputed) return;
 
-    const clone = svgEl.cloneNode(true);
-    clone.querySelectorAll('[data-noexport]').forEach(el => el.remove());
-    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const { width, height } = workArea;
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    const palette = PALETTES[paletteKey] ?? PALETTES[PALETTE_KEYS[0]];
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const parser = new DOMParser();
 
-    const serialized = new XMLSerializer().serializeToString(clone);
-    const blob = new Blob([serialized], { type: 'image/svg+xml' });
+    // Build the output SVG from scratch — assets are inlined as real vectors,
+    // no <image> links, so Illustrator imports them as editable paths/shapes.
+    const out = document.createElementNS(svgNS, 'svg');
+    out.setAttribute('xmlns', svgNS);
+    out.setAttribute('width', String(width));
+    out.setAttribute('height', String(height));
+    out.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+    const bgRect = document.createElementNS(svgNS, 'rect');
+    bgRect.setAttribute('width', String(width));
+    bgRect.setAttribute('height', String(height));
+    bgRect.setAttribute('fill', 'white');
+    out.appendChild(bgRect);
+
+    placedBlocks.forEach(block => {
+      const bx = gridOriginX + block.gridCol * cellSize;
+      const by = gridOriginY + block.gridRow * cellSize;
+      const bw = block.cols * cellSize;
+      const bh = block.rows * cellSize;
+
+      // Apply the same colorisation used in the live preview
+      const svgText = colorMode !== 'none'
+        ? colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0)
+        : block.svgContent;
+
+      const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
+      if (blockDoc.querySelector('parsererror')) return;
+      const blockRoot = blockDoc.documentElement;
+
+      // Resolve the source coordinate space from viewBox or width/height attrs
+      let vbX = 0, vbY = 0, vbW, vbH;
+      const vbStr = blockRoot.getAttribute('viewBox');
+      if (vbStr) {
+        const p = vbStr.trim().split(/[\s,]+/).map(Number);
+        [vbX, vbY, vbW, vbH] = p;
+      } else {
+        vbW = parseFloat(blockRoot.getAttribute('width')  || String(bw));
+        vbH = parseFloat(blockRoot.getAttribute('height') || String(bh));
+      }
+
+      // Replicate <image preserveAspectRatio="xMidYMid meet"> scaling
+      const scale = Math.min(bw / vbW, bh / vbH);
+      const tx = bx + (bw - vbW * scale) / 2 - vbX * scale;
+      const ty = by + (bh - vbH * scale) / 2 - vbY * scale;
+
+      const g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+
+      for (const child of [...blockRoot.childNodes]) {
+        g.appendChild(document.importNode(child, true));
+      }
+
+      out.appendChild(g);
+    });
+
+    const blob = new Blob(
+      [new XMLSerializer().serializeToString(out)],
+      { type: 'image/svg+xml' }
+    );
     const url = URL.createObjectURL(blob);
-
     const a = document.createElement('a');
     a.href = url;
     a.download = 'grid-layout.svg';
@@ -242,7 +299,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, []);
+  }, [placedBlocks, gridComputed, workArea, colorMode, paletteKey]);
 
   return (
     <DndContext

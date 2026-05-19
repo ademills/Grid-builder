@@ -245,7 +245,7 @@ export function FloatingPanel({
               </div>
             </div>
 
-            {colorMode === 'uniform' && (
+            {colorMode !== 'none' && (
               <>
                 {/* Palette selector */}
                 <div className={styles.formRow}>
@@ -261,14 +261,14 @@ export function FloatingPanel({
                   </select>
                 </div>
 
-                {/* Colour swatches — first swatch is the bg 'primary' option */}
+                {/* Colour swatches */}
                 <div className={styles.swatchRow}>
                   {PALETTES[paletteKey].map((color, i) => (
                     <span
                       key={i}
                       className={styles.swatch}
                       style={{ background: color }}
-                      title={i === 0 ? `${color} (bg primary)` : color}
+                      title={colorMode === 'uniform' && i === 0 ? `${color} (bg primary)` : color}
                     />
                   ))}
                 </div>
