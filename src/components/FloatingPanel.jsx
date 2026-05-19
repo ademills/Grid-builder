@@ -47,7 +47,6 @@ export function FloatingPanel({
   onFillGrid, onExport, canFill, canExport,
   colorMode, onColorModeChange,
   paletteKey, onPaletteKeyChange,
-  bgChoice, onBgChoiceChange,
 }) {
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [collapsed, setCollapsed] = useState(false);
@@ -262,32 +261,16 @@ export function FloatingPanel({
                   </select>
                 </div>
 
-                {/* Colour swatches */}
+                {/* Colour swatches — first swatch is the bg 'primary' option */}
                 <div className={styles.swatchRow}>
                   {PALETTES[paletteKey].map((color, i) => (
                     <span
                       key={i}
                       className={styles.swatch}
                       style={{ background: color }}
-                      title={color}
+                      title={i === 0 ? `${color} (bg primary)` : color}
                     />
                   ))}
-                </div>
-
-                {/* Background layer colour */}
-                <div className={styles.formRow} style={{ marginTop: 8 }}>
-                  <span className={styles.label}>BG</span>
-                  <div className={styles.modeToggle}>
-                    {['white', 'black', 'primary'].map(c => (
-                      <button
-                        key={c}
-                        className={`${styles.modeBtn} ${bgChoice === c ? styles.modeBtnActive : ''}`}
-                        onClick={() => onBgChoiceChange(c)}
-                      >
-                        {c === 'white' ? 'White' : c === 'black' ? 'Black' : 'Primary'}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </>
             )}

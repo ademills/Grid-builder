@@ -80,7 +80,7 @@ function applyFill(el, color, classFillMap) {
   }
 }
 
-export function colorizeSvg(svgContent, mode, palette, bgChoice, seed = 0) {
+export function colorizeSvg(svgContent, mode, palette, seed = 0) {
   if (mode === 'none') return svgContent;
 
   let doc;
@@ -93,24 +93,47 @@ export function colorizeSvg(svgContent, mode, palette, bgChoice, seed = 0) {
 
   const root = doc.documentElement;
   const classFillMap = buildClassFillMap(root);
+  const rand = mulberry32(seed);
+
+  const bgLayer    = findLayer(root, 'background') || findLayer(root, 'bg');
+  const shapeLayer = findLayer(root, 'shape');
+  const hasLayers  = bgLayer || shapeLayer;
 
   if (mode === 'random') {
-    const rand = mulberry32(seed);
-    root.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, randHsl(rand), classFillMap));
-  } else if (mode === 'uniform') {
-    const bgColor =
-      bgChoice === 'black'   ? '#000000' :
-      bgChoice === 'white'   ? '#ffffff' :
-      palette[0]; // 'primary' → first palette swatch
-
-    const bgLayer = findLayer(root, 'background') || findLayer(root, 'bg');
-    if (bgLayer) {
-      bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, bgColor, classFillMap));
+    if (hasLayers) {
+      // Background → truly random colour
+      if (bgLayer) {
+        bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, randHsl(rand), classFillMap));
+      }
+      // Shapes → random picks from the selected palette
+      if (shapeLayer) {
+        shapeLayer.querySelectorAll(SHAPE_SEL).forEach(el => {
+          applyFill(el, palette[Math.floor(rand() * palette.length)], classFillMap);
+        });
+      }
+    } else {
+      // No named layers — colour everything with random palette picks
+      root.querySelectorAll(SHAPE_SEL).forEach(el => {
+        applyFill(el, palette[Math.floor(rand() * palette.length)], classFillMap);
+      });
     }
+  } else if (mode === 'uniform') {
+    // Background randomly draws from: white, black, or palette[0] (seeded per block)
+    const bgOptions = ['#ffffff', '#000000', palette[0]];
+    const bgColor   = bgOptions[Math.floor(rand() * bgOptions.length)];
 
-    const shapeLayer = findLayer(root, 'shape');
-    if (shapeLayer) {
-      const shapes = [...shapeLayer.querySelectorAll(SHAPE_SEL)];
+    if (hasLayers) {
+      if (bgLayer) {
+        bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, bgColor, classFillMap));
+      }
+      // Shapes → palette[1], palette[2], palette[3] … in order
+      if (shapeLayer) {
+        const shapes = [...shapeLayer.querySelectorAll(SHAPE_SEL)];
+        shapes.forEach((el, i) => applyFill(el, palette[(i + 1) % palette.length], classFillMap));
+      }
+    } else {
+      // No named layers — sequential from palette[0]
+      const shapes = [...root.querySelectorAll(SHAPE_SEL)];
       shapes.forEach((el, i) => applyFill(el, palette[i % palette.length], classFillMap));
     }
   }

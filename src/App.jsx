@@ -18,7 +18,6 @@ function App() {
   // Colour palette
   const [colorMode, setColorMode] = useState('none'); // 'none' | 'uniform' | 'random'
   const [paletteKey, setPaletteKey] = useState(PALETTE_KEYS[0]);
-  const [bgChoice, setBgChoice] = useState('white'); // 'white' | 'black' | 'primary'
 
   // Work area
   const [presetKey, setPresetKey] = useState('a4-portrait');
@@ -270,7 +269,6 @@ function App() {
             dragShadow={dragShadow}
             colorMode={colorMode}
             paletteKey={paletteKey}
-            bgChoice={bgChoice}
           />
         </Canvas>
 
@@ -300,8 +298,6 @@ function App() {
           onColorModeChange={setColorMode}
           paletteKey={paletteKey}
           onPaletteKeyChange={setPaletteKey}
-          bgChoice={bgChoice}
-          onBgChoiceChange={setBgChoice}
         />
       </div>
     </DndContext>

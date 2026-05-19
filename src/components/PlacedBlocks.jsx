@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { colorizeSvg, PALETTES } from '../utils/colorize';
 
-function DraggableBlock({ block, cellSize, gridOriginX, gridOriginY, viewTransform, activeTool, onDelete, colorMode, paletteKey, bgChoice }) {
+function DraggableBlock({ block, cellSize, gridOriginX, gridOriginY, viewTransform, activeTool, onDelete, colorMode, paletteKey }) {
   const [hovered, setHovered] = useState(false);
 
   const { setNodeRef, listeners, attributes, isDragging, transform } = useDraggable({
@@ -24,13 +24,13 @@ function DraggableBlock({ block, cellSize, gridOriginX, gridOriginY, viewTransfo
   const dataUrl = useMemo(() => {
     const palette = PALETTES[paletteKey] ?? PALETTES[Object.keys(PALETTES)[0]];
     const svg = colorMode !== 'none'
-      ? colorizeSvg(block.svgContent, colorMode, palette, bgChoice, block.colorSeed ?? 0)
+      ? colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0)
       : block.svgContent;
     const clean = svg
       .replace(/^<\?xml[^>]*\?>\s*/i, '')
       .replace(/<!DOCTYPE[^>]*>\s*/gi, '');
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-  }, [block.svgContent, block.colorSeed, colorMode, paletteKey, bgChoice]);
+  }, [block.svgContent, block.colorSeed, colorMode, paletteKey]);
 
   const isInteractive = activeTool === 'select';
   const showOverlay = isInteractive && (hovered || isDragging);
@@ -112,7 +112,7 @@ function DraggableBlock({ block, cellSize, gridOriginX, gridOriginY, viewTransfo
   );
 }
 
-export function PlacedBlocks({ placedBlocks, gridComputed, viewTransform, activeTool, onDelete, dragShadow, colorMode, paletteKey, bgChoice }) {
+export function PlacedBlocks({ placedBlocks, gridComputed, viewTransform, activeTool, onDelete, dragShadow, colorMode, paletteKey }) {
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;
 
   const { cellSize, gridOriginX, gridOriginY } = gridComputed;
@@ -151,7 +151,6 @@ export function PlacedBlocks({ placedBlocks, gridComputed, viewTransform, active
           onDelete={onDelete}
           colorMode={colorMode}
           paletteKey={paletteKey}
-          bgChoice={bgChoice}
         />
       ))}
     </g>
