@@ -15,6 +15,10 @@ function App() {
   const [activeTool, setActiveTool] = useState('select');
   const [bgColor, setBgColor] = useState('#2d2d2d');
 
+  // Scale placement
+  const [maxScale, setMaxScale] = useState(1);       // 1 | 2 | 3 | 4
+  const [scaleFreq, setScaleFreq] = useState(0);     // 0-100 %
+
   // Colour palette
   const [colorMode, setColorMode] = useState('none'); // 'none' | 'uniform' | 'random'
   const [paletteKey, setPaletteKey] = useState(PALETTE_KEYS[0]);
@@ -113,13 +117,13 @@ function App() {
 
   const handleFillGrid = useCallback(() => {
     if (!assets.length || !gridComputed) return;
-    const blocks = fillGrid(assets, gridComputed).map(b => ({
+    const blocks = fillGrid(assets, gridComputed, maxScale, scaleFreq).map(b => ({
       ...b,
       colorSeed: Math.floor(Math.random() * 0x80000000),
       colorOffset: 0,
     }));
     setPlacedBlocks(blocks);
-  }, [assets, gridComputed]);
+  }, [assets, gridComputed, maxScale, scaleFreq]);
 
   const handleDeleteBlock = useCallback((id) => {
     setPlacedBlocks(prev => prev.filter(b => b.id !== id));
@@ -394,6 +398,10 @@ function App() {
           onCustomWhiteChange={setCustomWhite}
           customBlack={customBlack}
           onCustomBlackChange={setCustomBlack}
+          maxScale={maxScale}
+          onMaxScaleChange={setMaxScale}
+          scaleFreq={scaleFreq}
+          onScaleFreqChange={setScaleFreq}
         />
       </div>
     </DndContext>

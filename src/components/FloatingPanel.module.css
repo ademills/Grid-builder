@@ -497,6 +497,60 @@
   min-width: 0;
 }
 
+/* ── Scale sliders ─────────────────────────────────────── */
+
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: #33343e;
+  outline: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #7c3aed;
+  cursor: pointer;
+  border: none;
+}
+
+.slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #7c3aed;
+  cursor: pointer;
+  border: none;
+}
+
+.sliderDisabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.sliderVal {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #d4d4d8;
+  min-width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 /* Custom white / black colour rows */
 .customColourRow {
   display: flex;

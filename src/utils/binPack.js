@@ -6,9 +6,12 @@
  * whose bounding box fits and all underlying cells are free.  Assets cycle so
  * the whole pool is used before repetition.
  *
+ * maxScale    – maximum integer scale multiplier (1 = no scaling, 2 = up to 2×, …)
+ * scaleFreq   – 0-100: probability (%) that an anchor cell attempts a scaled placement first
+ *
  * Returns an array of placed-block descriptors ready for the canvas renderer.
  */
-export function fillGrid(assets, gridComputed) {
+export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0) {
   if (!gridComputed || !assets || assets.length === 0) return [];
 
   const { cols, rows } = gridComputed;
@@ -34,34 +37,56 @@ export function fillGrid(assets, gridComputed) {
         occupied[r + dr][c + dc] = true;
   };
 
+  const makeBlock = (asset, c, r, scaledCols, scaledRows) => ({
+    id: crypto.randomUUID(),
+    assetId: asset.id,
+    cols: scaledCols,
+    rows: scaledRows,
+    svgContent: asset.svgContent,
+    name: asset.name,
+    gridCol: c,
+    gridRow: r,
+  });
+
   const placed = [];
+  const shouldScale = maxScale > 1 && scaleFreq > 0;
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (occupied[r][c]) continue;
 
       let found = false;
-      for (let i = 0; i < pool.length; i++) {
-        const asset = pool[(poolIdx + i) % pool.length];
-        if (canPlace(c, r, asset.cols, asset.rows)) {
-          markOccupied(c, r, asset.cols, asset.rows);
-          placed.push({
-            id: crypto.randomUUID(),
-            assetId: asset.id,
-            cols: asset.cols,
-            rows: asset.rows,
-            svgContent: asset.svgContent,
-            name: asset.name,
-            gridCol: c,
-            gridRow: r,
-          });
-          poolIdx = (poolIdx + i + 1) % pool.length;
-          found = true;
-          break;
+
+      // Attempt scaled placement if this anchor cell wins the frequency roll
+      if (shouldScale && Math.random() * 100 < scaleFreq) {
+        for (let i = 0; i < pool.length; i++) {
+          const asset = pool[(poolIdx + i) % pool.length];
+          const sc = asset.cols * maxScale;
+          const sr = asset.rows * maxScale;
+          if (canPlace(c, r, sc, sr)) {
+            markOccupied(c, r, sc, sr);
+            placed.push(makeBlock(asset, c, r, sc, sr));
+            poolIdx = (poolIdx + i + 1) % pool.length;
+            found = true;
+            break;
+          }
         }
       }
 
-      // Nothing fit at this anchor — skip the cell to avoid infinite stalling
+      // Fall back to 1× placement
+      if (!found) {
+        for (let i = 0; i < pool.length; i++) {
+          const asset = pool[(poolIdx + i) % pool.length];
+          if (canPlace(c, r, asset.cols, asset.rows)) {
+            markOccupied(c, r, asset.cols, asset.rows);
+            placed.push(makeBlock(asset, c, r, asset.cols, asset.rows));
+            poolIdx = (poolIdx + i + 1) % pool.length;
+            found = true;
+            break;
+          }
+        }
+      }
+
       if (!found) occupied[r][c] = true;
     }
   }

@@ -45,6 +45,8 @@ export function FloatingPanel({
   gridSettings, onGridSettingsChange, gridComputed, validCols,
   assets, onIngestAssets,
   onFillGrid, onExport, canFill, canExport,
+  maxScale, onMaxScaleChange,
+  scaleFreq, onScaleFreqChange,
   colorMode, onColorModeChange,
   paletteKey, onPaletteKeyChange,
   includeWhite, onIncludeWhiteChange,
@@ -200,6 +202,35 @@ export function FloatingPanel({
                 max={40}
                 format={v => `${v}%`}
               />
+            </div>
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Max scale</span>
+              <div className={styles.sliderRow}>
+                <input
+                  type="range"
+                  className={styles.slider}
+                  min={1} max={4} step={1}
+                  value={maxScale}
+                  onChange={e => onMaxScaleChange(+e.target.value)}
+                />
+                <span className={styles.sliderVal}>{maxScale}×</span>
+              </div>
+            </div>
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Scale freq</span>
+              <div className={styles.sliderRow}>
+                <input
+                  type="range"
+                  className={`${styles.slider} ${maxScale === 1 ? styles.sliderDisabled : ''}`}
+                  min={0} max={100} step={5}
+                  value={scaleFreq}
+                  disabled={maxScale === 1}
+                  onChange={e => onScaleFreqChange(+e.target.value)}
+                />
+                <span className={styles.sliderVal}>{scaleFreq}%</span>
+              </div>
             </div>
 
             {gridComputed && (
