@@ -36,17 +36,47 @@ function findLayer(root, name) {
   return null;
 }
 
-function applyFill(el, color) {
-  const fill = el.getAttribute('fill');
+// Build a map of CSS class name → fill colour from <style> blocks in the SVG.
+// Needed because many SVG exporters (Illustrator, etc.) use class-based fills
+// rather than direct fill attributes.
+function buildClassFillMap(root) {
+  const map = {};
+  root.querySelectorAll('style').forEach(styleEl => {
+    const text = styleEl.textContent || '';
+    for (const [, cls, fill] of text.matchAll(/\.([^{,\s]+)[^{]*\{[^}]*\bfill\s*:\s*([^;}\s]+)/gs)) {
+      const f = fill.trim();
+      if (f !== 'none' && f !== 'transparent') map[cls] = f;
+    }
+  });
+  return map;
+}
+
+function applyFill(el, color, classFillMap) {
+  const fill  = el.getAttribute('fill');
+  const style = el.getAttribute('style') || '';
+
   if (fill && fill !== 'none' && fill !== 'transparent') {
+    // Direct presentation attribute
     el.setAttribute('fill', color);
+    return;
   }
-  const style = el.getAttribute('style');
-  if (style) {
+
+  if (/\bfill\s*:/.test(style)) {
+    // Inline style fill
     el.setAttribute('style', style.replace(
       /\bfill\s*:\s*([^;'"]+)/g,
       (_, v) => (v.trim() !== 'none' && v.trim() !== 'transparent') ? `fill:${color}` : `fill:${v}`
     ));
+    return;
+  }
+
+  // Class-based fill — add inline style to override (inline > class specificity)
+  const cls = el.getAttribute('class') || '';
+  if (cls && classFillMap) {
+    const hasFillClass = cls.trim().split(/\s+/).some(c => classFillMap[c]);
+    if (hasFillClass) {
+      el.setAttribute('style', `${style}${style ? ';' : ''}fill:${color}`);
+    }
   }
 }
 
@@ -62,10 +92,11 @@ export function colorizeSvg(svgContent, mode, palette, bgChoice, seed = 0) {
   }
 
   const root = doc.documentElement;
+  const classFillMap = buildClassFillMap(root);
 
   if (mode === 'random') {
     const rand = mulberry32(seed);
-    root.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, randHsl(rand)));
+    root.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, randHsl(rand), classFillMap));
   } else if (mode === 'uniform') {
     const bgColor =
       bgChoice === 'black'   ? '#000000' :
@@ -74,13 +105,13 @@ export function colorizeSvg(svgContent, mode, palette, bgChoice, seed = 0) {
 
     const bgLayer = findLayer(root, 'background') || findLayer(root, 'bg');
     if (bgLayer) {
-      bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, bgColor));
+      bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, bgColor, classFillMap));
     }
 
     const shapeLayer = findLayer(root, 'shape');
     if (shapeLayer) {
       const shapes = [...shapeLayer.querySelectorAll(SHAPE_SEL)];
-      shapes.forEach((el, i) => applyFill(el, palette[i % palette.length]));
+      shapes.forEach((el, i) => applyFill(el, palette[i % palette.length], classFillMap));
     }
   }
 
