@@ -57,12 +57,14 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0) {
 
       let found = false;
 
-      // Attempt scaled placement if this anchor cell wins the frequency roll
+      // Attempt scaled placement if this anchor cell wins the frequency roll.
+      // Pick a random integer scale in [2, maxScale] so all steps are reachable.
       if (shouldScale && Math.random() * 100 < scaleFreq) {
+        const scale = Math.floor(Math.random() * (maxScale - 1)) + 2;
         for (let i = 0; i < pool.length; i++) {
           const asset = pool[(poolIdx + i) % pool.length];
-          const sc = asset.cols * maxScale;
-          const sr = asset.rows * maxScale;
+          const sc = asset.cols * scale;
+          const sr = asset.rows * scale;
           if (canPlace(c, r, sc, sr)) {
             markOccupied(c, r, sc, sr);
             placed.push(makeBlock(asset, c, r, sc, sr));
