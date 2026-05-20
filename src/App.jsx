@@ -4,6 +4,7 @@ import { Canvas } from './components/Canvas';
 import { FloatingPanel } from './components/FloatingPanel';
 import { Grid } from './components/Grid';
 import { PlacedBlocks } from './components/PlacedBlocks';
+import { SelectionToolbar } from './components/SelectionToolbar';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
 import { PALETTE_KEYS, PALETTES, colorizeSvg } from './utils/colorize';
@@ -149,20 +150,63 @@ function App() {
     setPlacedBlocks(blocks);
   }, [activeAssets, gridComputed, maxScale, scaleFreq]);
 
-  const handleDeleteBlock = useCallback((id) => {
-    setPlacedBlocks(prev => prev.filter(b => b.id !== id));
+  // ── Selection ────────────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  const selectedBlocks = useMemo(
+    () => placedBlocks.filter(b => selectedIds.has(b.id)),
+    [placedBlocks, selectedIds]
+  );
+
+  const handleSelectBlock = useCallback((id, addToSelection) => {
+    setSelectedIds(prev => {
+      if (addToSelection) {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      }
+      return new Set([id]);
+    });
   }, []);
 
-  const handleRefreshBlock = useCallback((id) => {
+  const handleDeselectAll = useCallback(() => setSelectedIds(new Set()), []);
+
+  const handleDeleteSelected = useCallback(() => {
+    setPlacedBlocks(prev => prev.filter(b => !selectedIds.has(b.id)));
+    setSelectedIds(new Set());
+  }, [selectedIds]);
+
+  const handleRefreshSelected = useCallback(() => {
     setPlacedBlocks(prev => prev.map(b => {
-      if (b.id !== id) return b;
-      if (colorMode === 'random') {
-        return { ...b, colorSeed: Math.floor(Math.random() * 0x80000000) };
-      }
-      // uniform — cycle through colour offset
+      if (!selectedIds.has(b.id)) return b;
+      if (colorMode === 'random') return { ...b, colorSeed: Math.floor(Math.random() * 0x80000000) };
       return { ...b, colorOffset: (b.colorOffset ?? 0) + 1 };
     }));
-  }, [colorMode]);
+  }, [selectedIds, colorMode]);
+
+  const handleRandomiseSelected = useCallback(() => {
+    if (!activeAssets.length) return;
+    setPlacedBlocks(prev => prev.map(b => {
+      if (!selectedIds.has(b.id)) return b;
+      const pick = activeAssets[Math.floor(Math.random() * activeAssets.length)];
+      return {
+        ...b,
+        svgContent: pick.svgContent,
+        name: pick.name,
+        assetId: pick.id,
+        colorSeed: Math.floor(Math.random() * 0x80000000),
+        colorOffset: 0,
+      };
+    }));
+  }, [selectedIds, activeAssets]);
+
+  const handleSwapSelected = useCallback((asset) => {
+    setPlacedBlocks(prev => prev.map(b =>
+      selectedIds.has(b.id)
+        ? { ...b, svgContent: asset.svgContent, name: asset.name, assetId: asset.id, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0 }
+        : b
+    ));
+  }, [selectedIds]);
 
   // ── Drag & drop ─────────────────────────────────────────────────────────
   const sensors = useSensors(
@@ -401,6 +445,23 @@ function App() {
           bgColor={bgColor}
           canvasBg={canvasBg}
           workArea={workArea}
+          onDeselectAll={handleDeselectAll}
+          overlay={
+            <SelectionToolbar
+              selectedBlocks={selectedBlocks}
+              viewTransform={viewTransform}
+              gridComputed={gridComputed}
+              uploadedAssets={assets}
+              colorMode={colorMode}
+              effectivePalette={effectivePalette}
+              customWhite={customWhite}
+              customBlack={customBlack}
+              onDelete={handleDeleteSelected}
+              onRefresh={handleRefreshSelected}
+              onRandomise={handleRandomiseSelected}
+              onSwap={handleSwapSelected}
+            />
+          }
         >
           <Grid workArea={workArea} gridSettings={gridSettings} />
           <PlacedBlocks
@@ -408,9 +469,9 @@ function App() {
             gridComputed={gridComputed}
             viewTransform={viewTransform}
             activeTool={activeTool}
-            onDelete={handleDeleteBlock}
-            onRefresh={handleRefreshBlock}
             dragShadow={dragShadow}
+            selectedIds={selectedIds}
+            onSelect={handleSelectBlock}
             colorMode={colorMode}
             effectivePalette={effectivePalette}
             customWhite={customWhite}

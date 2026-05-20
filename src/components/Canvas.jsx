@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import styles from './Canvas.module.css';
 
-export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, canvasBg, workArea, children }) {
+export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, overlay, children }) {
   const containerRef = useRef(null);
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
@@ -74,6 +74,7 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
       onMouseMove={handleMouseMove}
       onMouseUp={stopPan}
       onMouseLeave={stopPan}
+      onClick={() => activeTool === 'select' && onDeselectAll?.()}
     >
       {/*
         The SVG fills the entire container and the pan/zoom transform lives on
@@ -96,6 +97,7 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
           {children}
         </g>
       </svg>
+      {overlay}
     </div>
   );
 }

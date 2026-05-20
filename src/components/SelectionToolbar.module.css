@@ -1,0 +1,153 @@
+.root {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 10px));
+  z-index: 200;
+  pointer-events: auto;
+  user-select: none;
+}
+
+/* ── Action bar ──────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: #18191f;
+  border: 1px solid #2c2d38;
+  border-radius: 8px;
+  padding: 4px 5px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.65);
+  white-space: nowrap;
+}
+
+.btn {
+  width: 30px;
+  height: 30px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 6px;
+  color: #a1a1aa;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+  flex-shrink: 0;
+}
+
+.btn:hover {
+  background: #2c2d38;
+  color: #d4d4d8;
+  border-color: #555;
+}
+
+.btnActive {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: #7c3aed;
+  color: #c4b5fd;
+}
+
+.btnDelete {
+  color: rgba(220, 38, 38, 0.8);
+}
+
+.btnDelete:hover {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.5);
+  color: #ef4444;
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  background: #2c2d38;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* ── Swap panel ──────────────────────────────────────────── */
+
+.swapPanel {
+  margin-top: 6px;
+  background: #18191f;
+  border: 1px solid #2c2d38;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  width: 280px;
+}
+
+.swapSearch {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  background: #1e1f26;
+  border: none;
+  border-bottom: 1px solid #2c2d38;
+  color: #d4d4d8;
+  font-size: 11px;
+  outline: none;
+}
+
+.swapSearch::placeholder {
+  color: #52525b;
+}
+
+.swapGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 4px;
+  padding: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3b44 transparent;
+}
+
+.swapItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 3px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.swapItem:hover {
+  background: #2c2d38;
+  border-color: #7c3aed;
+}
+
+.swapThumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 3px;
+  object-fit: contain;
+  background: #13141a;
+  display: block;
+}
+
+.swapName {
+  font-size: 9px;
+  color: #71717a;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 54px;
+}
+
+.swapEmpty {
+  font-size: 11px;
+  color: #52525b;
+  text-align: center;
+  padding: 12px;
+  grid-column: 1 / -1;
+  margin: 0;
+}
