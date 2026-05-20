@@ -288,6 +288,34 @@ function App() {
     const svgNS = 'http://www.w3.org/2000/svg';
     const parser = new DOMParser();
 
+    // When multiple SVGs are inlined into one document their <style> blocks all
+    // apply globally — a later block's `.cls-1 { fill: grey }` overwrites an
+    // earlier block's `.cls-1 { fill: none }`, producing stray grey shapes.
+    // Fix: convert every CSS class fill to an inline style attribute (inline
+    // styles beat class rules), then remove the <style> elements entirely.
+    const flattenStyles = (doc) => {
+      const root = doc.documentElement;
+      const map = {};
+      root.querySelectorAll('style').forEach(s => {
+        for (const [, cls, fill] of (s.textContent || '').matchAll(
+          /\.([^{,\s]+)[^{]*\{[^}]*\bfill\s*:\s*([^;}\s]+)/gs
+        )) map[cls] = fill.trim();
+      });
+      if (!Object.keys(map).length) return;
+      const sel = 'rect,circle,ellipse,path,polygon,polyline,line';
+      root.querySelectorAll(sel).forEach(el => {
+        const cls = (el.getAttribute('class') || '').trim().split(/\s+/);
+        const cssFill = cls.map(c => map[c]).find(v => v !== undefined);
+        if (cssFill === undefined) return;
+        const style = el.getAttribute('style') || '';
+        // Only set if no inline fill already present (colorisation takes priority)
+        if (!/\bfill\s*:/.test(style)) {
+          el.setAttribute('style', `${style}${style ? ';' : ''}fill:${cssFill}`);
+        }
+      });
+      root.querySelectorAll('style').forEach(s => s.remove());
+    };
+
     // Build the output SVG from scratch — assets are inlined as real vectors,
     // no <image> links, so Illustrator imports them as editable paths/shapes.
     const out = document.createElementNS(svgNS, 'svg');
@@ -315,6 +343,7 @@ function App() {
 
       const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
       if (blockDoc.querySelector('parsererror')) return;
+      flattenStyles(blockDoc);
       const blockRoot = blockDoc.documentElement;
 
       // Resolve the source coordinate space from viewBox or width/height attrs

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg id="Background" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
   <defs>
     <style>
       .cls-1 {
@@ -7,5 +7,10 @@
       }
     </style>
   </defs>
-  <rect class="cls-1" width="500" height="500"/>
+  <g id="Background">
+    <rect class="cls-1" width="500" height="500"/>
+  </g>
+  <g id="Shapes">
+    <path class="cls-1" d="M0,0c0,274.29,225.71,500,500,500v-200C334.32,300,200,165.68,200,0H0Z"/>
+  </g>
 </svg>

@@ -6,10 +6,10 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
 
-  const width = workArea?.width ?? 800;
+  const width  = workArea?.width  ?? 800;
   const height = workArea?.height ?? 600;
 
-  // Fit the SVG to the viewport on mount / when work area dimensions change
+  // Fit the work area to the viewport on mount / when dimensions change
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -62,6 +62,8 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
 
   const stopPan = useCallback(() => { isPanning.current = false; }, []);
 
+  const { x, y, scale } = viewTransform;
+
   return (
     <div
       ref={containerRef}
@@ -73,23 +75,27 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
       onMouseUp={stopPan}
       onMouseLeave={stopPan}
     >
-      <div
-        className={styles.viewport}
-        style={{
-          transform: `translate(${viewTransform.x}px, ${viewTransform.y}px) scale(${viewTransform.scale})`,
-        }}
+      {/*
+        The SVG fills the entire container and the pan/zoom transform lives on
+        a <g> *inside* the SVG coordinate system.  This keeps everything in
+        SVG-native vector space — the renderer re-draws at the correct
+        resolution on every zoom level instead of scaling a rasterised texture.
+      */}
+      <svg
+        id="main-canvas"
+        width="100%"
+        height="100%"
+        xmlns="http://www.w3.org/2000/svg"
+        className={styles.svg}
       >
-        <svg
-          id="main-canvas"
-          width={width}
-          height={height}
-          xmlns="http://www.w3.org/2000/svg"
-          className={styles.svg}
+        <g
+          transform={`translate(${x},${y}) scale(${scale})`}
+          style={{ filter: 'drop-shadow(0 8px 40px rgba(0,0,0,0.35))' }}
         >
           <rect width={width} height={height} fill={canvasBg ?? '#ffffff'} />
           {children}
-        </svg>
-      </div>
+        </g>
+      </svg>
     </div>
   );
 }
