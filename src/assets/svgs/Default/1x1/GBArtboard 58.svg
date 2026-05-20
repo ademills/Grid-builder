@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #7f7f7f;
+      }
+    </style>
+  </defs>
+  <g id="Background">
+    <rect class="cls-1" width="500" height="500"/>
+  </g>
+  <g id="Shapes">
+    <path class="cls-1" d="M250,0h0C387.98,0,500,112.02,500,250v250H0v-250C0,112.02,112.02,0,250,0Z" transform="translate(500 0) rotate(90)"/>
+  </g>
+</svg>
