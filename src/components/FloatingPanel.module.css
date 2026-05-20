@@ -497,6 +497,155 @@
   min-width: 0;
 }
 
+/* ── Asset browser ─────────────────────────────────────── */
+
+.assetsBrowserBtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #23242c;
+  border: 1px solid #33343e;
+  border-radius: 6px;
+  color: #a1a1aa;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.assetsBrowserBtn:hover {
+  background: #2c2d38;
+  border-color: #7c3aed;
+  color: #d4d4d8;
+}
+
+.assetsBrowserArrow {
+  font-size: 16px;
+  color: #52525b;
+  line-height: 1;
+}
+
+/* Size rows (top-level groups) */
+.assetSizeRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #13141a;
+  border-bottom: 1px solid #22232c;
+}
+
+/* Theme rows (second level) */
+.assetThemeRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 26px;
+  background: #16171e;
+  border-bottom: 1px solid #1e1f28;
+}
+
+/* Individual asset rows (third level) */
+.assetItemRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 44px;
+  border-bottom: 1px solid #1a1b22;
+  transition: background 0.1s;
+}
+
+.assetItemRow:hover {
+  background: #1e1f28;
+}
+
+/* Shared label button for size/theme rows */
+.assetGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  min-width: 0;
+}
+
+.assetGroupLabel > span:first-child {
+  font-size: 11px;
+  color: #a1a1aa;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assetGroupLabel:hover > span:first-child {
+  color: #d4d4d8;
+}
+
+.assetGroupCount {
+  font-size: 9px;
+  color: #3f4052;
+  font-family: ui-monospace, monospace;
+  flex-shrink: 0;
+}
+
+.assetGroupArrow {
+  font-size: 7px;
+  color: #52525b;
+  flex-shrink: 0;
+  width: 8px;
+}
+
+.assetItemName {
+  font-size: 11px;
+  color: #71717a;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assetItemDisabled {
+  opacity: 0.35;
+}
+
+/* Toggle button — three states */
+.assetToggle {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1px solid #33343e;
+  background: #23242c;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.assetToggle_on {
+  background: #7c3aed;
+  border-color: #7c3aed;
+}
+
+.assetToggle_partial {
+  background: rgba(124, 58, 237, 0.35);
+  border-color: #7c3aed;
+}
+
+.assetToggle_off {
+  background: #1a1b22;
+  border-color: #2c2d38;
+}
+
+.assetToggle:hover {
+  border-color: #a78bfa;
+}
+
 /* ── Palette chooser button (in main view) ─────────────── */
 
 .paletteChooserBtn {

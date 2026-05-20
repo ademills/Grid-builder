@@ -7,6 +7,7 @@ import { PlacedBlocks } from './components/PlacedBlocks';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
 import { PALETTE_KEYS, PALETTES, colorizeSvg } from './utils/colorize';
+import { ALL_BUILTIN_ASSETS, DEFAULT_ENABLED_IDS } from './builtinAssets';
 import './App.css';
 import styles from './App.module.css';
 
@@ -80,8 +81,30 @@ function App() {
     [workArea.width, workArea.height, gridSettings.cols, gridSettings.borderPct]
   );
 
-  // Assets & layout state
+  // Built-in asset enable/disable
+  const [enabledAssetIds, setEnabledAssetIds] = useState(DEFAULT_ENABLED_IDS);
+
+  const handleEnableAssets = useCallback((ids) => {
+    setEnabledAssetIds(prev => new Set([...prev, ...ids]));
+  }, []);
+
+  const handleDisableAssets = useCallback((ids) => {
+    setEnabledAssetIds(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => next.delete(id));
+      return next;
+    });
+  }, []);
+
+  // Uploaded custom assets (supplementary)
   const [assets, setAssets] = useState([]);
+
+  // All assets available for fill = enabled builtins + custom uploads
+  const activeAssets = useMemo(
+    () => [...ALL_BUILTIN_ASSETS.filter(a => enabledAssetIds.has(a.id)), ...assets],
+    [enabledAssetIds, assets]
+  );
+
   const [placedBlocks, setPlacedBlocks] = useState([]);
   const [dragShadow, setDragShadow] = useState(null);
 
@@ -117,14 +140,14 @@ function App() {
   }, []);
 
   const handleFillGrid = useCallback(() => {
-    if (!assets.length || !gridComputed) return;
-    const blocks = fillGrid(assets, gridComputed, maxScale, scaleFreq).map(b => ({
+    if (!activeAssets.length || !gridComputed) return;
+    const blocks = fillGrid(activeAssets, gridComputed, maxScale, scaleFreq).map(b => ({
       ...b,
       colorSeed: Math.floor(Math.random() * 0x80000000),
       colorOffset: 0,
     }));
     setPlacedBlocks(blocks);
-  }, [assets, gridComputed, maxScale, scaleFreq]);
+  }, [activeAssets, gridComputed, maxScale, scaleFreq]);
 
   const handleDeleteBlock = useCallback((id) => {
     setPlacedBlocks(prev => prev.filter(b => b.id !== id));
@@ -386,9 +409,12 @@ function App() {
           validCols={validCols}
           assets={assets}
           onIngestAssets={handleIngestAssets}
+          enabledAssetIds={enabledAssetIds}
+          onEnableAssets={handleEnableAssets}
+          onDisableAssets={handleDisableAssets}
           onFillGrid={handleFillGrid}
           onExport={handleExport}
-          canFill={assets.length > 0 && gridComputed !== null}
+          canFill={activeAssets.length > 0 && gridComputed !== null}
           canExport={placedBlocks.length > 0}
           colorMode={colorMode}
           onColorModeChange={setColorMode}
