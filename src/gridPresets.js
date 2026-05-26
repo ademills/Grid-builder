@@ -52,7 +52,7 @@ export function computeGrid(workArea, gridSettings) {
   if (innerW <= 0 || innerH <= 0) return null;
 
   const cellSize = innerW / cols;
-  const rows = Math.floor(innerH / cellSize);
+  const rows = Math.round(innerH / cellSize);
 
   if (rows < 1) return null;
 

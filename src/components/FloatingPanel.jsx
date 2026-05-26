@@ -112,6 +112,20 @@ export function FloatingPanel({
   const zoomPct  = Math.round((viewTransform?.scale ?? 1) * 100);
   const isCustom = presetKey === 'custom';
 
+  const [rawWidth,  setRawWidth]  = useState(String(customSize?.width  ?? ''));
+  const [rawHeight, setRawHeight] = useState(String(customSize?.height ?? ''));
+
+  useEffect(() => {
+    setRawWidth(String(customSize?.width  ?? ''));
+    setRawHeight(String(customSize?.height ?? ''));
+  }, [customSize?.width, customSize?.height]);
+
+  const commitDim = (axis, raw) => {
+    const n = parseInt(raw, 10);
+    const clamped = isNaN(n) ? 50 : Math.min(10000, Math.max(50, n));
+    onCustomSizeChange({ ...customSize, [axis]: clamped });
+  };
+
   const handleScaleFreqInput = (raw) => {
     const n = parseInt(raw, 10);
     if (!isNaN(n)) onScaleFreqChange(Math.min(100, Math.max(0, n)));
@@ -292,11 +306,13 @@ export function FloatingPanel({
                   <div className={styles.formRow}>
                     <span className={styles.label}>Size</span>
                     <div className={styles.dimRow}>
-                      <input type="number" className={styles.dimInput} value={customSize.width} min={50} max={10000}
-                        onChange={e => onCustomSizeChange({ ...customSize, width: Math.max(50, +e.target.value) })} />
+                      <input type="number" className={styles.dimInput} value={rawWidth}
+                        onChange={e => setRawWidth(e.target.value)}
+                        onBlur={() => commitDim('width', rawWidth)} />
                       <span className={styles.dimX}>×</span>
-                      <input type="number" className={styles.dimInput} value={customSize.height} min={50} max={10000}
-                        onChange={e => onCustomSizeChange({ ...customSize, height: Math.max(50, +e.target.value) })} />
+                      <input type="number" className={styles.dimInput} value={rawHeight}
+                        onChange={e => setRawHeight(e.target.value)}
+                        onBlur={() => commitDim('height', rawHeight)} />
                       <span className={styles.dimUnit}>px</span>
                     </div>
                   </div>
