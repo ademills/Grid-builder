@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #7f7f7f;
+      }
+    </style>
+  </defs>
+  <g id="Background">
+    <rect class="cls-1" width="500" height="500"/>
+  </g>
+  <g id="Shapes">
+    <path class="cls-1" d="M500,229.46V80.05h-12.2c-17.31,4.78-30.52,19.51-33.03,37.66h-19.6v17.62c-13.34,17.22-48.34,29.51-89.43,29.51-.44,0-.88,0-1.32-.02v15.26h-49.39v38.27H100.57v281.67h354.8v-94.49c0-21.21,17.2-38.38,38.38-38.38,2.14,0,4.23.18,6.25.51v-138.18Z"/>
+  </g>
+</svg>

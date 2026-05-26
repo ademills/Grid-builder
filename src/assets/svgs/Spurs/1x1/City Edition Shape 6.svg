@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #7f7f7f;
+      }
+    </style>
+  </defs>
+  <g id="Background">
+    <rect class="cls-1" width="500" height="500"/>
+  </g>
+  <g id="Shapes">
+    <polygon class="cls-1" points="363.53 170.24 280.28 170.24 290.56 50.83 221.33 50.83 231.61 170.24 148.36 170.24 190.82 222.74 321.08 222.74 363.53 170.24"/>
+    <polygon class="cls-1" points="148.36 329.76 231.61 329.76 221.33 449.17 290.56 449.17 280.28 329.76 363.53 329.76 321.08 277.26 190.82 277.26 148.36 329.76"/>
+  </g>
+</svg>
