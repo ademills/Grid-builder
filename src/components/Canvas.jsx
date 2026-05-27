@@ -1,10 +1,16 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import styles from './Canvas.module.css';
 
-export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, overlay, children }) {
+export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, overlay, children }) {
   const containerRef = useRef(null);
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
+
+  // Marquee select state
+  const marqueeStart = useRef(null);
+  const marqueeActive = useRef(false);
+  const suppressClick = useRef(false);
+  const [marqueeRect, setMarqueeRect] = useState(null);
 
   const width  = workArea?.width  ?? 800;
   const height = workArea?.height ?? 600;
@@ -47,20 +53,70 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
   }, [setViewTransform]);
 
   const handleMouseDown = useCallback((e) => {
-    if (activeTool !== 'hand' || e.button !== 0) return;
-    isPanning.current = true;
-    lastMouse.current = { x: e.clientX, y: e.clientY };
+    if (e.button !== 0) return;
+    if (activeTool === 'hand') {
+      isPanning.current = true;
+      lastMouse.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    if (activeTool === 'select') {
+      const rect = containerRef.current.getBoundingClientRect();
+      marqueeStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      marqueeActive.current = false;
+      suppressClick.current = false;
+    }
   }, [activeTool]);
 
   const handleMouseMove = useCallback((e) => {
-    if (!isPanning.current) return;
-    const dx = e.clientX - lastMouse.current.x;
-    const dy = e.clientY - lastMouse.current.y;
-    lastMouse.current = { x: e.clientX, y: e.clientY };
-    setViewTransform(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
-  }, [setViewTransform]);
+    if (isPanning.current) {
+      const dx = e.clientX - lastMouse.current.x;
+      const dy = e.clientY - lastMouse.current.y;
+      lastMouse.current = { x: e.clientX, y: e.clientY };
+      setViewTransform(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+      return;
+    }
+    if (activeTool === 'select' && marqueeStart.current) {
+      const bounds = containerRef.current.getBoundingClientRect();
+      const cx = e.clientX - bounds.left;
+      const cy = e.clientY - bounds.top;
+      const dx = cx - marqueeStart.current.x;
+      const dy = cy - marqueeStart.current.y;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        marqueeActive.current = true;
+        setMarqueeRect({
+          x: Math.min(marqueeStart.current.x, cx),
+          y: Math.min(marqueeStart.current.y, cy),
+          w: Math.abs(dx),
+          h: Math.abs(dy),
+        });
+      }
+    }
+  }, [activeTool, setViewTransform]);
 
-  const stopPan = useCallback(() => { isPanning.current = false; }, []);
+  const handleMouseUp = useCallback((e) => {
+    isPanning.current = false;
+    if (marqueeActive.current && marqueeStart.current) {
+      const bounds = containerRef.current.getBoundingClientRect();
+      const cx = e.clientX - bounds.left;
+      const cy = e.clientY - bounds.top;
+      const x1 = Math.min(marqueeStart.current.x, cx);
+      const y1 = Math.min(marqueeStart.current.y, cy);
+      const x2 = Math.max(marqueeStart.current.x, cx);
+      const y2 = Math.max(marqueeStart.current.y, cy);
+      onMarqueeSelect?.({ x1, y1, x2, y2 });
+      suppressClick.current = true;
+    }
+    marqueeStart.current = null;
+    marqueeActive.current = false;
+    setMarqueeRect(null);
+  }, [onMarqueeSelect]);
+
+  const stopAll = useCallback(() => {
+    isPanning.current = false;
+    marqueeStart.current = null;
+    marqueeActive.current = false;
+    setMarqueeRect(null);
+  }, []);
 
   const { x, y, scale } = viewTransform;
 
@@ -72,16 +128,13 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
       data-tool={activeTool}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
-      onMouseUp={stopPan}
-      onMouseLeave={stopPan}
-      onClick={() => activeTool === 'select' && onDeselectAll?.()}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={stopAll}
+      onClick={() => {
+        if (suppressClick.current) { suppressClick.current = false; return; }
+        if (activeTool === 'select') onDeselectAll?.();
+      }}
     >
-      {/*
-        The SVG fills the entire container and the pan/zoom transform lives on
-        a <g> *inside* the SVG coordinate system.  This keeps everything in
-        SVG-native vector space — the renderer re-draws at the correct
-        resolution on every zoom level instead of scaling a rasterised texture.
-      */}
       <svg
         id="main-canvas"
         width="100%"
@@ -97,6 +150,19 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
           {children}
         </g>
       </svg>
+
+      {marqueeRect && (
+        <div
+          className={styles.marquee}
+          style={{
+            left: marqueeRect.x,
+            top: marqueeRect.y,
+            width: marqueeRect.w,
+            height: marqueeRect.h,
+          }}
+        />
+      )}
+
       {overlay}
     </div>
   );

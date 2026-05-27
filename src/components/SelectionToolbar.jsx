@@ -10,12 +10,12 @@ export function SelectionToolbar({
   uploadedAssets,
   colorMode,
   effectivePalette,
-  customWhite,
-  customBlack,
+  bgOptions,
   onDelete,
   onRefresh,
   onRandomise,
   onSwap,
+  onToggleLock,
 }) {
   const [swapOpen, setSwapOpen] = useState(false);
   const [query, setQuery]       = useState('');
@@ -40,6 +40,10 @@ export function SelectionToolbar({
 
   // ── Early return after all hooks ─────────────────────────────────────────
 
+  const lockCount = selectedBlocks.filter(b => b.colorLocked).length;
+  const allLocked  = lockCount === selectedBlocks.length;
+  const someLocked = lockCount > 0 && !allLocked;
+
   if (!hasSelection || !gridComputed) return null;
 
   const { cellSize, gridOriginX, gridOriginY } = gridComputed;
@@ -57,7 +61,7 @@ export function SelectionToolbar({
 
   const thumbUrl = (asset) => {
     const svg = colorMode !== 'none'
-      ? colorizeSvg(asset.svgContent, colorMode, effectivePalette, 0, 0, customWhite, customBlack)
+      ? colorizeSvg(asset.svgContent, colorMode, effectivePalette, 0, 0, bgOptions)
       : asset.svgContent;
     const clean = svg
       .replace(/^<\?xml[^>]*\?>\s*/i, '')
@@ -83,6 +87,12 @@ export function SelectionToolbar({
           onClick={() => { setSwapOpen(s => !s); setQuery(''); }}
           title="Swap SVG"
         >⇄</button>
+        <button
+          className={`${styles.btn} ${allLocked ? styles.btnActive : ''}`}
+          onClick={onToggleLock}
+          title={allLocked ? 'Unlock colour' : someLocked ? 'Lock all colours' : 'Lock colour'}
+          style={{ opacity: someLocked ? 0.6 : 1 }}
+        >{allLocked ? '🔒' : '🔓'}</button>
         <div className={styles.divider} />
         <button className={`${styles.btn} ${styles.btnDelete}`} onClick={onDelete} title="Delete">×</button>
       </div>

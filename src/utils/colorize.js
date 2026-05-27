@@ -204,7 +204,9 @@ function applyFill(el, color, classFillMap) {
   }
 }
 
-export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgWhite = '#ffffff', bgBlack = '#000000') {
+// Gradient mode: colour each block by its normalised canvas position.
+// gridCol/gridRow/gridCols/gridRows are passed as extra args when mode === 'gradient'.
+export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgOptions = [], gradientPos = null) {
   if (mode === 'none') return svgContent;
 
   let doc;
@@ -244,9 +246,8 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0
       });
     }
   } else if (mode === 'uniform') {
-    // Background randomly draws from: customWhite, customBlack, or palette[0] (seeded per block)
-    const bgOptions = [bgWhite, bgBlack, palette[0]];
-    const bgColor   = bgOptions[Math.floor(rand() * bgOptions.length)];
+    const bgPool  = bgOptions.length ? bgOptions : [palette[0]];
+    const bgColor = bgPool[Math.floor(rand() * bgPool.length)];
 
     if (hasLayers) {
       if (bgLayer) {
@@ -261,6 +262,56 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0
       // No named layers — sequential from palette[0], shifted by colorOffset
       const shapes = [...root.querySelectorAll(SHAPE_SEL)];
       shapes.forEach((el, i) => applyFill(el, palette[(i + colorOffset) % palette.length], classFillMap));
+    }
+  }
+
+  if (mode === 'gradient' && gradientPos) {
+    const {
+      gridCol, gridRow, gridCols, gridRows,
+      angle = 45, gradMode = 'linear',
+      gradBgColors,
+      centerX = 0.5, centerY = 0.5,
+      gradScale = 1,
+      reverseBg = false,
+    } = gradientPos;
+
+    let t;
+    if (gradMode === 'radial') {
+      const nx = gridCols > 1 ? gridCol / (gridCols - 1) : 0.5;
+      const ny = gridRows > 1 ? gridRow / (gridRows - 1) : 0.5;
+      const cx = centerX;
+      const cy = centerY;
+      const maxDist = Math.max(
+        Math.hypot(0 - cx, 0 - cy),
+        Math.hypot(1 - cx, 0 - cy),
+        Math.hypot(0 - cx, 1 - cy),
+        Math.hypot(1 - cx, 1 - cy),
+      );
+      t = maxDist > 0 ? Math.min(Math.hypot(nx - cx, ny - cy) / maxDist, 1) : 0;
+    } else {
+      const rad = (angle * Math.PI) / 180;
+      const cx = Math.cos(rad);
+      const cy = Math.sin(rad);
+      const nx = gridCols > 1 ? gridCol / (gridCols - 1) : 0;
+      const ny = gridRows > 1 ? gridRow / (gridRows - 1) : 0;
+      const raw = nx * cx + ny * cy;
+      const rawMin = Math.min(0, cx) + Math.min(0, cy);
+      const rawMax = Math.max(0, cx) + Math.max(0, cy);
+      t = rawMax > rawMin ? (raw - rawMin) / (rawMax - rawMin) : 0;
+    }
+
+    t = Math.min(t * gradScale, 1);
+    const blockColor = palette[Math.round(t * (palette.length - 1))];
+    const bgPool = gradBgColors && gradBgColors.length ? gradBgColors : [palette[0]];
+    const bgColorForGrad = reverseBg
+      ? palette[Math.round((1 - t) * (palette.length - 1))]
+      : bgPool[Math.floor(rand() * bgPool.length)];
+
+    if (bgLayer || shapeLayer) {
+      if (bgLayer)    bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, bgColorForGrad, classFillMap));
+      if (shapeLayer) shapeLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, blockColor, classFillMap));
+    } else {
+      root.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, blockColor, classFillMap));
     }
   }
 

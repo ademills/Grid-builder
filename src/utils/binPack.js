@@ -11,7 +11,7 @@
  *
  * Returns an array of placed-block descriptors ready for the canvas renderer.
  */
-export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0) {
+export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlocks = []) {
   if (!gridComputed || !assets || assets.length === 0) return [];
 
   const { cols, rows } = gridComputed;
@@ -47,6 +47,11 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0) {
     gridCol: c,
     gridRow: r,
   });
+
+  // Pre-mark cells occupied by existing blocks so Fill Gaps respects them
+  for (const block of existingBlocks) {
+    markOccupied(block.gridCol, block.gridRow, block.cols, block.rows);
+  }
 
   const placed = [];
   const shouldScale = maxScale > 1 && scaleFreq > 0;

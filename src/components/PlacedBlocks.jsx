@@ -5,8 +5,9 @@ import { colorizeSvg } from '../utils/colorize';
 function DraggableBlock({
   block, cellSize, gridOriginX, gridOriginY,
   viewTransform, activeTool,
-  isSelected, onSelect,
-  colorMode, effectivePalette, customWhite, customBlack,
+  isSelected, onSelect, onContextMenu,
+  colorMode, effectivePalette, bgOptions,
+  gridCols, gridRows, gradientSettings,
 }) {
   const { setNodeRef, listeners, attributes, isDragging, transform } = useDraggable({
     id: block.id,
@@ -23,14 +24,17 @@ function DraggableBlock({
   const svgDy = transform ? transform.y / viewTransform.scale : 0;
 
   const dataUrl = useMemo(() => {
+    const gradPos = colorMode === 'gradient'
+      ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols, gridRows, ...(gradientSettings ?? {}) }
+      : null;
     const svg = colorMode !== 'none'
-      ? colorizeSvg(block.svgContent, colorMode, effectivePalette, block.colorSeed ?? 0, block.colorOffset ?? 0, customWhite, customBlack)
+      ? colorizeSvg(block.svgContent, colorMode, effectivePalette, block.colorSeed ?? 0, block.colorOffset ?? 0, bgOptions, gradPos)
       : block.svgContent;
     const clean = svg
       .replace(/^<\?xml[^>]*\?>\s*/i, '')
       .replace(/<!DOCTYPE[^>]*>\s*/gi, '');
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-  }, [block.svgContent, block.colorSeed, block.colorOffset, colorMode, effectivePalette, customWhite, customBlack]);
+  }, [block.svgContent, block.colorSeed, block.colorOffset, block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions, gridCols, gridRows, gradientSettings]);
 
   const isInteractive = activeTool === 'select';
   const ui = 1 / viewTransform.scale;
@@ -49,6 +53,13 @@ function DraggableBlock({
         if (isInteractive) {
           e.stopPropagation();
           onSelect(block.id, e.shiftKey);
+        }
+      }}
+      onContextMenu={e => {
+        if (isInteractive) {
+          e.preventDefault();
+          e.stopPropagation();
+          onContextMenu?.(block, e.clientX, e.clientY);
         }
       }}
       onKeyDown={e => {
@@ -80,6 +91,20 @@ function DraggableBlock({
         />
       )}
 
+      {/* Color lock badge */}
+      {block.colorLocked && !isDragging && (
+        <text
+          x={x + w - 4 * ui}
+          y={y + 4 * ui}
+          fontSize={10 * ui}
+          textAnchor="end"
+          dominantBaseline="hanging"
+          data-noexport="true"
+          pointerEvents="none"
+          style={{ userSelect: 'none' }}
+        >🔒</text>
+      )}
+
       {/* Drag ghost outline */}
       {isDragging && (
         <rect
@@ -99,8 +124,8 @@ function DraggableBlock({
 export function PlacedBlocks({
   placedBlocks, gridComputed, viewTransform, activeTool,
   dragShadow,
-  selectedIds, onSelect,
-  colorMode, effectivePalette, customWhite, customBlack,
+  selectedIds, onSelect, onContextMenu,
+  colorMode, effectivePalette, bgOptions, gradientSettings,
 }) {
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;
 
@@ -137,10 +162,13 @@ export function PlacedBlocks({
           activeTool={activeTool}
           isSelected={selectedIds?.has(block.id) ?? false}
           onSelect={onSelect}
+          onContextMenu={onContextMenu}
           colorMode={colorMode}
           effectivePalette={effectivePalette}
-          customWhite={customWhite}
-          customBlack={customBlack}
+          bgOptions={bgOptions}
+          gridCols={gridComputed.cols}
+          gridRows={gridComputed.rows}
+          gradientSettings={gradientSettings}
         />
       ))}
     </g>

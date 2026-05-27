@@ -15,3 +15,11 @@
 .svg {
   display: block;
 }
+
+.marquee {
+  position: absolute;
+  pointer-events: none;
+  border: 1.5px solid rgba(124, 58, 237, 0.8);
+  background: rgba(124, 58, 237, 0.08);
+  border-radius: 2px;
+}

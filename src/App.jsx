@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { Canvas } from './components/Canvas';
+import { ContextMenu } from './components/ContextMenu';
 import { FloatingPanel } from './components/FloatingPanel';
 import { Grid } from './components/Grid';
 import { PlacedBlocks } from './components/PlacedBlocks';
@@ -25,22 +26,58 @@ function App() {
   // Colour palette
   const [colorMode, setColorMode] = useState('none'); // 'none' | 'uniform' | 'random'
   const [paletteKey, setPaletteKey] = useState(PALETTE_KEYS[0]);
-  const [includeWhite, setIncludeWhite] = useState(false);
-  const [includeBlack, setIncludeBlack] = useState(false);
-  const [customWhite, setCustomWhite] = useState('#ffffff');
-  const [customBlack, setCustomBlack] = useState('#000000');
+  const [shapeColors, setShapeColors] = useState(
+    () => PALETTES[PALETTE_KEYS[0]].map((hex, i) => ({ id: `p-${i}`, hex, enabled: true, source: 'palette' }))
+  );
+  const [bgColors, setBgColors] = useState([
+    { id: 'bg-white', hex: '#ffffff', enabled: true  },
+    { id: 'bg-black', hex: '#000000', enabled: false },
+  ]);
 
-  // In random mode the effective palette includes the custom white/black if toggled on.
-  // In uniform mode white/black are passed separately as bg options, so palette stays clean.
+  // Custom saved palettes — persisted to localStorage
+  const [customPalettes, setCustomPalettes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('gb-custom-palettes') || '[]'); }
+    catch { return []; }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('gb-custom-palettes', JSON.stringify(customPalettes));
+  }, [customPalettes]);
+
+  const handleSaveCustomPalette = useCallback((name) => {
+    if (!name.trim()) return;
+    const colors = shapeColors.filter(c => c.enabled).map(c => c.hex);
+    if (!colors.length) return;
+    setCustomPalettes(prev => [...prev.filter(p => p.name !== name.trim()), { name: name.trim(), colors }]);
+  }, [shapeColors]);
+
+  const handleDeleteCustomPalette = useCallback((name) => {
+    setCustomPalettes(prev => prev.filter(p => p.name !== name));
+  }, []);
+
+  const handleApplyCustomPalette = useCallback((palette) => {
+    setShapeColors(palette.colors.map((hex, i) => ({ id: `cp-${palette.name}-${i}`, hex, enabled: true, source: 'palette' })));
+  }, []);
+
+  // When the palette theme changes: replace palette entries, keep custom colours in place
+  const handlePaletteKeyChange = useCallback((key) => {
+    setPaletteKey(key);
+    setShapeColors(prev => {
+      const custom  = prev.filter(c => c.source === 'custom');
+      const palette = (PALETTES[key] ?? []).map((hex, i) => ({ id: `p-${key}-${i}`, hex, enabled: true, source: 'palette' }));
+      return [...palette, ...custom];
+    });
+  }, []);
+
   const effectivePalette = useMemo(() => {
-    const base = PALETTES[paletteKey] ?? PALETTES[PALETTE_KEYS[0]];
-    if (colorMode !== 'random') return base;
-    return [
-      ...base,
-      ...(includeWhite ? [customWhite] : []),
-      ...(includeBlack ? [customBlack] : []),
-    ];
-  }, [colorMode, paletteKey, includeWhite, includeBlack, customWhite, customBlack]);
+    const active = shapeColors.filter(c => c.enabled).map(c => c.hex);
+    return active.length ? active : shapeColors.map(c => c.hex);
+  }, [shapeColors]);
+
+  const activeBgColors = useMemo(
+    () => bgColors.filter(c => c.enabled).map(c => c.hex),
+    [bgColors]
+  );
 
   // Work area
   const [presetKey, setPresetKey] = useState('a4-portrait');
@@ -108,11 +145,183 @@ function App() {
 
   const [placedBlocks, setPlacedBlocks] = useState([]);
   const [dragShadow, setDragShadow] = useState(null);
+  const [autoFill, setAutoFill] = useState(false);
+  const [gradientSettings, setGradientSettings] = useState({
+    angle: 45,
+    gradMode: 'linear',
+    centerX: 0.5,
+    centerY: 0.5,
+    gradScale: 1,
+    reverseBg: false,
+    gradBgColors: [{ id: 'grad-bg-1', hex: '#ffffff', enabled: true }],
+  });
 
-  // Clear layout when the grid geometry changes
+  // Resolve gradBgColors to active-only hex array so colorizeSvg receives plain strings
+  const activeGradientSettings = useMemo(() => ({
+    ...gradientSettings,
+    gradBgColors: (gradientSettings.gradBgColors ?? []).filter(c => c.enabled).map(c => c.hex),
+  }), [gradientSettings]);
+
+  const skipNextClear = useRef(false);
+
+  // Undo/redo history — each entry is a snapshot of placedBlocks
+  const undoStack = useRef([]);
+  const redoStack = useRef([]);
+
+  const pushHistory = useCallback((snapshot) => {
+    undoStack.current = [...undoStack.current, snapshot].slice(-50);
+    redoStack.current = [];
+  }, []);
+
+  const [historySize, setHistorySize] = useState({ undo: 0, redo: 0 });
+  const syncHistorySize = useCallback(() => {
+    setHistorySize({ undo: undoStack.current.length, redo: redoStack.current.length });
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    if (!undoStack.current.length) return;
+    const prev = undoStack.current[undoStack.current.length - 1];
+    undoStack.current = undoStack.current.slice(0, -1);
+    redoStack.current = [placedBlocks, ...redoStack.current].slice(0, 50);
+    setPlacedBlocks(prev);
+    setSelectedIds(new Set());
+    syncHistorySize();
+  }, [placedBlocks, syncHistorySize]);
+
+  const handleRedo = useCallback(() => {
+    if (!redoStack.current.length) return;
+    const next = redoStack.current[0];
+    redoStack.current = redoStack.current.slice(1);
+    undoStack.current = [...undoStack.current, placedBlocks].slice(-50);
+    setPlacedBlocks(next);
+    setSelectedIds(new Set());
+    syncHistorySize();
+  }, [placedBlocks, syncHistorySize]);
+
+  // When grid geometry changes: attempt proportional rescale, clear only if incompatible.
+  // Suppressed during project load via skipNextClear.
+  const prevGridRef = useRef(null);
   useEffect(() => {
-    setPlacedBlocks([]);
+    if (skipNextClear.current) { skipNextClear.current = false; prevGridRef.current = gridComputed; return; }
+
+    const prev = prevGridRef.current;
+    prevGridRef.current = gridComputed;
+
+    if (!gridComputed) { setPlacedBlocks([]); return; }
+    if (!prev || !placedBlocksRef.current.length) return; // nothing to rescale
+
+    // Only attempt rescale when col/row count changed but block sizes stay compatible
+    const scaleC = gridComputed.cols / prev.cols;
+    const scaleR = gridComputed.rows / prev.rows;
+
+    const rescaled = placedBlocksRef.current.map(b => ({
+      ...b,
+      gridCol: Math.round(b.gridCol * scaleC),
+      gridRow: Math.round(b.gridRow * scaleR),
+    }));
+
+    // Validate: all blocks must fit within new grid bounds without overlap
+    const fits = rescaled.every(b =>
+      b.gridCol >= 0 && b.gridCol + b.cols <= gridComputed.cols &&
+      b.gridRow >= 0 && b.gridRow + b.rows <= gridComputed.rows
+    );
+
+    const occupied = new Set();
+    const noOverlap = fits && rescaled.every(b => {
+      for (let r = 0; r < b.rows; r++)
+        for (let c = 0; c < b.cols; c++) {
+          const key = `${b.gridCol + c},${b.gridRow + r}`;
+          if (occupied.has(key)) return false;
+          occupied.add(key);
+        }
+      return true;
+    });
+
+    if (noOverlap) {
+      setPlacedBlocks(rescaled);
+    } else {
+      setPlacedBlocks([]);
+      undoStack.current = [];
+      redoStack.current = [];
+      syncHistorySize();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gridComputed?.cols, gridComputed?.rows, gridComputed?.cellSize]);
+
+  // Auto-fill when settings change (runs after the clear effect above)
+  const autoFillRef = useRef(autoFill);
+  useEffect(() => { autoFillRef.current = autoFill; }, [autoFill]);
+  const activeAssetsRef = useRef(activeAssets);
+  useEffect(() => { activeAssetsRef.current = activeAssets; }, [activeAssets]);
+
+  useEffect(() => {
+    if (!autoFillRef.current || !gridComputed || !activeAssetsRef.current.length) return;
+    const blocks = fillGrid(activeAssetsRef.current, gridComputed, maxScale, scaleFreq).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridComputed?.cols, gridComputed?.rows, gridComputed?.cellSize, maxScale, scaleFreq]);
+
+  // Undo/redo + arrow nudge keyboard shortcuts
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      if (ctrl) {
+        if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); return; }
+        if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); handleRedo(); return; }
+      }
+
+      if (e.key === '?') { e.preventDefault(); setShowShortcuts(s => !s); return; }
+
+      const arrowKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+      if (!arrowKeys.includes(e.key)) return;
+      if (!selectedIdsRef.current.size || !gridComputedRef.current) return;
+
+      e.preventDefault();
+      const { cols, rows } = gridComputedRef.current;
+      const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+      const dy = e.key === 'ArrowUp'   ? -1 : e.key === 'ArrowDown'  ? 1 : 0;
+
+      setPlacedBlocks(prev => {
+        const moving  = prev.filter(b => selectedIdsRef.current.has(b.id));
+        const still   = prev.filter(b => !selectedIdsRef.current.has(b.id));
+
+        // Bounds check — abort if any block would leave the grid
+        for (const b of moving) {
+          if (b.gridCol + dx < 0 || b.gridCol + b.cols + dx > cols) return prev;
+          if (b.gridRow + dy < 0 || b.gridRow + b.rows + dy > rows) return prev;
+        }
+
+        // Occupied set of still blocks
+        const occupiedByStill = new Set(
+          still.flatMap(b =>
+            Array.from({ length: b.rows }, (_, r) =>
+              Array.from({ length: b.cols }, (_, c) => `${b.gridCol + c},${b.gridRow + r}`)
+            ).flat()
+          )
+        );
+
+        // Check none of the moved blocks land on a still block
+        for (const b of moving) {
+          for (let r = 0; r < b.rows; r++)
+            for (let c = 0; c < b.cols; c++)
+              if (occupiedByStill.has(`${b.gridCol + c + dx},${b.gridRow + r + dy}`)) return prev;
+        }
+
+        return prev.map(b =>
+          selectedIdsRef.current.has(b.id)
+            ? { ...b, gridCol: b.gridCol + dx, gridRow: b.gridRow + dy }
+            : b
+        );
+      });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleUndo, handleRedo]);
 
   // ── Asset ingestion ─────────────────────────────────────────────────────
   const handleIngestAssets = useCallback((e) => {
@@ -142,16 +351,38 @@ function App() {
 
   const handleFillGrid = useCallback(() => {
     if (!activeAssets.length || !gridComputed) return;
+    pushHistory(placedBlocks);
     const blocks = fillGrid(activeAssets, gridComputed, maxScale, scaleFreq).map(b => ({
       ...b,
       colorSeed: Math.floor(Math.random() * 0x80000000),
       colorOffset: 0,
     }));
     setPlacedBlocks(blocks);
-  }, [activeAssets, gridComputed, maxScale, scaleFreq]);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleFillGaps = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    pushHistory(placedBlocks);
+    const newBlocks = fillGrid(activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(prev => [...prev, ...newBlocks]);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
 
   // ── Selection ────────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null); // { block, x, y }
+
+  const assetUsageCounts = useMemo(() => {
+    const counts = {};
+    for (const b of placedBlocks) counts[b.assetId] = (counts[b.assetId] ?? 0) + 1;
+    return counts;
+  }, [placedBlocks]);
 
   const selectedBlocks = useMemo(
     () => placedBlocks.filter(b => selectedIds.has(b.id)),
@@ -171,14 +402,73 @@ function App() {
 
   const handleDeselectAll = useCallback(() => setSelectedIds(new Set()), []);
 
+  const handleOpenContextMenu = useCallback((block, x, y) => {
+    setSelectedIds(prev => prev.has(block.id) ? prev : new Set([block.id]));
+    setContextMenu({ block, x, y });
+  }, []);
+
+  const handleContextRefresh = useCallback(() => {
+    if (!contextMenu) return;
+    const id = contextMenu.block.id;
+    setPlacedBlocks(prev => prev.map(b => {
+      if (b.id !== id || b.colorLocked) return b;
+      if (colorMode === 'random') return { ...b, colorSeed: Math.floor(Math.random() * 0x80000000) };
+      return { ...b, colorOffset: (b.colorOffset ?? 0) + 1 };
+    }));
+  }, [contextMenu, colorMode]);
+
+  const handleContextRandomise = useCallback(() => {
+    if (!contextMenu || !activeAssets.length) return;
+    const id = contextMenu.block.id;
+    const pick = activeAssets[Math.floor(Math.random() * activeAssets.length)];
+    setPlacedBlocks(prev => prev.map(b =>
+      b.id === id ? { ...b, svgContent: pick.svgContent, name: pick.name, assetId: pick.id, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0 } : b
+    ));
+  }, [contextMenu, activeAssets]);
+
+  const handleContextToggleLock = useCallback(() => {
+    if (!contextMenu) return;
+    const id = contextMenu.block.id;
+    setPlacedBlocks(prev => prev.map(b => b.id === id ? { ...b, colorLocked: !b.colorLocked } : b));
+  }, [contextMenu]);
+
+  const handleContextDelete = useCallback(() => {
+    if (!contextMenu) return;
+    const id = contextMenu.block.id;
+    pushHistory(placedBlocks);
+    setPlacedBlocks(prev => prev.filter(b => b.id !== id));
+    setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+    syncHistorySize();
+  }, [contextMenu, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleMarqueeSelect = useCallback(({ x1, y1, x2, y2 }) => {
+    if (!gridComputed) return;
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    const { x: panX, y: panY, scale } = viewTransform;
+    const svgX1 = (x1 - panX) / scale;
+    const svgY1 = (y1 - panY) / scale;
+    const svgX2 = (x2 - panX) / scale;
+    const svgY2 = (y2 - panY) / scale;
+    const hits = placedBlocks.filter(b => {
+      const bx = gridOriginX + b.gridCol * cellSize;
+      const by = gridOriginY + b.gridRow * cellSize;
+      const bw = b.cols * cellSize;
+      const bh = b.rows * cellSize;
+      return bx < svgX2 && bx + bw > svgX1 && by < svgY2 && by + bh > svgY1;
+    });
+    setSelectedIds(new Set(hits.map(b => b.id)));
+  }, [gridComputed, viewTransform, placedBlocks]);
+
   const handleDeleteSelected = useCallback(() => {
+    pushHistory(placedBlocks);
     setPlacedBlocks(prev => prev.filter(b => !selectedIds.has(b.id)));
     setSelectedIds(new Set());
-  }, [selectedIds]);
+    syncHistorySize();
+  }, [selectedIds, placedBlocks, pushHistory, syncHistorySize]);
 
   const handleRefreshSelected = useCallback(() => {
     setPlacedBlocks(prev => prev.map(b => {
-      if (!selectedIds.has(b.id)) return b;
+      if (!selectedIds.has(b.id) || b.colorLocked) return b;
       if (colorMode === 'random') return { ...b, colorSeed: Math.floor(Math.random() * 0x80000000) };
       return { ...b, colorOffset: (b.colorOffset ?? 0) + 1 };
     }));
@@ -187,7 +477,7 @@ function App() {
   const handleRandomiseSelected = useCallback(() => {
     if (!activeAssets.length) return;
     setPlacedBlocks(prev => prev.map(b => {
-      if (!selectedIds.has(b.id)) return b;
+      if (!selectedIds.has(b.id) || b.colorLocked) return b;
       const pick = activeAssets[Math.floor(Math.random() * activeAssets.length)];
       return {
         ...b,
@@ -199,6 +489,36 @@ function App() {
       };
     }));
   }, [selectedIds, activeAssets]);
+
+  const handleFlipH = useCallback(() => {
+    if (!gridComputed) return;
+    pushHistory(placedBlocks);
+    setPlacedBlocks(prev => prev.map(b => ({
+      ...b,
+      gridCol: gridComputed.cols - b.gridCol - b.cols,
+    })));
+    syncHistorySize();
+  }, [gridComputed, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleFlipV = useCallback(() => {
+    if (!gridComputed) return;
+    pushHistory(placedBlocks);
+    setPlacedBlocks(prev => prev.map(b => ({
+      ...b,
+      gridRow: gridComputed.rows - b.gridRow - b.rows,
+    })));
+    syncHistorySize();
+  }, [gridComputed, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleToggleLockSelected = useCallback(() => {
+    const allLocked = [...selectedIds].every(id => {
+      const b = placedBlocks.find(bl => bl.id === id);
+      return b?.colorLocked;
+    });
+    setPlacedBlocks(prev => prev.map(b =>
+      selectedIds.has(b.id) ? { ...b, colorLocked: !allLocked } : b
+    ));
+  }, [selectedIds, placedBlocks]);
 
   const handleSwapSelected = useCallback((asset) => {
     setPlacedBlocks(prev => prev.map(b =>
@@ -242,6 +562,12 @@ function App() {
     });
   }, []);
 
+  const placedBlocksRef = useRef(placedBlocks);
+  useEffect(() => { placedBlocksRef.current = placedBlocks; }, [placedBlocks]);
+
+  const selectedIdsRef = useRef(selectedIds);
+  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+
   const handleDragEnd = useCallback(({ active, delta }) => {
     setDragShadow(null);
     const g = gridComputedRef.current;
@@ -263,6 +589,9 @@ function App() {
 
     // No-op if position didn't change
     if (targetCol === dragged.gridCol && targetRow === dragged.gridRow) return;
+
+    pushHistory(placedBlocksRef.current);
+    syncHistorySize();
 
     setPlacedBlocks(prev => {
       const others = prev.filter(b => b.id !== active.id);
@@ -323,6 +652,69 @@ function App() {
     });
   }, [workArea]);
 
+  const handleLoadProject = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const state = JSON.parse(evt.target.result);
+        if (state.version !== 1) return;
+        skipNextClear.current = true;
+        if (state.presetKey)    setPresetKey(state.presetKey);
+        if (state.customSize)   setCustomSize(state.customSize);
+        if (state.gridSettings) setGridSettings(state.gridSettings);
+        if (state.maxScale != null)  setMaxScale(state.maxScale);
+        if (state.scaleFreq != null) setScaleFreq(state.scaleFreq);
+        if (state.bgColor)    setBgColor(state.bgColor);
+        if (state.canvasBg)   setCanvasBg(state.canvasBg);
+        if (state.colorMode)  setColorMode(state.colorMode);
+        if (state.paletteKey) setPaletteKey(state.paletteKey);
+        if (state.shapeColors) setShapeColors(state.shapeColors);
+        if (state.bgColors)    setBgColors(state.bgColors);
+        if (state.gradientSettings) setGradientSettings(prev => ({ ...prev, ...state.gradientSettings }));
+        if (state.enabledAssetIds) setEnabledAssetIds(new Set(state.enabledAssetIds));
+        if (state.assets)        setAssets(state.assets);
+        if (state.placedBlocks)  setPlacedBlocks(state.placedBlocks);
+        setSelectedIds(new Set());
+      } catch {
+        // silently ignore malformed files
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, []);
+
+  const handleSaveProject = useCallback(() => {
+    const state = {
+      version: 1,
+      presetKey,
+      customSize,
+      gridSettings,
+      maxScale,
+      scaleFreq,
+      bgColor,
+      canvasBg,
+      colorMode,
+      paletteKey,
+      shapeColors,
+      bgColors,
+      gradientSettings,
+      enabledAssetIds: [...enabledAssetIds],
+      assets,
+      placedBlocks,
+    };
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'grid-project.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, enabledAssetIds, assets, placedBlocks]);
+
   const handleExport = useCallback(() => {
     if (!placedBlocks.length || !gridComputed) return;
 
@@ -382,7 +774,8 @@ function App() {
 
       // Apply the same colorisation used in the live preview
       const svgText = colorMode !== 'none'
-        ? colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0, block.colorOffset ?? 0, customWhite, customBlack)
+        ? colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
+            colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null)
         : block.svgContent;
 
       const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
@@ -428,7 +821,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, customWhite, customBlack, canvasBg]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, activeBgColors, canvasBg]);
 
   return (
     <DndContext
@@ -446,6 +839,7 @@ function App() {
           canvasBg={canvasBg}
           workArea={workArea}
           onDeselectAll={handleDeselectAll}
+          onMarqueeSelect={handleMarqueeSelect}
           overlay={
             <SelectionToolbar
               selectedBlocks={selectedBlocks}
@@ -454,12 +848,12 @@ function App() {
               uploadedAssets={assets}
               colorMode={colorMode}
               effectivePalette={effectivePalette}
-              customWhite={customWhite}
-              customBlack={customBlack}
+              bgOptions={activeBgColors}
               onDelete={handleDeleteSelected}
               onRefresh={handleRefreshSelected}
               onRandomise={handleRandomiseSelected}
               onSwap={handleSwapSelected}
+              onToggleLock={handleToggleLockSelected}
             />
           }
         >
@@ -472,12 +866,27 @@ function App() {
             dragShadow={dragShadow}
             selectedIds={selectedIds}
             onSelect={handleSelectBlock}
+            onContextMenu={handleOpenContextMenu}
             colorMode={colorMode}
             effectivePalette={effectivePalette}
-            customWhite={customWhite}
-            customBlack={customBlack}
+            bgOptions={activeBgColors}
+            gradientSettings={activeGradientSettings}
           />
         </Canvas>
+
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            block={contextMenu.block}
+            colorMode={colorMode}
+            onClose={() => setContextMenu(null)}
+            onDelete={handleContextDelete}
+            onToggleLock={handleContextToggleLock}
+            onRefresh={handleContextRefresh}
+            onRandomise={handleContextRandomise}
+          />
+        )}
 
         <FloatingPanel
           activeTool={activeTool}
@@ -503,25 +912,43 @@ function App() {
           onEnableAssets={handleEnableAssets}
           onDisableAssets={handleDisableAssets}
           onFillGrid={handleFillGrid}
+          onFillGaps={handleFillGaps}
           onExport={handleExport}
+          onSaveProject={handleSaveProject}
+          onLoadProject={handleLoadProject}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={historySize.undo > 0}
+          canRedo={historySize.redo > 0}
           canFill={activeAssets.length > 0 && gridComputed !== null}
+          canFillGaps={activeAssets.length > 0 && gridComputed !== null && placedBlocks.length > 0}
           canExport={placedBlocks.length > 0}
           colorMode={colorMode}
           onColorModeChange={setColorMode}
           paletteKey={paletteKey}
-          onPaletteKeyChange={setPaletteKey}
-          includeWhite={includeWhite}
-          onIncludeWhiteChange={setIncludeWhite}
-          includeBlack={includeBlack}
-          onIncludeBlackChange={setIncludeBlack}
-          customWhite={customWhite}
-          onCustomWhiteChange={setCustomWhite}
-          customBlack={customBlack}
-          onCustomBlackChange={setCustomBlack}
+          onPaletteKeyChange={handlePaletteKeyChange}
+          shapeColors={shapeColors}
+          onShapeColorsChange={setShapeColors}
+          bgColors={bgColors}
+          onBgColorsChange={setBgColors}
+          customPalettes={customPalettes}
+          onSaveCustomPalette={handleSaveCustomPalette}
+          onDeleteCustomPalette={handleDeleteCustomPalette}
+          onApplyCustomPalette={handleApplyCustomPalette}
           maxScale={maxScale}
           onMaxScaleChange={setMaxScale}
           scaleFreq={scaleFreq}
           onScaleFreqChange={setScaleFreq}
+          autoFill={autoFill}
+          onAutoFillChange={setAutoFill}
+          gradientSettings={gradientSettings}
+          onGradientSettingsChange={setGradientSettings}
+          showShortcuts={showShortcuts}
+          onToggleShortcuts={() => setShowShortcuts(s => !s)}
+          assetUsageCounts={assetUsageCounts}
+          onFlipH={handleFlipH}
+          onFlipV={handleFlipV}
+          canFlip={placedBlocks.length > 0}
         />
       </div>
     </DndContext>

@@ -10,7 +10,12 @@
       "WebFetch(domain:colorhunt.co)",
       "WebFetch(domain:www.color-hex.com)",
       "WebFetch(domain:coolors.co)",
-      "WebFetch(domain:digitalsynopsis.com)"
+      "WebFetch(domain:digitalsynopsis.com)",
+      "Bash(npx vite *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5179)",
+      "Bash(node -e ' *)",
+      "Bash(npx playwright *)"
     ]
   }
 }
