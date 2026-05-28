@@ -321,3 +321,259 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0
     return svgContent;
   }
 }
+
+// ── Image colour mode ────────────────────────────────────────────────────────
+// Each shape element is coloured by sampling the source image at the shape's
+// absolute canvas position, accounting for nested SVG transforms.
+
+// Parse an SVG transform string to a 2D affine matrix [a,b,c,d,e,f]
+// where (x,y) → (ax+cy+e, bx+dy+f)
+function parseTransformMatrix(str) {
+  const identity = [1, 0, 0, 1, 0, 0];
+  if (!str) return identity;
+  const mul = (m1, m2) => [
+    m1[0]*m2[0] + m1[2]*m2[1], m1[1]*m2[0] + m1[3]*m2[1],
+    m1[0]*m2[2] + m1[2]*m2[3], m1[1]*m2[2] + m1[3]*m2[3],
+    m1[0]*m2[4] + m1[2]*m2[5] + m1[4],
+    m1[1]*m2[4] + m1[3]*m2[5] + m1[5],
+  ];
+  let cur = [...identity];
+  for (const [, type, raw] of str.matchAll(/(\w+)\s*\(([^)]*)\)/g)) {
+    const a = raw.trim().split(/[\s,]+/).map(Number);
+    let m;
+    if (type === 'translate') {
+      m = [1,0,0,1, a[0]||0, a[1]||0];
+    } else if (type === 'scale') {
+      const sx = a[0]||1, sy = a[1] !== undefined ? a[1] : sx;
+      m = [sx,0,0,sy,0,0];
+    } else if (type === 'rotate') {
+      const r = (a[0]||0)*Math.PI/180, cx = a[1]||0, cy = a[2]||0;
+      const c = Math.cos(r), s = Math.sin(r);
+      m = [c, s, -s, c, cx - c*cx + s*cy, cy - s*cx - c*cy];
+    } else if (type === 'matrix') {
+      m = [a[0]||1, a[1]||0, a[2]||0, a[3]||1, a[4]||0, a[5]||0];
+    } else {
+      continue;
+    }
+    cur = mul(cur, m);
+  }
+  return cur;
+}
+
+function concatMat(parent, child) {
+  return [
+    parent[0]*child[0] + parent[2]*child[1], parent[1]*child[0] + parent[3]*child[1],
+    parent[0]*child[2] + parent[2]*child[3], parent[1]*child[2] + parent[3]*child[3],
+    parent[0]*child[4] + parent[2]*child[5] + parent[4],
+    parent[1]*child[4] + parent[3]*child[5] + parent[5],
+  ];
+}
+
+function applyMat(m, x, y) {
+  return [m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5]];
+}
+
+// Extract representative (x,y) sample points from a shape element in its local SVG space.
+function getShapePoints(el) {
+  const tag = (el.tagName || '').toLowerCase().split(':').pop();
+  const f = attr => parseFloat(el.getAttribute(attr)) || 0;
+  if (tag === 'rect') {
+    const cx = f('x') + f('width')/2, cy = f('y') + f('height')/2;
+    return [[cx, cy]];
+  }
+  if (tag === 'circle' || tag === 'ellipse') return [[f('cx'), f('cy')]];
+  if (tag === 'line') return [[(f('x1')+f('x2'))/2, (f('y1')+f('y2'))/2]];
+  if (tag === 'polygon' || tag === 'polyline') {
+    const nums = (el.getAttribute('points')||'').trim().split(/[\s,]+/).map(Number).filter(v=>!isNaN(v));
+    const pts = [];
+    for (let i = 0; i < nums.length-1; i += 2) pts.push([nums[i], nums[i+1]]);
+    if (!pts.length) return [];
+    const step = Math.max(1, Math.floor(pts.length/4));
+    return pts.filter((_,i) => i % step === 0).slice(0,4);
+  }
+  if (tag === 'path') {
+    const d = el.getAttribute('d') || '';
+    const pts = [];
+    // Collect absolute moveto coordinates as anchor points
+    for (const [, x, y] of d.matchAll(/M\s*([\d.eE+-]+)[,\s]+([\d.eE+-]+)/g)) {
+      pts.push([parseFloat(x), parseFloat(y)]);
+      if (pts.length >= 5) break;
+    }
+    if (pts.length) return pts;
+    // Fallback: first few number pairs from path data
+    const nums = (d.match(/[\d.]+/g)||[]).map(Number).filter(v=>!isNaN(v));
+    const fb = [];
+    for (let i = 0; i < Math.min(nums.length-1, 8); i += 2) fb.push([nums[i], nums[i+1]]);
+    return fb.slice(0,3);
+  }
+  return [];
+}
+
+// Colourize every shape element in the SVG by sampling the image at its canvas position.
+// bx/by/bw/bh are the block's bounds in canvas pixel space.
+// imgData = { data: Uint8ClampedArray, width, height } — full image pixel buffer.
+export function colorizeSvgByImage(svgContent, bx, by, bw, bh, imgData) {
+  if (!imgData) return svgContent;
+  let doc;
+  try {
+    doc = new DOMParser().parseFromString(svgContent, 'image/svg+xml');
+    if (doc.querySelector('parsererror')) return svgContent;
+  } catch { return svgContent; }
+
+  const root = doc.documentElement;
+  const classFillMap = buildClassFillMap(root);
+
+  // Compute the viewBox → canvas block transform (replicates preserveAspectRatio="xMidYMid meet")
+  let vbX = 0, vbY = 0, vbW, vbH;
+  const vbStr = root.getAttribute('viewBox');
+  if (vbStr) {
+    const p = vbStr.trim().split(/[\s,]+/).map(Number);
+    [vbX, vbY, vbW, vbH] = p;
+  } else {
+    vbW = parseFloat(root.getAttribute('width')) || bw;
+    vbH = parseFloat(root.getAttribute('height')) || bh;
+  }
+  const blockScale = Math.min(bw / vbW, bh / vbH);
+  const baseX = bx + (bw - vbW * blockScale) / 2 - vbX * blockScale;
+  const baseY = by + (bh - vbH * blockScale) / 2 - vbY * blockScale;
+
+  const samplePixel = (canvasX, canvasY) => {
+    const px = Math.max(0, Math.min(Math.round(canvasX), imgData.width  - 1));
+    const py = Math.max(0, Math.min(Math.round(canvasY), imgData.height - 1));
+    const i = (py * imgData.width + px) * 4;
+    const d = imgData.data;
+    return `#${d[i].toString(16).padStart(2,'0')}${d[i+1].toString(16).padStart(2,'0')}${d[i+2].toString(16).padStart(2,'0')}`;
+  };
+
+  const SHAPE_TAGS = new Set(['rect','circle','ellipse','path','polygon','polyline','line']);
+
+  const walk = (node, parentMat) => {
+    if (node.nodeType !== 1) return;
+    const localMat = parseTransformMatrix(node.getAttribute?.('transform') || '');
+    const mat = concatMat(parentMat, localMat);
+
+    const tag = (node.tagName || '').toLowerCase().split(':').pop();
+    if (SHAPE_TAGS.has(tag)) {
+      const pts = getShapePoints(node);
+      if (pts.length) {
+        let r = 0, g = 0, b = 0;
+        for (const [sx, sy] of pts) {
+          const [ax, ay] = applyMat(mat, sx, sy);
+          const hex = samplePixel(baseX + ax * blockScale, baseY + ay * blockScale);
+          r += parseInt(hex.slice(1,3), 16);
+          g += parseInt(hex.slice(3,5), 16);
+          b += parseInt(hex.slice(5,7), 16);
+        }
+        const n = pts.length;
+        const color = `#${Math.round(r/n).toString(16).padStart(2,'0')}${Math.round(g/n).toString(16).padStart(2,'0')}${Math.round(b/n).toString(16).padStart(2,'0')}`;
+        applyFill(node, color, classFillMap);
+      }
+    }
+
+    if (node.children) {
+      for (const child of node.children) walk(child, mat);
+    }
+  };
+
+  walk(root, [1, 0, 0, 1, 0, 0]);
+
+  try { return new XMLSerializer().serializeToString(doc); }
+  catch { return svgContent; }
+}
+
+// ── Two-level template cache helpers ────────────────────────────────────────
+// buildSvgTemplate: parse the SVG once, walk the tree, replace each shape's
+// fill with a __SLOT_N__ marker while pre-computing the accumulated transforms.
+// Returns a template object that is completely image-independent.
+function buildSvgTemplate(svgContent) {
+  let doc;
+  try {
+    doc = new DOMParser().parseFromString(svgContent, 'image/svg+xml');
+    if (doc.querySelector('parsererror')) return null;
+  } catch { return null; }
+
+  const root = doc.documentElement;
+  const classFillMap = buildClassFillMap(root);
+
+  let vbX = 0, vbY = 0, vbW = 0, vbH = 0;
+  const vbStr = root.getAttribute('viewBox');
+  if (vbStr) {
+    const p = vbStr.trim().split(/[\s,]+/).map(Number);
+    [vbX, vbY, vbW, vbH] = p;
+  } else {
+    vbW = parseFloat(root.getAttribute('width')) || 0;
+    vbH = parseFloat(root.getAttribute('height')) || 0;
+  }
+
+  const shapes = [];
+  const SHAPE_TAGS_SET = new Set(['rect', 'circle', 'ellipse', 'path', 'polygon', 'polyline', 'line']);
+
+  const walk = (node, parentMat) => {
+    if (node.nodeType !== 1) return;
+    const localMat = parseTransformMatrix(node.getAttribute?.('transform') || '');
+    const mat = concatMat(parentMat, localMat);
+    const tag = (node.tagName || '').toLowerCase().split(':').pop();
+    if (SHAPE_TAGS_SET.has(tag)) {
+      const localPts = getShapePoints(node);
+      if (localPts.length) {
+        const pts = localPts.map(([x, y]) => applyMat(mat, x, y));
+        const slotIdx = shapes.length;
+        shapes.push({ pts });
+        applyFill(node, `__SLOT_${slotIdx}__`, classFillMap);
+      }
+    }
+    if (node.children) {
+      for (const child of node.children) walk(child, mat);
+    }
+  };
+
+  walk(root, [1, 0, 0, 1, 0, 0]);
+
+  let template;
+  try {
+    template = new XMLSerializer().serializeToString(doc);
+  } catch { return null; }
+
+  template = template.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
+  return { vbX, vbY, vbW, vbH, shapes, template };
+}
+
+// Public: returns the image-independent template for an SVG string, or null on failure.
+export function getSvgTemplate(svgContent) {
+  return buildSvgTemplate(svgContent);
+}
+
+// Colorize a pre-built template by sampling the image buffer.
+// No DOMParser or XMLSerializer — just pixel sampling + string replace.
+export function colorizeSvgFromTemplate(tmpl, bx, by, bw, bh, imgData) {
+  if (!imgData || !tmpl) return null;
+  const { vbX, vbY, shapes, template } = tmpl;
+  const vbW = tmpl.vbW || bw;
+  const vbH = tmpl.vbH || bh;
+  const blockScale = Math.min(bw / vbW, bh / vbH);
+  const baseX = bx + (bw - vbW * blockScale) / 2 - vbX * blockScale;
+  const baseY = by + (bh - vbH * blockScale) / 2 - vbY * blockScale;
+
+  const samplePixel = (canvasX, canvasY) => {
+    const px = Math.max(0, Math.min(Math.round(canvasX), imgData.width - 1));
+    const py = Math.max(0, Math.min(Math.round(canvasY), imgData.height - 1));
+    const i = (py * imgData.width + px) * 4;
+    const d = imgData.data;
+    return `#${d[i].toString(16).padStart(2, '0')}${d[i + 1].toString(16).padStart(2, '0')}${d[i + 2].toString(16).padStart(2, '0')}`;
+  };
+
+  const colors = shapes.map(({ pts }) => {
+    if (!pts.length) return 'currentColor';
+    let r = 0, g = 0, b = 0;
+    for (const [ax, ay] of pts) {
+      const hex = samplePixel(baseX + ax * blockScale, baseY + ay * blockScale);
+      r += parseInt(hex.slice(1, 3), 16);
+      g += parseInt(hex.slice(3, 5), 16);
+      b += parseInt(hex.slice(5, 7), 16);
+    }
+    const n = pts.length;
+    return `#${Math.round(r / n).toString(16).padStart(2, '0')}${Math.round(g / n).toString(16).padStart(2, '0')}${Math.round(b / n).toString(16).padStart(2, '0')}`;
+  });
+
+  return template.replace(/__SLOT_(\d+)__/g, (_, i) => colors[+i] ?? 'currentColor');
+}

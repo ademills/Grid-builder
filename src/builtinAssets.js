@@ -8,10 +8,13 @@
  *         circle.svg
  *       2x1/
  *         wide-bar.svg
- *     Sports/
- *       1x1/
- *         ...
+ *     Football/
+ *       Arsenal/        ← nested folders are joined as "Football / Arsenal" for the theme name
+ *         1x1/
+ *           ...
  *
+ * The last folder before each SVG file must be a grid size (e.g. 1x1, 2x1).
+ * Any number of parent folders are allowed — they are joined with " / " to form the theme name.
  * Add a new theme by creating a folder — the app picks it up automatically.
  */
 
@@ -32,9 +35,9 @@ for (const [path, svgContent] of Object.entries(svgModules)) {
   const parts = stripped.split('/');
   if (parts.length < 3) continue;
 
-  const theme = parts[0]; // 'Default'
-  const size  = parts[1]; // '1x1'
-  const file  = parts[2]; // 'square.svg'
+  const theme = parts.slice(0, -2).join(' / '); // 'Default' or 'Football / Arsenal'
+  const size  = parts[parts.length - 2];        // '1x1'
+  const file  = parts[parts.length - 1];        // 'square.svg'
   const name  = file.replace(/\.svg$/i, '');
 
   const m = size.match(/^(\d+)x(\d+)$/i);

@@ -7,7 +7,7 @@ function DraggableBlock({
   viewTransform, activeTool,
   isSelected, onSelect, onContextMenu,
   colorMode, effectivePalette, bgOptions,
-  gridCols, gridRows, gradientSettings,
+  gridCols, gridRows, gradientSettings, imageDataUrls,
 }) {
   const { setNodeRef, listeners, attributes, isDragging, transform } = useDraggable({
     id: block.id,
@@ -24,17 +24,23 @@ function DraggableBlock({
   const svgDy = transform ? transform.y / viewTransform.scale : 0;
 
   const dataUrl = useMemo(() => {
+    // Image mode: use the pre-computed data URL from App.jsx (computed off the render cycle).
+    // Fall back to the raw SVG while computation is still in progress.
+    if (colorMode === 'image') {
+      const precomputed = imageDataUrls?.[block.id];
+      if (precomputed) return precomputed;
+      const clean = block.svgContent.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
+      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
+    }
     const gradPos = colorMode === 'gradient'
       ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols, gridRows, ...(gradientSettings ?? {}) }
       : null;
     const svg = colorMode !== 'none'
       ? colorizeSvg(block.svgContent, colorMode, effectivePalette, block.colorSeed ?? 0, block.colorOffset ?? 0, bgOptions, gradPos)
       : block.svgContent;
-    const clean = svg
-      .replace(/^<\?xml[^>]*\?>\s*/i, '')
-      .replace(/<!DOCTYPE[^>]*>\s*/gi, '');
+    const clean = svg.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-  }, [block.svgContent, block.colorSeed, block.colorOffset, block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions, gridCols, gridRows, gradientSettings]);
+  }, [block.svgContent, block.id, block.colorSeed, block.colorOffset, block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions, gridCols, gridRows, gradientSettings, imageDataUrls]);
 
   const isInteractive = activeTool === 'select';
   const ui = 1 / viewTransform.scale;
@@ -125,7 +131,7 @@ export function PlacedBlocks({
   placedBlocks, gridComputed, viewTransform, activeTool,
   dragShadow,
   selectedIds, onSelect, onContextMenu,
-  colorMode, effectivePalette, bgOptions, gradientSettings,
+  colorMode, effectivePalette, bgOptions, gradientSettings, imageDataUrls,
 }) {
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;
 
@@ -169,6 +175,7 @@ export function PlacedBlocks({
           gridCols={gridComputed.cols}
           gridRows={gridComputed.rows}
           gradientSettings={gradientSettings}
+          imageDataUrls={imageDataUrls}
         />
       ))}
     </g>

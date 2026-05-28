@@ -43,6 +43,7 @@ export function FloatingPanel({
   customPalettes, onSaveCustomPalette, onDeleteCustomPalette, onApplyCustomPalette,
   autoFill, onAutoFillChange,
   gradientSettings, onGradientSettingsChange,
+  imageSrc, onImageSrcChange, imageProgress,
   showShortcuts, onToggleShortcuts,
   assetUsageCounts,
   onFlipH, onFlipV, canFlip,
@@ -91,6 +92,16 @@ export function FloatingPanel({
 
   const fileInputRef = useRef(null);
   const projectInputRef = useRef(null);
+  const imageInputRef = useRef(null);
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => onImageSrcChange(evt.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const [rawCustomHex, setRawCustomHex] = useState('');
   const [rawBgHex,     setRawBgHex]     = useState('');
@@ -796,6 +807,7 @@ export function FloatingPanel({
                             { key: 'uniform',  label: 'Uniform' },
                             { key: 'random',   label: 'Random' },
                             { key: 'gradient', label: 'Gradient' },
+                            { key: 'image',    label: 'Image' },
                           ].map(({ key, label }) => (
                             <button key={key}
                               className={`${styles.modeBtn} ${colorMode === key ? styles.modeBtnActive : ''}`}
@@ -805,7 +817,7 @@ export function FloatingPanel({
                         </div>
                       </div>
 
-                      {colorMode !== 'none' && (
+                      {colorMode !== 'none' && colorMode !== 'image' && (
                         <button className={styles.assetsBrowserBtn} onClick={() => setView('colours')}>
                           <span className={styles.coloursBrowserContent}>
                             <span className={styles.coloursBrowserLabel}>Edit colours</span>
@@ -817,6 +829,43 @@ export function FloatingPanel({
                           </span>
                           <span className={styles.assetsBrowserArrow}>›</span>
                         </button>
+                      )}
+
+                      {colorMode === 'image' && (
+                        <div className={styles.imageUploadArea}>
+                          <input
+                            ref={imageInputRef}
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={handleImageUpload}
+                          />
+                          {imageSrc ? (
+                            <div className={styles.imageThumbnailWrapper}>
+                              <img src={imageSrc} className={styles.imageThumbnail} alt="Source" />
+                              <div className={styles.imageThumbnailActions}>
+                                <button className={styles.imageReplaceBtn} onClick={() => imageInputRef.current?.click()}>
+                                  Replace
+                                </button>
+                                <button className={styles.imageRemoveBtn} onClick={() => onImageSrcChange(null)}>
+                                  ×
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button className={styles.ingestBtn} onClick={() => imageInputRef.current?.click()}>
+                              Upload image…
+                            </button>
+                          )}
+                          {imageProgress !== null && (
+                            <div className={styles.imageProgressBar}>
+                              <div
+                                className={styles.imageProgressFill}
+                                style={{ width: `${imageProgress}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
                       )}
 
                       {colorMode === 'gradient' && gradientSettings && (

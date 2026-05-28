@@ -8,7 +8,7 @@ import { PlacedBlocks } from './components/PlacedBlocks';
 import { SelectionToolbar } from './components/SelectionToolbar';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
-import { PALETTE_KEYS, PALETTES, colorizeSvg } from './utils/colorize';
+import { PALETTE_KEYS, PALETTES, colorizeSvg, colorizeSvgByImage, getSvgTemplate, colorizeSvgFromTemplate } from './utils/colorize';
 import { ALL_BUILTIN_ASSETS, DEFAULT_ENABLED_IDS } from './builtinAssets';
 import './App.css';
 import styles from './App.module.css';
@@ -161,6 +161,154 @@ function App() {
     ...gradientSettings,
     gradBgColors: (gradientSettings.gradBgColors ?? []).filter(c => c.enabled).map(c => c.hex),
   }), [gradientSettings]);
+
+  // Image colour mode
+  const [imageSrc, setImageSrc] = useState(null);
+  const [imagePixels, setImagePixels] = useState(null); // { data: Uint8ClampedArray, width, height }
+  const [imageDataUrls, setImageDataUrls] = useState({}); // blockId → pre-computed data URL
+  // Cache: keyed by (position + svgContent fingerprint), invalidated when imagePixels changes
+  const imageUrlCacheRef = useRef({ pixels: null, map: new Map() });
+  // Level-1 template cache: keyed by svgContent fingerprint, image-independent, survives image changes
+  const svgTemplateCacheRef = useRef(new Map());
+  const [imageProgress, setImageProgress] = useState(null); // null = idle, 0-100 = computing
+
+  // Step 1: when the image or work area changes, extract the pixel buffer once
+  useEffect(() => {
+    if (colorMode !== 'image' || !imageSrc) {
+      setImagePixels(null);
+      return;
+    }
+    const img = new window.Image();
+    img.onload = () => {
+      const cw = workArea.width;
+      const ch = workArea.height;
+      const cv = document.createElement('canvas');
+      cv.width = cw;
+      cv.height = ch;
+      const ctx = cv.getContext('2d');
+      // Cover scaling: fill the canvas, preserve aspect ratio, centre
+      const imgAspect = img.naturalWidth / img.naturalHeight;
+      const canvasAspect = cw / ch;
+      let dw, dh, dx, dy;
+      if (imgAspect > canvasAspect) {
+        dh = ch; dw = dh * imgAspect;
+        dx = (cw - dw) / 2; dy = 0;
+      } else {
+        dw = cw; dh = dw / imgAspect;
+        dx = 0; dy = (ch - dh) / 2;
+      }
+      ctx.drawImage(img, dx, dy, dw, dh);
+      const { data } = ctx.getImageData(0, 0, cw, ch);
+      setImagePixels({ data, width: cw, height: ch });
+    };
+    img.src = imageSrc;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorMode, imageSrc, workArea.width, workArea.height]);
+
+  // Step 2: compute coloured URLs in two phases so the browser never freezes.
+  // Phase 1 builds image-independent SVG templates (DOMParser+serialize, once per unique SVG).
+  // Phase 2 colorizes using those templates (no DOMParser — just pixel sampling + string replace).
+  // On a refill with the same assets at new positions, phase 1 is entirely skipped.
+  useEffect(() => {
+    if (colorMode !== 'image' || !imagePixels || !gridComputed || !placedBlocks.length) {
+      setImageDataUrls({});
+      setImageProgress(null);
+      return;
+    }
+
+    if (imageUrlCacheRef.current.pixels !== imagePixels) {
+      imageUrlCacheRef.current = { pixels: imagePixels, map: new Map() };
+    }
+    const urlCache = imageUrlCacheRef.current.map;
+    const tplCache = svgTemplateCacheRef.current;
+
+    const makeSvgKey = (b) => `${b.svgContent.length}:${b.svgContent.slice(0, 256)}`;
+    const makeUrlKey = (b) =>
+      `${b.gridCol},${b.gridRow},${b.cols},${b.rows}:${makeSvgKey(b)}`;
+
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+
+    const fromCache = {};
+    const toCompute = [];
+    for (const block of placedBlocks) {
+      const urlKey = makeUrlKey(block);
+      const hit = urlCache.get(urlKey);
+      if (hit) fromCache[block.id] = hit;
+      else toCompute.push({ block, urlKey, svgKey: makeSvgKey(block) });
+    }
+    setImageDataUrls(fromCache);
+
+    if (!toCompute.length) { setImageProgress(null); return; }
+
+    // Unique SVGs that need a template built
+    const svgContentByKey = {};
+    for (const { block, svgKey } of toCompute) {
+      if (!svgContentByKey[svgKey]) svgContentByKey[svgKey] = block.svgContent;
+    }
+    const missingTpls = Object.keys(svgContentByKey).filter(k => !tplCache.has(k));
+
+    setImageProgress(0);
+    let cancelled = false, timerId;
+
+    // Phase 1: build missing templates (DOMParser + serialize, ~5-8ms each)
+    let tplIdx = 0;
+    const CHUNK_TPL = 4;
+    const tickTemplates = () => {
+      if (cancelled) return;
+      const end = Math.min(tplIdx + CHUNK_TPL, missingTpls.length);
+      for (; tplIdx < end; tplIdx++) {
+        const key = missingTpls[tplIdx];
+        const tpl = getSvgTemplate(svgContentByKey[key]);
+        if (tpl) {
+          if (tplCache.size >= 500) tplCache.clear();
+          tplCache.set(key, tpl);
+        }
+      }
+      setImageProgress(Math.round((tplIdx / missingTpls.length) * 30));
+      if (tplIdx < missingTpls.length) {
+        timerId = setTimeout(tickTemplates, 0);
+      } else {
+        timerId = setTimeout(tickColorize, 0);
+      }
+    };
+
+    // Phase 2: colorize all toCompute blocks using templates (fast string replace)
+    let clrIdx = 0;
+    const CHUNK_CLR = 15;
+    const tickColorize = () => {
+      if (cancelled) return;
+      const end = Math.min(clrIdx + CHUNK_CLR, toCompute.length);
+      const chunk = {};
+      for (; clrIdx < end; clrIdx++) {
+        const { block, urlKey, svgKey } = toCompute[clrIdx];
+        const bx = gridOriginX + block.gridCol * cellSize;
+        const by = gridOriginY + block.gridRow * cellSize;
+        const bw = block.cols * cellSize;
+        const bh = block.rows * cellSize;
+        const tpl = tplCache.get(svgKey);
+        let svgStr = tpl ? colorizeSvgFromTemplate(tpl, bx, by, bw, bh, imagePixels) : null;
+        if (!svgStr) {
+          const raw = colorizeSvgByImage(block.svgContent, bx, by, bw, bh, imagePixels);
+          svgStr = raw.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
+        }
+        const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
+        chunk[block.id] = url;
+        if (urlCache.size >= 300) urlCache.clear();
+        urlCache.set(urlKey, url);
+      }
+      setImageDataUrls(prev => ({ ...prev, ...chunk }));
+      setImageProgress(30 + Math.round((clrIdx / toCompute.length) * 70));
+      if (clrIdx < toCompute.length) {
+        timerId = setTimeout(tickColorize, 0);
+      } else {
+        timerId = setTimeout(() => { if (!cancelled) setImageProgress(null); }, 800);
+      }
+    };
+
+    timerId = setTimeout(missingTpls.length ? tickTemplates : tickColorize, 0);
+    return () => { cancelled = true; clearTimeout(timerId); setImageProgress(null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorMode, imagePixels, placedBlocks, gridComputed]);
 
   const skipNextClear = useRef(false);
 
@@ -478,7 +626,10 @@ function App() {
     if (!activeAssets.length) return;
     setPlacedBlocks(prev => prev.map(b => {
       if (!selectedIds.has(b.id) || b.colorLocked) return b;
-      const pick = activeAssets[Math.floor(Math.random() * activeAssets.length)];
+      // Only substitute with a same-size asset so the grid layout is preserved
+      const sameSize = activeAssets.filter(a => a.cols === b.cols && a.rows === b.rows);
+      if (!sameSize.length) return b;
+      const pick = sameSize[Math.floor(Math.random() * sameSize.length)];
       return {
         ...b,
         svgContent: pick.svgContent,
@@ -521,11 +672,38 @@ function App() {
   }, [selectedIds, placedBlocks]);
 
   const handleSwapSelected = useCallback((asset) => {
-    setPlacedBlocks(prev => prev.map(b =>
-      selectedIds.has(b.id)
-        ? { ...b, svgContent: asset.svgContent, name: asset.name, assetId: asset.id, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0 }
-        : b
-    ));
+    setPlacedBlocks(prev => {
+      let result = prev;
+      for (const id of selectedIds) {
+        const block = result.find(b => b.id === id);
+        if (!block) continue;
+        const newCols = asset.cols ?? block.cols;
+        const newRows = asset.rows ?? block.rows;
+        // Remove any blocks that would now be overlapped by the resized block
+        const overlapIds = new Set(
+          result
+            .filter(b =>
+              b.id !== id &&
+              b.gridCol < block.gridCol + newCols && b.gridCol + b.cols > block.gridCol &&
+              b.gridRow < block.gridRow + newRows && b.gridRow + b.rows > block.gridRow
+            )
+            .map(b => b.id)
+        );
+        result = result
+          .filter(b => !overlapIds.has(b.id))
+          .map(b => b.id === id ? {
+            ...b,
+            cols: newCols,
+            rows: newRows,
+            svgContent: asset.svgContent,
+            name: asset.name,
+            assetId: asset.id,
+            colorSeed: Math.floor(Math.random() * 0x80000000),
+            colorOffset: 0,
+          } : b);
+      }
+      return result;
+    });
   }, [selectedIds]);
 
   // ── Drag & drop ─────────────────────────────────────────────────────────
@@ -603,7 +781,7 @@ function App() {
       );
 
       if (overlapping.length === 0) {
-        // Empty target — move
+        // Empty target — simple move
         return prev.map(b =>
           b.id === active.id ? { ...b, gridCol: targetCol, gridRow: targetRow } : b
         );
@@ -611,7 +789,7 @@ function App() {
 
       if (overlapping.length === 1) {
         const other = overlapping[0];
-        // Same-size block — swap positions
+        // Exact same size — swap positions
         if (other.cols === dragged.cols && other.rows === dragged.rows) {
           return prev.map(b => {
             if (b.id === dragged.id) return { ...b, gridCol: targetCol, gridRow: targetRow };
@@ -621,8 +799,11 @@ function App() {
         }
       }
 
-      // Target occupied by differently-sized block(s) — snap back
-      return prev;
+      // Different sizes — remove all overlapping blocks and place dragged at target
+      const overlapIds = new Set(overlapping.map(b => b.id));
+      return prev
+        .filter(b => !overlapIds.has(b.id))
+        .map(b => b.id === active.id ? { ...b, gridCol: targetCol, gridRow: targetRow } : b);
     });
   }, []);
 
@@ -766,6 +947,7 @@ function App() {
     bgRect.setAttribute('fill', canvasBg);
     out.appendChild(bgRect);
 
+
     placedBlocks.forEach(block => {
       const bx = gridOriginX + block.gridCol * cellSize;
       const by = gridOriginY + block.gridRow * cellSize;
@@ -773,10 +955,15 @@ function App() {
       const bh = block.rows * cellSize;
 
       // Apply the same colorisation used in the live preview
-      const svgText = colorMode !== 'none'
-        ? colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
-            colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null)
-        : block.svgContent;
+      let svgText;
+      if (colorMode === 'image') {
+        svgText = colorizeSvgByImage(block.svgContent, bx, by, bw, bh, imagePixels);
+      } else if (colorMode !== 'none') {
+        svgText = colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
+          colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null);
+      } else {
+        svgText = block.svgContent;
+      }
 
       const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
       if (blockDoc.querySelector('parsererror')) return;
@@ -821,7 +1008,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, activeBgColors, canvasBg]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, activeBgColors, canvasBg, imagePixels, imageDataUrls, activeGradientSettings]);
 
   return (
     <DndContext
@@ -871,6 +1058,7 @@ function App() {
             effectivePalette={effectivePalette}
             bgOptions={activeBgColors}
             gradientSettings={activeGradientSettings}
+            imageDataUrls={imageDataUrls}
           />
         </Canvas>
 
@@ -943,6 +1131,9 @@ function App() {
           onAutoFillChange={setAutoFill}
           gradientSettings={gradientSettings}
           onGradientSettingsChange={setGradientSettings}
+          imageSrc={imageSrc}
+          onImageSrcChange={setImageSrc}
+          imageProgress={imageProgress}
           showShortcuts={showShortcuts}
           onToggleShortcuts={() => setShowShortcuts(s => !s)}
           assetUsageCounts={assetUsageCounts}

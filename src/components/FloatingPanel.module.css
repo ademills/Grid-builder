@@ -551,6 +551,7 @@
 
 .modeToggle {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   flex: 1;
 }
@@ -602,10 +603,97 @@
   box-shadow: -2px -2px 5px rgba(255,255,255,0.85), 3px 3px 6px rgba(0,0,0,0.13), 0 0 0 1px rgba(77,52,211,0.2);
 }
 
+/* ── Image upload (image colour mode) ─────────────────── */
+
+.imageUploadArea {
+  margin-top: 6px;
+}
+
+.imageThumbnailWrapper {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: inset -1px -1px 3px rgba(255,255,255,0.8), inset 2px 2px 4px rgba(0,0,0,0.1);
+}
+
+.imageThumbnail {
+  display: block;
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+}
+
+.imageThumbnailActions {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.imageThumbnailWrapper:hover .imageThumbnailActions {
+  opacity: 1;
+}
+
+.imageReplaceBtn {
+  padding: 3px 8px;
+  background: rgba(255,255,255,0.9);
+  border: none;
+  border-radius: 4px;
+  color: #333;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.imageReplaceBtn:hover {
+  background: #fff;
+}
+
+.imageRemoveBtn {
+  margin-left: auto;
+  padding: 3px 7px;
+  background: rgba(220,50,50,0.85);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s;
+  line-height: 1;
+}
+
+.imageRemoveBtn:hover {
+  background: rgba(200,30,30,0.95);
+}
+
 .assetsBrowserArrow {
   font-size: 16px;
   color: #ccc;
   line-height: 1;
+}
+
+/* ── Image compute progress bar ────────────────────────── */
+
+.imageProgressBar {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0,0,0,0.08);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.imageProgressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #4d34d3, #7c5ff5);
+  border-radius: 2px;
+  transition: width 0.15s ease-out;
 }
 
 /* ── Asset browser tree ────────────────────────────────── */
