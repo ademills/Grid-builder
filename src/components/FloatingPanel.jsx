@@ -65,6 +65,9 @@ export function FloatingPanel({
   bgColors, onBgColorsChange,
   customPalettes, onSaveCustomPalette, onDeleteCustomPalette, onApplyCustomPalette,
   autoFill, onAutoFillChange,
+  uniformReverse, onUniformReverseChange,
+  randomReverseEnabled, onRandomReverseEnabledChange, randomReversePct, onRandomReversePctChange, onRandomReverse,
+  onRandomRerun,
   gradientSettings, onGradientSettingsChange,
   imageSrc, onImageSrcChange, imageProgress,
   showShortcuts, onToggleShortcuts,
@@ -78,7 +81,7 @@ export function FloatingPanel({
   const THUMB_PALETTE = ['#e4e4e7', '#d4d4d8', '#a1a1aa', '#71717a', '#52525b', '#3f3f46'];
   const THUMB_BG = ['#27272a'];
 
-  const [openGroups, setOpenGroups] = useState(new Set(['Design', 'NBA']));
+  const [openGroups, setOpenGroups] = useState(new Set());
   const toggleGroup = name => setOpenGroups(prev => {
     const next = new Set(prev);
     next.has(name) ? next.delete(name) : next.add(name);
@@ -854,6 +857,73 @@ export function FloatingPanel({
                         </div>
                       </div>
 
+                      {colorMode === 'uniform' && (
+                        <>
+                          <div className={styles.formRow} style={{ marginTop: 6 }}>
+                            <span className={styles.label}>Reverse</span>
+                            <button
+                              className={`${styles.modeBtn} ${uniformReverse ? styles.modeBtnActive : ''}`}
+                              style={{ flex: 'none', padding: '3px 8px', fontSize: 10 }}
+                              onClick={() => onUniformReverseChange(!uniformReverse)}
+                              title="Apply palette colours in reverse order for all blocks"
+                            >Reverse</button>
+                          </div>
+
+                          <div className={styles.formRow} style={{ marginTop: 4 }}>
+                            <span className={styles.label}>Rnd Rev</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <button
+                                className={`${styles.modeBtn} ${randomReverseEnabled ? styles.modeBtnActive : ''}`}
+                                style={{ flex: 'none', padding: '3px 8px', fontSize: 10 }}
+                                onClick={() => {
+                                  if (!randomReverseEnabled) {
+                                    onRandomReverseEnabledChange(true);
+                                    onRandomReverse();
+                                  } else {
+                                    onRandomReverseEnabledChange(false);
+                                  }
+                                }}
+                                title="Randomly reverse palette colours on a percentage of blocks"
+                              >{randomReverseEnabled ? 'On' : 'Off'}</button>
+                              {randomReverseEnabled && (
+                                <button
+                                  className={styles.modeBtn}
+                                  style={{ flex: 'none', padding: '3px 10px', fontSize: 12 }}
+                                  onClick={onRandomReverse}
+                                  title="Re-randomise"
+                                >↺</button>
+                              )}
+                            </div>
+                          </div>
+
+                          {randomReverseEnabled && (
+                            <div className={styles.formRow} style={{ marginTop: 2 }}>
+                              <span className={styles.label}>{randomReversePct}%</span>
+                              <div className={styles.sliderRow}>
+                                <input
+                                  type="range" min={0} max={100} step={5}
+                                  value={randomReversePct}
+                                  onChange={e => onRandomReversePctChange(+e.target.value)}
+                                  className={styles.slider}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {colorMode === 'random' && (
+                        <div className={styles.formRow} style={{ marginTop: 6 }}>
+                          <span className={styles.label}>Re-run</span>
+                          <button
+                            className={styles.modeBtn}
+                            style={{ flex: 'none', padding: '3px 12px', fontSize: 12 }}
+                            onClick={onRandomRerun}
+                            title="Re-randomise all block colour seeds"
+                          >↺ Shuffle</button>
+                        </div>
+                      )}
+
                       {colorMode !== 'none' && colorMode !== 'image' && (
                         <button className={styles.assetsBrowserBtn} onClick={() => setView('colours')}>
                           <span className={styles.coloursBrowserContent}>
@@ -959,6 +1029,25 @@ export function FloatingPanel({
 
                           {gradientSettings.gradMode === 'radial' && (
                             <>
+                              <div className={styles.gradDirGrid}>
+                                {[
+                                  { cx: 0,   cy: 0,   label: '↖' },
+                                  { cx: 0.5, cy: 0,   label: '↑' },
+                                  { cx: 1,   cy: 0,   label: '↗' },
+                                  { cx: 0,   cy: 0.5, label: '←' },
+                                  { cx: 0.5, cy: 0.5, label: '·' },
+                                  { cx: 1,   cy: 0.5, label: '→' },
+                                  { cx: 0,   cy: 1,   label: '↙' },
+                                  { cx: 0.5, cy: 1,   label: '↓' },
+                                  { cx: 1,   cy: 1,   label: '↘' },
+                                ].map(({ cx, cy, label }) => (
+                                  <button
+                                    key={`${cx}-${cy}`}
+                                    className={`${styles.gradDirBtn} ${gradientSettings.centerX === cx && gradientSettings.centerY === cy ? styles.gradDirBtnActive : ''}`}
+                                    onClick={() => onGradientSettingsChange({ ...gradientSettings, centerX: cx, centerY: cy })}
+                                  >{label}</button>
+                                ))}
+                              </div>
                               <div className={styles.formRow} style={{ marginTop: 6 }}>
                                 <span className={styles.label}>Center X</span>
                                 <div className={styles.sliderRow}>
@@ -997,6 +1086,48 @@ export function FloatingPanel({
                                 className={styles.slider}
                               />
                               <span className={styles.sliderVal}>×{(gradientSettings.gradScale ?? 1).toFixed(1)}</span>
+                            </div>
+                          </div>
+
+                          {/* Repeat */}
+                          <div className={styles.formRow} style={{ marginTop: 6 }}>
+                            <span className={styles.label}>Repeat</span>
+                            <div className={styles.sliderRow}>
+                              <input
+                                type="range" min={1} max={8} step={1}
+                                value={gradientSettings.repeat ?? 1}
+                                onChange={e => onGradientSettingsChange({ ...gradientSettings, repeat: +e.target.value })}
+                                className={styles.slider}
+                              />
+                              <span className={styles.sliderVal}>×{gradientSettings.repeat ?? 1}</span>
+                            </div>
+                          </div>
+
+                          {(gradientSettings.repeat ?? 1) > 1 && (
+                            <div className={styles.formRow} style={{ marginTop: 2 }}>
+                              <span className={styles.label}>Mode</span>
+                              <div className={styles.modeToggle}>
+                                {[{ key: 'tile', label: 'Tile' }, { key: 'mirror', label: 'Mirror' }].map(({ key, label }) => (
+                                  <button key={key}
+                                    className={`${styles.modeBtn} ${(gradientSettings.repeatMode ?? 'tile') === key ? styles.modeBtnActive : ''}`}
+                                    onClick={() => onGradientSettingsChange({ ...gradientSettings, repeatMode: key })}
+                                  >{label}</button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Jitter */}
+                          <div className={styles.formRow} style={{ marginTop: 6 }}>
+                            <span className={styles.label}>Jitter</span>
+                            <div className={styles.sliderRow}>
+                              <input
+                                type="range" min={0} max={100} step={5}
+                                value={Math.round((gradientSettings.jitter ?? 0) * 100)}
+                                onChange={e => onGradientSettingsChange({ ...gradientSettings, jitter: +e.target.value / 100 })}
+                                className={styles.slider}
+                              />
+                              <span className={styles.sliderVal}>{Math.round((gradientSettings.jitter ?? 0) * 100)}%</span>
                             </div>
                           </div>
 

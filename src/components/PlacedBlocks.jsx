@@ -8,6 +8,7 @@ function DraggableBlock({
   isSelected, onSelect, onContextMenu,
   colorMode, effectivePalette, bgOptions,
   gridCols, gridRows, gradientSettings, imageDataUrls,
+  randomReverseEnabled,
 }) {
   const { setNodeRef, listeners, attributes, isDragging, transform } = useDraggable({
     id: block.id,
@@ -32,15 +33,18 @@ function DraggableBlock({
       const clean = block.svgContent.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
       return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
     }
+    const blockPalette = (randomReverseEnabled && block.reverseColor)
+      ? [...effectivePalette].reverse()
+      : effectivePalette;
     const gradPos = colorMode === 'gradient'
       ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols, gridRows, ...(gradientSettings ?? {}) }
       : null;
     const svg = colorMode !== 'none'
-      ? colorizeSvg(block.svgContent, colorMode, effectivePalette, block.colorSeed ?? 0, block.colorOffset ?? 0, bgOptions, gradPos)
+      ? colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, bgOptions, gradPos)
       : block.svgContent;
     const clean = svg.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-  }, [block.svgContent, block.id, block.colorSeed, block.colorOffset, block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions, gridCols, gridRows, gradientSettings, imageDataUrls]);
+  }, [block.svgContent, block.id, block.colorSeed, block.colorOffset, block.reverseColor, block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions, gridCols, gridRows, gradientSettings, imageDataUrls, randomReverseEnabled]);
 
   const isInteractive = activeTool === 'select';
   const ui = 1 / viewTransform.scale;
@@ -132,6 +136,7 @@ export function PlacedBlocks({
   dragShadow,
   selectedIds, onSelect, onContextMenu,
   colorMode, effectivePalette, bgOptions, gradientSettings, imageDataUrls,
+  randomReverseEnabled,
 }) {
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;
 
@@ -176,6 +181,7 @@ export function PlacedBlocks({
           gridRows={gridComputed.rows}
           gradientSettings={gradientSettings}
           imageDataUrls={imageDataUrls}
+          randomReverseEnabled={randomReverseEnabled}
         />
       ))}
     </g>

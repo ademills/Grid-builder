@@ -8,6 +8,9 @@ export const PALETTES = {
   Sunset:   ['#FF3D00', '#FF6E40', '#FF9100', '#FFAB40', '#FFD740', '#FF6D00'],
   Forest:   ['#1B4332', '#2D6A4F', '#40916C', '#52B788', '#74C69D', '#95D5B2'],
   Mono:     ['#1a1a1a', '#404040', '#666666', '#8C8C8C', '#B3B3B3', '#D9D9D9'],
+  Candy:    ['#FF6EB4', '#FF9CC2', '#B5E8FF', '#FFE066', '#A8F0C8', '#FF8FAB'],
+  Jewel:    ['#7B2D8B', '#C41E3A', '#006B5E', '#1A3A8A', '#C8A84B', '#2E8B57'],
+  Slate:    ['#3A4A5A', '#6A7A8A', '#9AAAB8', '#C0D0DC', '#E0E8F0', '#F5F8FA'],
   // San Antonio Spurs — current black + silver, plus retro fuchsia/teal/orange (1989–2002)
   Spurs:    ['#000000', '#C4CED4', '#8D9093', '#EF426F', '#00B2A9', '#FF8200'],
 
@@ -32,6 +35,12 @@ export const PALETTES = {
   'Lo-Fi':      ['#f8c8a0', '#e8a87c', '#c87856', '#9a5c38', '#5c3720', '#f0e0d0'],
   Kodachrome:   ['#d64e2a', '#e8923a', '#f5c842', '#4a8a3c', '#2b5a8c', '#9c3a2a'],
   Cassette:     ['#e8e0d0', '#c8c0b0', '#8a8070', '#404038', '#c04020', '#208090'],
+  'Art Nouveau': ['#4A6741', '#8B9E30', '#D4B862', '#8B6914', '#5A3E1A', '#C4A464'],
+  Psychedelic:   ['#FF1493', '#FFFF00', '#00FF7F', '#FF4500', '#9400D3', '#00BFFF'],
+  'Mod 60s':     ['#CC0033', '#FF6600', '#FFCC00', '#009933', '#0055CC', '#FFFFFF'],
+  Rockabilly:    ['#CC1A1A', '#0A3A6B', '#F5E8C0', '#4A4A4A', '#E8D080', '#8B6914'],
+  'New Wave':    ['#1A0A3A', '#CC0088', '#0044CC', '#00CCCC', '#FFD700', '#FFFFFF'],
+  'Glam Rock':   ['#CC0066', '#D4A800', '#0A0A2A', '#8B0066', '#EE88BB', '#F5E8D0'],
 
   // ── Popular / trending ───────────────────────────────────
   // Full-spectrum rainbow
@@ -54,6 +63,12 @@ export const PALETTES = {
   Harvest:  ['#4F372D', '#CC2A36', '#EB6841', '#EDC951', '#00A0B0', '#BEE5D3'],
   // Classic preppy navy
   Navy:     ['#1E1F26', '#283655', '#4D648D', '#7395AE', '#D0E1F9', '#FFFFFF'],
+  // Purple dusk bleeding into amber
+  Dusk:     ['#2D1B69', '#8E44AD', '#E74C3C', '#E67E22', '#F39C12', '#F8C471'],
+  // Deep cherry reds into blush
+  Cherry:   ['#8B0A1A', '#C41230', '#E83050', '#FF8099', '#FFD0D8', '#FFFFFF'],
+  // Cold iceberg blues
+  Glacier:  ['#103060', '#2060A0', '#4090C0', '#80C0E0', '#C0E0F0', '#E8F4F8'],
 
   // ── NBA Current (30 teams) ───────────────────────────────
   Hawks:         ['#E03A3E', '#C1D32F', '#26282A', '#000000', '#FFFFFF', '#A02028'],
@@ -111,6 +126,152 @@ export const PALETTES = {
   'Mavs Classic':    ['#007041', '#002B5E', '#B8C4CA', '#FFFFFF', '#004A28', '#D4D4D4'],
   // Indiana Pacers ABA era — vibrant gold & blue
   'Pacers ABA':      ['#BF9B30', '#001F70', '#FFFFFF', '#8A7020', '#000F50', '#D4B840'],
+
+  // ── NCAA Football (Top 10) ────────────────────────────────
+  Alabama:           ['#9E1B32', '#FFFFFF', '#828A8F', '#6D1220', '#BFC0BF', '#1A1A1A'],
+  'Ohio State':      ['#BB0000', '#666666', '#FFFFFF', '#8B0000', '#E8E8E8', '#2A2A2A'],
+  Georgia:           ['#BA0C2F', '#000000', '#FFFFFF', '#808080', '#850A22', '#E0E0E0'],
+  Michigan:          ['#FFCB05', '#00274C', '#FFFFFF', '#001A38', '#D4A700', '#5A8AA8'],
+  'Notre Dame':      ['#0C2340', '#AE9142', '#FFFFFF', '#071528', '#D4B862', '#B0C0D0'],
+  Clemson:           ['#F66733', '#522D80', '#FFFFFF', '#C44D1A', '#3A1F58', '#F5F0E8'],
+  Texas:             ['#BF5700', '#FFFFFF', '#1A1A1A', '#8F4000', '#D4956A', '#F5E8D8'],
+  'Penn State':      ['#041E42', '#FFFFFF', '#009CDE', '#020F28', '#A0A8B0', '#6A7A88'],
+  LSU:               ['#461D7C', '#FDD023', '#FFFFFF', '#2D1050', '#EAC010', '#888888'],
+  Oklahoma:          ['#841617', '#F5E6C8', '#FFFFFF', '#5A0F10', '#C4A060', '#888888'],
+
+  // ── NCAA Basketball (Top 10) ──────────────────────────────
+  Kentucky:          ['#0033A0', '#FFFFFF', '#C0C0C0', '#00227A', '#6699CC', '#3A3A3A'],
+  Duke:              ['#003087', '#FFFFFF', '#000000', '#001F5B', '#4A74B0', '#AAAAAA'],
+  Kansas:            ['#E8000D', '#0051A5', '#FFFFFF', '#A80000', '#FFC82D', '#003A7A'],
+  UNC:               ['#4B9CD3', '#13294B', '#FFFFFF', '#0C1E38', '#7ABDE0', '#C0C8D0'],
+  UCLA:              ['#2D68C4', '#FFB81C', '#FFFFFF', '#1A4A8A', '#D49600', '#E8F0F8'],
+  UConn:             ['#002868', '#FFFFFF', '#4791D2', '#001840', '#B0B8C8', '#6A7888'],
+  Gonzaga:           ['#041C2C', '#C8102E', '#FFFFFF', '#021018', '#8A0B1F', '#D0D0D0'],
+  Indiana:           ['#990000', '#DFBE85', '#FFFFFF', '#660000', '#C4A060', '#8B6030'],
+  'Michigan State':  ['#18453B', '#FFFFFF', '#2D7060', '#0D2D22', '#4A9080', '#F0F0E8'],
+  Syracuse:          ['#D44500', '#002147', '#FFFFFF', '#9A3A00', '#001030', '#A0A0A0'],
+
+  // ── NFL (12 teams) ────────────────────────────────────────
+  Cowboys:           ['#003594', '#869397', '#FFFFFF', '#002060', '#606870', '#C0C8CC'],
+  Packers:           ['#203731', '#FFB612', '#FFFFFF', '#14261F', '#C88A00', '#E8D080'],
+  Steelers:          ['#101820', '#FFB612', '#A5ACAF', '#000000', '#D4D4D4', '#2A2A2A'],
+  '49ers':           ['#AA0000', '#B3995D', '#FFFFFF', '#780000', '#D4BC7C', '#1A1A1A'],
+  Chiefs:            ['#E31837', '#FFB612', '#FFFFFF', '#A01028', '#C88A00', '#1A1A1A'],
+  Bears:             ['#0B162A', '#C83803', '#FFFFFF', '#060E1C', '#3A5070', '#E87850'],
+  Dolphins:          ['#008E97', '#FC4C02', '#FFFFFF', '#006068', '#40B0B8', '#E0F4F5'],
+  Vikings:           ['#4F2683', '#FFC62F', '#FFFFFF', '#341960', '#C89800', '#888888'],
+  Seahawks:          ['#002244', '#69BE28', '#A5ACAF', '#FFFFFF', '#001428', '#4A8A18'],
+  Eagles:            ['#004C54', '#A5ACAF', '#000000', '#FFFFFF', '#003038', '#3A3A3A'],
+  Saints:            ['#D3BC8D', '#101820', '#FFFFFF', '#A88C5C', '#E8D4A8', '#888888'],
+  Ravens:            ['#241773', '#000000', '#9E7C0C', '#FFFFFF', '#180F50', '#C8A030'],
+
+  // ── Music Genres ──────────────────────────────────────────
+  'Jazz Club':       ['#3D1A24', '#8B6914', '#C4A87A', '#E8D4A0', '#6A6060', '#1A0808'],
+  'Delta Blues':     ['#1A1A3E', '#2E3B7A', '#7A6090', '#8B7060', '#B8A880', '#3A3050'],
+  Country:           ['#3A5A7A', '#D46820', '#E8C870', '#A82818', '#8B5A38', '#F0E0C0'],
+  'Hip Hop':         ['#0A0A0A', '#C0C0C0', '#CC1A00', '#D4AC20', '#0055EE', '#F0F0F0'],
+  'Heavy Metal':     ['#000000', '#8B0000', '#505050', '#C0C0C0', '#E8E0D8', '#2A2A2A'],
+  'Punk Rock':       ['#0A0A0A', '#FF0080', '#FFE000', '#FFFFFF', '#CC00CC', '#00CC44'],
+  Classical:         ['#6B1A2A', '#F5ECD0', '#C8901A', '#1A2A6B', '#E8D8B0', '#8B6A1A'],
+  EDM:               ['#000011', '#00F5FF', '#0044FF', '#AA00FF', '#FFFFFF', '#00FF88'],
+  Reggae:            ['#CC1100', '#F5B800', '#008800', '#1A1A1A', '#FF6600', '#FFFFFF'],
+  Soul:              ['#4A1A4A', '#8B4520', '#C06880', '#C8901A', '#F0D8C0', '#2A0A2A'],
+  Folk:              ['#6B3318', '#D4901A', '#6A8A50', '#F5E8CC', '#A04020', '#4A7A9A'],
+  Gospel:            ['#4A0A7A', '#FFD700', '#1A3A8A', '#AA1010', '#FFFFFF', '#E8A030'],
+  'Indie Rock':      ['#2D3A4A', '#C84820', '#D4A060', '#8B7050', '#4A6A4A', '#E8D8C0'],
+  'R&B':             ['#1A0A3A', '#6B1A8A', '#C84A20', '#E8B060', '#F5E8D0', '#3A1A5A'],
+  Opera:             ['#4A0A0A', '#8B0A1A', '#C8A84B', '#F5F0E0', '#2A1A0A', '#6B1A2A'],
+  Ambient:           ['#203060', '#405080', '#6090B8', '#80B4D8', '#B0D4E8', '#E8F4F8'],
+
+  // ── Holidays & Festivals ──────────────────────────────────
+  'Mardi Gras':        ['#702963', '#FFD700', '#00A550', '#4B0082', '#C89000', '#006633'],
+  'Día de los Muertos':['#F5821F', '#E91E8C', '#7B2D8B', '#00B4AA', '#FFD700', '#1A0A2E'],
+  Halloween:           ['#FF6600', '#1A1A1A', '#7B2D8B', '#FF8C00', '#2A0A2A', '#E8A030'],
+  Christmas:           ['#C41E3A', '#006B3C', '#FFD700', '#FFFFFF', '#8B0000', '#A3C65B'],
+  Hanukkah:            ['#003F8A', '#4B9CD3', '#C0C0C0', '#FFFFFF', '#001F50', '#8AB4D8'],
+  Diwali:              ['#C8002E', '#FF8C00', '#FFD700', '#8B2FC9', '#FF1493', '#006060'],
+  'Chinese New Year':  ['#CC0000', '#FFD700', '#FF8C00', '#800000', '#FFED60', '#4B0000'],
+  'St. Patricks':      ['#009B4E', '#FFFFFF', '#FFD700', '#006633', '#4CAF7D', '#003322'],
+  Carnival:            ['#FF2200', '#FFD700', '#00CC44', '#0055EE', '#FF0088', '#FF6600'],
+  Holi:                ['#FF3355', '#FF8800', '#FFDD00', '#44CC22', '#2288FF', '#DD22FF'],
+  Easter:              ['#FFB7C5', '#BFA2DB', '#B5EAD7', '#FDFD96', '#AEC6CF', '#FFD9A0'],
+  Pride:               ['#FF1A1A', '#FF7700', '#FFEE00', '#00BB44', '#1144FF', '#9900CC'],
+  Thanksgiving:        ['#8B3A00', '#C87830', '#E8B060', '#F5D080', '#2D5A27', '#1A1A0A'],
+  'New Year':          ['#000033', '#001A6B', '#C8A84B', '#FFD700', '#FFFFFF', '#8B7730'],
+  Valentines:          ['#8B0020', '#CC0033', '#FF6699', '#FF99BB', '#FFD0DC', '#FFB3C1'],
+  Oktoberfest:         ['#4A2A8A', '#2A5A1A', '#C8A84B', '#C83A1A', '#F5E8C0', '#8B6914'],
+
+  // ── Nature ────────────────────────────────────────────────
+  Aurora:            ['#0D1B2A', '#1B4332', '#00A896', '#7B2D8B', '#00D4FF', '#AEFFD8'],
+  'Deep Ocean':      ['#001233', '#023E8A', '#0096C7', '#00B4D8', '#48CAE4', '#90E0EF'],
+  Sahara:            ['#C8903C', '#E8B86D', '#F5D5A0', '#A86828', '#D4956A', '#6B4226'],
+  Rainforest:        ['#1B4332', '#40916C', '#52B788', '#F77F00', '#E9C46A', '#6B2D0A'],
+  'Cherry Blossom':  ['#FFB7C5', '#FF8FAB', '#C8102E', '#355E3B', '#F8F0F5', '#FFCDD2'],
+  Volcano:           ['#FF4500', '#FF8C00', '#FFD700', '#1A0A00', '#8B0000', '#4A4A4A'],
+  Arctic:            ['#E8F4F8', '#B3D4E8', '#7FB3D8', '#4A90B8', '#2C6080', '#0A3050'],
+  'Coral Reef':      ['#FF7B54', '#FFB26B', '#FFD56F', '#06D6A0', '#118AB2', '#073B4C'],
+  Thunderstorm:      ['#0D0D1A', '#1A1A3E', '#4A4A8A', '#FFFFFF', '#FFD700', '#9999DD'],
+  'Autumn Forest':   ['#8B2500', '#C24B1A', '#E87830', '#F5B941', '#6B3A1F', '#3A2010'],
+  Bioluminescence:   ['#050D12', '#0A1F2E', '#00F5FF', '#00CC88', '#4400AA', '#88FFDD'],
+  'Desert Bloom':    ['#C86491', '#E8847A', '#F5C27A', '#8B5E3C', '#D4A86A', '#6B3A1A'],
+  'Alpine Peak':     ['#0A1A2A', '#8AAAC4', '#C0D8E8', '#FFFFFF', '#3A5A3A', '#6B3A1A'],
+  Tundra:            ['#4A5560', '#7A8A88', '#A8B8B0', '#C8D0C8', '#E0E8E0', '#F0F4F2'],
+  Meadow:            ['#4A7A2A', '#6A9A4A', '#8AB86A', '#D4E890', '#F5F0D0', '#FF8FAB'],
+  Monsoon:           ['#0A1020', '#1A2A3A', '#2A4A6A', '#4A7AA0', '#80A8C8', '#C0D8F0'],
+
+  // ── Historical Cultures ───────────────────────────────────
+  'Ancient Egypt':   ['#C8A84B', '#2B5FA0', '#B5451B', '#1A1A1A', '#E8D080', '#F5F0E0'],
+  'Ancient Rome':    ['#7B1F3A', '#C8A84B', '#F5F0E0', '#B5451B', '#3A3A3A', '#8B6914'],
+  'Feudal Japan':    ['#2D3047', '#C62A2A', '#FFB5C8', '#1A1A1A', '#C8A84B', '#2D5A27'],
+  Aztec:             ['#006B5E', '#C8A84B', '#C62A2A', '#4A1A7A', '#D4956A', '#2A1A0A'],
+  Viking:            ['#1A3A5C', '#8B6914', '#C62A2A', '#4A4A5A', '#C0C0C0', '#2A1A0A'],
+  Byzantine:         ['#C8A84B', '#8B1F4A', '#2A5A8A', '#F5F0E0', '#6B1A6B', '#C0A870'],
+  'Ming Dynasty':    ['#C62A2A', '#F5F0E0', '#2B5FA0', '#C8A84B', '#1A1A1A', '#90C090'],
+  'Ancient Greece':  ['#B5451B', '#1A1A1A', '#F5F0E0', '#2B5FA0', '#4A7A40', '#C8A84B'],
+  Inca:              ['#C8A84B', '#6B2D8B', '#B5451B', '#2D7A2D', '#F5C050', '#1A0A00'],
+  Celtic:            ['#2D5A27', '#8B6914', '#4A1A7A', '#707080', '#2A1A0A', '#C8A84B'],
+  'Ottoman Empire':  ['#8B1F4A', '#C8A84B', '#2B5FA0', '#F5F0E0', '#1A1A1A', '#E87830'],
+  Mesopotamia:       ['#1A3A8A', '#C8A84B', '#C87028', '#8B6050', '#F5E8CC', '#2A1A0A'],
+  'Mughal India':    ['#8B0A1A', '#C8A84B', '#006B5E', '#4A0A8A', '#E8D080', '#2A1A0A'],
+  Polynesian:        ['#006B8A', '#00A09A', '#F5D060', '#C84820', '#4A8A4A', '#E8C880'],
+  'Silk Road':       ['#8B3A00', '#C8A84B', '#4A1A6B', '#1A4A6B', '#C84A20', '#F5E8D0'],
+  'Ancient India':   ['#CC4400', '#E8A820', '#2B6B3A', '#1A2A8A', '#C8A84B', '#F5E8D0'],
+
+  // ── Landmark Events ───────────────────────────────────────
+  'Moon Landing':      ['#0A0A1A', '#888888', '#D4D0C8', '#C8A84B', '#E8E8E8', '#102040'],
+  'French Revolution': ['#002395', '#FFFFFF', '#ED2939', '#C8A84B', '#1A1A1A', '#8B1A1A'],
+  'Berlin Wall':       ['#888888', '#CC0000', '#0000CC', '#FFD700', '#F5F5F5', '#2A2A2A'],
+  Woodstock:           ['#D4692A', '#E8C050', '#8B6914', '#2D7A2D', '#7A2D7A', '#F5E8C0'],
+  'D-Day':             ['#4A5A3A', '#A8906A', '#2A5A8A', '#8B7060', '#1A1A1A', '#C0C0C0'],
+  Titanic:             ['#001233', '#1A3A6B', '#C8A84B', '#F5F0E0', '#C62A2A', '#888888'],
+  'Gold Rush':         ['#C8A84B', '#8B6914', '#4A3A2A', '#D4956A', '#F5E8C0', '#1A0A00'],
+  'Civil Rights':      ['#C62A2A', '#C8A84B', '#1A1A8A', '#F5F0E0', '#1A1A1A', '#6B3A1A'],
+  'Industrial Age':    ['#1A1A1A', '#8B3A1A', '#C87830', '#4A4A5A', '#C0C0C0', '#F5E8D0'],
+  'American Revolution': ['#C62A2A', '#1A3A6B', '#F5F0E0', '#C8A84B', '#2A2A2A', '#4A6A4A'],
+  'Great Fire 1666':   ['#CC3300', '#FF6600', '#FF9900', '#1A0800', '#4A2A1A', '#552200'],
+  'Cold War':          ['#8B1A1A', '#C0C0C0', '#1A3A6B', '#C8A84B', '#2A2A2A', '#4A4A5A'],
+  'Space Race':        ['#0A0A2A', '#1A2A6B', '#C0C0C0', '#C8A84B', '#E8E8E8', '#3A5A8A'],
+  Prohibition:         ['#2A1A0A', '#8B6914', '#C4A464', '#C8A084', '#1A2A3A', '#6B3A1A'],
+  Suffragette:         ['#4A1A6B', '#8B4A8B', '#FFFFFF', '#2D7A2D', '#C8C0D8', '#6B9A6B'],
+  Renaissance:         ['#8B4513', '#C8A84B', '#2B5FA0', '#B5451B', '#F5F0E0', '#4A7A2A'],
+
+  // ── Pop Culture ───────────────────────────────────────────
+  'Star Wars':       ['#0A0A0A', '#FF6B00', '#C8906A', '#E8F0F8', '#CC2200', '#C8A84B'],
+  'Dark Side Moon':  ['#000000', '#CC00CC', '#0055EE', '#00AA44', '#FFDD00', '#FF2200'],
+  'Abbey Road':      ['#87CEEB', '#888888', '#FFFFFF', '#1A1A1A', '#C8A87A', '#F5D890'],
+  'Pulp Fiction':    ['#FFE500', '#0A0A0A', '#C8906A', '#FFFFFF', '#CC2200', '#2A2A2A'],
+  'The Matrix':      ['#000000', '#00FF41', '#003B00', '#001A00', '#00CC33', '#CCCCCC'],
+  'Blade Runner':    ['#050508', '#FF006A', '#0080FF', '#FF6A00', '#888888', '#6600CC'],
+  'Warhol Marilyn':  ['#FF69B4', '#FFD700', '#008B8B', '#FF0000', '#ADFF2F', '#FF1493'],
+  Jaws:              ['#001233', '#CC0000', '#F5F0E8', '#1A5FA0', '#0A0A2A', '#5AB8E8'],
+  Superman:          ['#CC0000', '#0000CC', '#FFD700', '#FFFFFF', '#880000', '#AAAAFF'],
+  Batman:            ['#0A0A0A', '#FFD700', '#444444', '#2A2A2A', '#888888', '#0A0A2A'],
+  Nevermind:         ['#004A6B', '#00688B', '#ADD8E6', '#FFCCB3', '#85A300', '#00B4AA'],
+  'Aladdin Sane':    ['#F5F0E8', '#CC0000', '#0044FF', '#0A0A0A', '#C8A84B', '#00B4D8'],
+  'Wizard of Oz':    ['#CC3300', '#006B3C', '#C8A84B', '#87CEEB', '#FF69B4', '#F5F0E0'],
+  'Stranger Things': ['#0A0A1A', '#C81A1A', '#00B4FF', '#FFD700', '#2A1A4A', '#F5F0E8'],
+  'Breaking Bad':    ['#1A3A1A', '#4A8A1A', '#C8C060', '#8B7840', '#2A2A2A', '#E8E0C0'],
+  '2001 Odyssey':    ['#0A0A1A', '#FFFFFF', '#C8C0B8', '#CC0000', '#B0A090', '#F0F0F0'],
 };
 
 export const PALETTE_KEYS = Object.keys(PALETTES);
@@ -118,15 +279,15 @@ export const PALETTE_KEYS = Object.keys(PALETTES);
 export const PALETTE_GROUPS = [
   {
     name: 'Design',
-    keys: ['Vibrant', 'Bold', 'Pastel', 'Earth', 'Nordic', 'Sunset', 'Forest', 'Mono'],
+    keys: ['Vibrant', 'Bold', 'Pastel', 'Earth', 'Nordic', 'Sunset', 'Forest', 'Mono', 'Candy', 'Jewel', 'Slate'],
   },
   {
     name: 'Popular',
-    keys: ['Rainbow', 'Metro', 'Ocean', 'Cosmic', 'Cafe', 'Garden', 'Tropical', 'Midnight', 'Harvest', 'Navy'],
+    keys: ['Rainbow', 'Metro', 'Ocean', 'Cosmic', 'Cafe', 'Garden', 'Tropical', 'Midnight', 'Harvest', 'Navy', 'Dusk', 'Cherry', 'Glacier'],
   },
   {
     name: 'Art & Decades',
-    keys: ['Synthwave', 'Vaporwave', 'Neon 80s', 'Miami 80s', 'Grunge 90s', 'Pop 90s', 'Groovy 70s', 'Disco', 'Art Deco', 'Bauhaus', 'Pop Art', 'Postmodern', 'Minimalist', 'Brutalist', 'Urban', 'Memphis', 'Cyberpunk', 'Lo-Fi', 'Kodachrome', 'Cassette'],
+    keys: ['Synthwave', 'Vaporwave', 'Neon 80s', 'Miami 80s', 'Grunge 90s', 'Pop 90s', 'Groovy 70s', 'Disco', 'Art Deco', 'Bauhaus', 'Pop Art', 'Postmodern', 'Minimalist', 'Brutalist', 'Urban', 'Memphis', 'Cyberpunk', 'Lo-Fi', 'Kodachrome', 'Cassette', 'Art Nouveau', 'Psychedelic', 'Mod 60s', 'Rockabilly', 'New Wave', 'Glam Rock'],
   },
   {
     name: 'NBA',
@@ -135,6 +296,38 @@ export const PALETTE_GROUPS = [
   {
     name: 'NBA Retro',
     keys: ['NJ Nets', 'Hornets Classic', 'Jazz Classic', 'Bucks Classic', 'Heat Vice', 'Nuggets Rainbow', 'SuperSonics', 'Sonics 95-01', 'Van Grizzlies', 'Raptors Classic', 'Mavs Classic', 'Pacers ABA'],
+  },
+  {
+    name: 'NCAA',
+    keys: ['Alabama', 'Ohio State', 'Georgia', 'Michigan', 'Notre Dame', 'Clemson', 'Texas', 'Penn State', 'LSU', 'Oklahoma', 'Kentucky', 'Duke', 'Kansas', 'UNC', 'UCLA', 'UConn', 'Gonzaga', 'Indiana', 'Michigan State', 'Syracuse'],
+  },
+  {
+    name: 'NFL',
+    keys: ['Cowboys', 'Packers', 'Steelers', '49ers', 'Chiefs', 'Bears', 'Dolphins', 'Vikings', 'Seahawks', 'Eagles', 'Saints', 'Ravens'],
+  },
+  {
+    name: 'Music',
+    keys: ['Jazz Club', 'Delta Blues', 'Country', 'Hip Hop', 'Heavy Metal', 'Punk Rock', 'Classical', 'EDM', 'Reggae', 'Soul', 'Folk', 'Gospel', 'Indie Rock', 'R&B', 'Opera', 'Ambient'],
+  },
+  {
+    name: 'Holidays',
+    keys: ['Mardi Gras', 'Día de los Muertos', 'Halloween', 'Christmas', 'Hanukkah', 'Diwali', 'Chinese New Year', 'St. Patricks', 'Carnival', 'Holi', 'Easter', 'Pride', 'Thanksgiving', 'New Year', 'Valentines', 'Oktoberfest'],
+  },
+  {
+    name: 'Nature',
+    keys: ['Aurora', 'Deep Ocean', 'Sahara', 'Rainforest', 'Cherry Blossom', 'Volcano', 'Arctic', 'Coral Reef', 'Thunderstorm', 'Autumn Forest', 'Bioluminescence', 'Desert Bloom', 'Alpine Peak', 'Tundra', 'Meadow', 'Monsoon'],
+  },
+  {
+    name: 'Cultures',
+    keys: ['Ancient Egypt', 'Ancient Rome', 'Feudal Japan', 'Aztec', 'Viking', 'Byzantine', 'Ming Dynasty', 'Ancient Greece', 'Inca', 'Celtic', 'Ottoman Empire', 'Mesopotamia', 'Mughal India', 'Polynesian', 'Silk Road', 'Ancient India'],
+  },
+  {
+    name: 'Events',
+    keys: ['Moon Landing', 'French Revolution', 'Berlin Wall', 'Woodstock', 'D-Day', 'Titanic', 'Gold Rush', 'Civil Rights', 'Industrial Age', 'American Revolution', 'Great Fire 1666', 'Cold War', 'Space Race', 'Prohibition', 'Suffragette', 'Renaissance'],
+  },
+  {
+    name: 'Pop Culture',
+    keys: ['Star Wars', 'Dark Side Moon', 'Abbey Road', 'Pulp Fiction', 'The Matrix', 'Blade Runner', 'Warhol Marilyn', 'Jaws', 'Superman', 'Batman', 'Nevermind', 'Aladdin Sane', 'Wizard of Oz', 'Stranger Things', 'Breaking Bad', '2001 Odyssey'],
   },
 ];
 
@@ -273,6 +466,9 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0
       centerX = 0.5, centerY = 0.5,
       gradScale = 1,
       reverseBg = false,
+      jitter = 0,
+      repeat = 1,
+      repeatMode = 'tile',
     } = gradientPos;
 
     let t;
@@ -300,7 +496,24 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0
       t = rawMax > rawMin ? (raw - rawMin) / (rawMax - rawMin) : 0;
     }
 
-    t = Math.min(t * gradScale, 1);
+    t = t * gradScale;
+
+    if (repeat > 1) {
+      t = t * repeat;
+      if (repeatMode === 'mirror') {
+        const raw = t % 2;
+        t = raw <= 1 ? raw : 2 - raw;
+      } else {
+        t = t % 1;
+      }
+    }
+
+    if (jitter > 0) {
+      const jitterRand = ((seed * 2654435761) >>> 0) / 4294967296;
+      t += (jitterRand - 0.5) * jitter;
+    }
+
+    t = Math.min(1, Math.max(0, t));
     const blockColor = palette[Math.round(t * (palette.length - 1))];
     const bgPool = gradBgColors && gradBgColors.length ? gradBgColors : [palette[0]];
     const bgColorForGrad = reverseBg

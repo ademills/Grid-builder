@@ -76,6 +76,30 @@ function App() {
     handleApplyCustomPalette,
   } = useColorPalette();
 
+  // Uniform reverse
+  const [uniformReverse, setUniformReverse] = useState(false);
+  const [randomReverseEnabled, setRandomReverseEnabled] = useState(false);
+  const [randomReversePct, setRandomReversePct] = useState(50);
+
+  const activePalette = useMemo(
+    () => uniformReverse && colorMode === 'uniform' ? [...effectivePalette].reverse() : effectivePalette,
+    [uniformReverse, colorMode, effectivePalette],
+  );
+
+  const handleRandomReverse = useCallback(() => {
+    setPlacedBlocks(prev => prev.map(b => ({
+      ...b,
+      reverseColor: Math.random() * 100 < randomReversePct,
+    })));
+  }, [randomReversePct]);
+
+  const handleRandomRerun = useCallback(() => {
+    setPlacedBlocks(prev => prev.map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+    })));
+  }, []);
+
   // Gradient
   const [gradientSettings, setGradientSettings] = useState({
     angle: 45,
@@ -85,6 +109,9 @@ function App() {
     gradScale: 1,
     reverseBg: false,
     gradBgColors: [{ id: 'grad-bg-1', hex: '#ffffff', enabled: true }],
+    jitter: 0,
+    repeat: 1,
+    repeatMode: 'tile',
   });
 
   const activeGradientSettings = useMemo(() => ({
@@ -627,7 +654,7 @@ function App() {
 
     const { width, height } = workArea;
     const { cellSize, gridOriginX, gridOriginY } = gridComputed;
-    const palette = effectivePalette;
+    const palette = activePalette;
     const svgNS = 'http://www.w3.org/2000/svg';
     const parser = new DOMParser();
 
@@ -671,11 +698,12 @@ function App() {
       const bw = block.cols * cellSize;
       const bh = block.rows * cellSize;
 
+      const blockPalette = (randomReverseEnabled && block.reverseColor) ? [...palette].reverse() : palette;
       let svgText;
       if (colorMode === 'image') {
         svgText = colorizeSvgByImage(block.svgContent, bx, by, bw, bh, imagePixels);
       } else if (colorMode !== 'none') {
-        svgText = colorizeSvg(block.svgContent, colorMode, palette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
+        svgText = colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
           colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null);
       } else {
         svgText = block.svgContent;
@@ -718,7 +746,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled]);
 
   return (
     <DndContext
@@ -743,7 +771,7 @@ function App() {
               viewTransform={viewTransform}
               gridComputed={gridComputed}
               colorMode={colorMode}
-              effectivePalette={effectivePalette}
+              effectivePalette={activePalette}
               bgOptions={activeBgColors}
               onDelete={handleDeleteSelected}
               onRefresh={handleRefreshSelected}
@@ -764,10 +792,11 @@ function App() {
             onSelect={handleSelectBlock}
             onContextMenu={handleOpenContextMenu}
             colorMode={colorMode}
-            effectivePalette={effectivePalette}
+            effectivePalette={activePalette}
             bgOptions={activeBgColors}
             gradientSettings={activeGradientSettings}
             imageDataUrls={imageDataUrls}
+            randomReverseEnabled={randomReverseEnabled}
           />
         </Canvas>
 
@@ -836,6 +865,14 @@ function App() {
           onScaleFreqChange={setScaleFreq}
           autoFill={autoFill}
           onAutoFillChange={setAutoFill}
+          uniformReverse={uniformReverse}
+          onUniformReverseChange={setUniformReverse}
+          randomReverseEnabled={randomReverseEnabled}
+          onRandomReverseEnabledChange={setRandomReverseEnabled}
+          randomReversePct={randomReversePct}
+          onRandomReversePctChange={setRandomReversePct}
+          onRandomReverse={handleRandomReverse}
+          onRandomRerun={handleRandomRerun}
           gradientSettings={gradientSettings}
           onGradientSettingsChange={setGradientSettings}
           imageSrc={imageSrc}
