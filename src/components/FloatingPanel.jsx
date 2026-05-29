@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { PRESETS } from '../gridPresets';
 import { PALETTES, PALETTE_GROUPS, colorizeSvg } from '../utils/colorize';
-import { ASSET_TREE, ASSET_THEMES } from '../builtinAssets';
+import { ASSET_FOLDER_TREE } from '../builtinAssets';
 import styles from './FloatingPanel.module.css';
 
 function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues }) {
@@ -22,6 +22,30 @@ function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues
   );
 }
 
+function collectAllIds(node) {
+  const ids = [];
+  for (const assets of Object.values(node.sizes)) {
+    for (const a of assets) ids.push(a.id);
+  }
+  for (const child of Object.values(node.children)) {
+    ids.push(...collectAllIds(child));
+  }
+  return ids;
+}
+
+function collectAllPaths(node, prefix = '') {
+  const paths = [];
+  for (const [name, child] of Object.entries(node.children)) {
+    const p = prefix ? `${prefix}/${name}` : name;
+    paths.push(p);
+    paths.push(...collectAllPaths(child, p));
+  }
+  for (const sz of Object.keys(node.sizes)) {
+    paths.push(prefix ? `${prefix}/${sz}` : sz);
+  }
+  return paths;
+}
+
 export function FloatingPanel({
   activeTool, onToolChange,
   bgColor, onBgColorChange,
@@ -30,7 +54,6 @@ export function FloatingPanel({
   presetKey, onPresetChange,
   customSize, onCustomSizeChange,
   gridSettings, onGridSettingsChange, gridComputed, validCols,
-  assets, onIngestAssets,
   enabledAssetIds, onEnableAssets, onDisableAssets,
   onFillGrid, onFillGaps, onExport, onSaveProject, onLoadProject, canFill, canFillGaps, canExport,
   onUndo, onRedo, canUndo, canRedo,
@@ -71,14 +94,12 @@ export function FloatingPanel({
   });
 
   // Asset browser collapse state — all open by default
-  const [openThemes, setOpenThemes] = useState(() => new Set(ASSET_THEMES));
-  const [openSizes, setOpenSizes] = useState(() => {
-    const s = new Set();
-    ASSET_THEMES.forEach(th => Object.keys(ASSET_TREE[th] || {}).forEach(sz => s.add(`${th}/${sz}`)));
-    return s;
+  const [openFolders, setOpenFolders] = useState(() => new Set());
+  const toggleFolder = path => setOpenFolders(p => {
+    const n = new Set(p);
+    n.has(path) ? n.delete(path) : n.add(path);
+    return n;
   });
-  const toggleTheme = th  => setOpenThemes(p => { const n = new Set(p); n.has(th)  ? n.delete(th)  : n.add(th);  return n; });
-  const toggleSize  = key => setOpenSizes (p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
   const groupState = ids => {
     const on = ids.filter(id => enabledAssetIds?.has(id)).length;
@@ -90,7 +111,6 @@ export function FloatingPanel({
     else onDisableAssets(ids);
   };
 
-  const fileInputRef = useRef(null);
   const projectInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -208,17 +228,6 @@ export function FloatingPanel({
     setBgOrder(null);
   };
 
-  const assetSummary = (() => {
-    if (!assets || assets.length === 0) return null;
-    const groups = assets.reduce((acc, a) => {
-      const k = `${a.cols}×${a.rows}`;
-      acc[k] = (acc[k] || 0) + 1;
-      return acc;
-    }, {});
-    const parts = Object.entries(groups).map(([k, n]) => `${k}: ${n}`);
-    return `${assets.length} SVGs  ·  ${parts.join('  ·  ')}`;
-  })();
-
   const zoomPct  = Math.round((viewTransform?.scale ?? 1) * 100);
   const isCustom = presetKey === 'custom';
 
@@ -305,92 +314,120 @@ export function FloatingPanel({
                   >{assetBrowserView === 'list' ? '⊞' : '☰'}</button>
                 </div>
 
-                {ASSET_THEMES.map(theme => {
-                  const sizes = ASSET_TREE[theme];
-                  const allIds = Object.values(sizes).flat().map(a => a.id);
-                  const themeState = groupState(allIds);
-                  return (
-                    <div key={theme}>
-                      <div className={styles.assetSizeRow}>
-                        <button
-                          className={`${styles.assetToggle} ${styles[`assetToggle_${themeState}`]}`}
-                          onClick={() => toggleIds(allIds, themeState)}
-                          title={themeState === 'off' ? 'Enable all' : 'Disable all'}
-                        />
-                        <button className={styles.assetGroupLabel} onClick={() => toggleTheme(theme)}>
-                          <span>{theme}</span>
-                          <span className={styles.assetGroupCount}>{allIds.length}</span>
-                          <span className={styles.assetGroupArrow}>{openThemes.has(theme) ? '▼' : '▶'}</span>
-                        </button>
-                      </div>
+                {(() => {
+                  const INDENT = 16;
 
-                      {openThemes.has(theme) && Object.entries(sizes).map(([sz, assets]) => {
-                        const sizeIds = assets.map(a => a.id);
-                        const sizeKey = `${theme}/${sz}`;
-                        const sizeState = groupState(sizeIds);
-                        return (
-                          <div key={sz}>
-                            <div className={styles.assetThemeRow}>
-                              <button
-                                className={`${styles.assetToggle} ${styles[`assetToggle_${sizeState}`]}`}
-                                onClick={() => toggleIds(sizeIds, sizeState)}
-                                title={sizeState === 'off' ? 'Enable all' : 'Disable all'}
-                              />
-                              <button className={styles.assetGroupLabel} onClick={() => toggleSize(sizeKey)}>
-                                <span>{sz}</span>
-                                <span className={styles.assetGroupCount}>{sizeIds.length}</span>
-                                <span className={styles.assetGroupArrow}>{openSizes.has(sizeKey) ? '▼' : '▶'}</span>
-                              </button>
-                            </div>
-
-                            {openSizes.has(sizeKey) && assetBrowserView === 'list' && assets.map(asset => {
-                              const on    = enabledAssetIds?.has(asset.id);
-                              const count = assetUsageCounts?.[asset.id];
-                              return (
-                                <div key={asset.id} className={styles.assetItemRow}>
-                                  <button
-                                    className={`${styles.assetToggle} ${styles[on ? 'assetToggle_on' : 'assetToggle_off']}`}
-                                    onClick={() => on ? onDisableAssets([asset.id]) : onEnableAssets([asset.id])}
-                                  />
-                                  <span className={`${styles.assetItemName} ${!on ? styles.assetItemDisabled : ''}`}>
-                                    {asset.name}
-                                  </span>
-                                  {count > 0 && <span className={styles.usageBadge}>{count}</span>}
-                                </div>
-                              );
-                            })}
-
-                            {openSizes.has(sizeKey) && assetBrowserView === 'grid' && (
-                              <div className={styles.assetThumbGrid}>
-                                {assets.map(asset => {
-                                  const on    = enabledAssetIds?.has(asset.id);
-                                  const count = assetUsageCounts?.[asset.id];
-                                  const colorized = colorizeSvg(asset.svgContent, 'uniform', THUMB_PALETTE, 0, 0, THUMB_BG);
-                                  const clean = colorized
-                                    .replace(/^<\?xml[^>]*\?>\s*/i, '')
-                                    .replace(/<!DOCTYPE[^>]*>\s*/gi, '');
-                                  const thumbUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-                                  return (
-                                    <button
-                                      key={asset.id}
-                                      className={`${styles.assetThumbItem} ${!on ? styles.assetThumbItemOff : ''}`}
-                                      onClick={() => on ? onDisableAssets([asset.id]) : onEnableAssets([asset.id])}
-                                      title={`${asset.name} — click to ${on ? 'disable' : 'enable'}`}
-                                    >
-                                      <img src={thumbUrl} alt={asset.name} className={styles.assetThumbImg} />
-                                      <span className={styles.assetThumbName}>{asset.name}</span>
-                                      {count > 0 && <span className={styles.usageBadge}>{count}</span>}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
+                  const renderSizes = (node, path, depth) =>
+                    Object.entries(node.sizes).map(([sz, szAssets]) => {
+                      const sizeIds = szAssets.map(a => a.id);
+                      const sizeKey = `${path}/${sz}`;
+                      const sizeState = groupState(sizeIds);
+                      const sizePadLeft = 30 + depth * INDENT;
+                      const itemPadLeft = 48 + depth * INDENT;
+                      return (
+                        <div key={sizeKey}>
+                          <div className={styles.assetThemeRow} style={{ paddingLeft: sizePadLeft }}>
+                            <button
+                              className={`${styles.assetToggle} ${styles[`assetToggle_${sizeState}`]}`}
+                              onClick={() => toggleIds(sizeIds, sizeState)}
+                              title={sizeState === 'off' ? 'Enable all' : 'Disable all'}
+                            />
+                            <button className={styles.assetGroupLabel} onClick={() => toggleFolder(sizeKey)}>
+                              <span>{sz}</span>
+                              <span className={styles.assetGroupCount}>{sizeIds.length}</span>
+                              <span className={styles.assetGroupArrow}>{openFolders.has(sizeKey) ? '▼' : '▶'}</span>
+                            </button>
                           </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+
+                          {openFolders.has(sizeKey) && assetBrowserView === 'list' && szAssets.map(asset => {
+                            const on    = enabledAssetIds?.has(asset.id);
+                            const count = assetUsageCounts?.[asset.id];
+                            return (
+                              <div key={asset.id} className={styles.assetItemRow} style={{ paddingLeft: itemPadLeft }}>
+                                <button
+                                  className={`${styles.assetToggle} ${styles[on ? 'assetToggle_on' : 'assetToggle_off']}`}
+                                  onClick={() => on ? onDisableAssets([asset.id]) : onEnableAssets([asset.id])}
+                                />
+                                <span className={`${styles.assetItemName} ${!on ? styles.assetItemDisabled : ''}`}>
+                                  {asset.name}
+                                </span>
+                                {count > 0 && <span className={styles.usageBadge}>{count}</span>}
+                              </div>
+                            );
+                          })}
+
+                          {openFolders.has(sizeKey) && assetBrowserView === 'grid' && (
+                            <div className={styles.assetThumbGrid}>
+                              {szAssets.map(asset => {
+                                const on    = enabledAssetIds?.has(asset.id);
+                                const count = assetUsageCounts?.[asset.id];
+                                const colorized = colorizeSvg(asset.svgContent, 'uniform', THUMB_PALETTE, 0, 0, THUMB_BG);
+                                const clean = colorized
+                                  .replace(/^<\?xml[^>]*\?>\s*/i, '')
+                                  .replace(/<!DOCTYPE[^>]*>\s*/gi, '');
+                                const thumbUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
+                                return (
+                                  <button
+                                    key={asset.id}
+                                    className={`${styles.assetThumbItem} ${!on ? styles.assetThumbItemOff : ''}`}
+                                    onClick={() => on ? onDisableAssets([asset.id]) : onEnableAssets([asset.id])}
+                                    title={`${asset.name} — click to ${on ? 'disable' : 'enable'}`}
+                                  >
+                                    <img src={thumbUrl} alt={asset.name} className={styles.assetThumbImg} />
+                                    <span className={styles.assetThumbName}>{asset.name}</span>
+                                    {count > 0 && <span className={styles.usageBadge}>{count}</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+
+                  const renderFolderNode = (node, name, path, depth) => {
+                    const allIds = collectAllIds(node);
+                    const nodeState = groupState(allIds);
+                    const isOpen = openFolders.has(path);
+                    const folderPadLeft = depth === 0 ? 14 : 30 + (depth - 1) * INDENT;
+                    const childNames = Object.keys(node.children).sort((a, b) => a.localeCompare(b));
+                    return (
+                      <div key={path}>
+                        <div
+                          className={depth === 0 ? styles.assetSizeRow : styles.assetThemeRow}
+                          style={{ paddingLeft: folderPadLeft }}
+                        >
+                          <button
+                            className={`${styles.assetToggle} ${styles[`assetToggle_${nodeState}`]}`}
+                            onClick={() => toggleIds(allIds, nodeState)}
+                            title={nodeState === 'off' ? 'Enable all' : 'Disable all'}
+                          />
+                          <button className={styles.assetGroupLabel} onClick={() => toggleFolder(path)}>
+                            <span>{name}</span>
+                            <span className={styles.assetGroupCount}>{allIds.length}</span>
+                            <span className={styles.assetGroupArrow}>{isOpen ? '▼' : '▶'}</span>
+                          </button>
+                        </div>
+                        {isOpen && (
+                          <>
+                            {childNames.map(childName =>
+                              renderFolderNode(node.children[childName], childName, `${path}/${childName}`, depth + 1)
+                            )}
+                            {renderSizes(node, path, depth)}
+                          </>
+                        )}
+                      </div>
+                    );
+                  };
+
+                  return Object.entries(ASSET_FOLDER_TREE.children)
+                    .sort(([a], [b]) => {
+                      if (a === 'Default') return -1;
+                      if (b === 'Default') return 1;
+                      return a.localeCompare(b);
+                    })
+                    .map(([name, node]) => renderFolderNode(node, name, name, 0));
+                })()}
               </>
             )}
 
@@ -1066,17 +1103,6 @@ export function FloatingPanel({
                         <span>Browse &amp; toggle assets</span>
                         <span className={styles.assetsBrowserArrow}>›</span>
                       </button>
-
-                      <p className={styles.ingestHint} style={{ marginTop: 8 }}>
-                        Upload custom SVGs — sub-folders named <strong>W×H</strong> (e.g. <code>2x1</code>).
-                      </p>
-                      <input ref={fileInputRef} type="file" multiple accept=".svg" style={{ display: 'none' }} onChange={onIngestAssets} />
-                      <button className={styles.ingestBtn} onClick={() => {
-                        fileInputRef.current.setAttribute('webkitdirectory', '');
-                        fileInputRef.current.setAttribute('directory', '');
-                        fileInputRef.current.click();
-                      }}>↑ Upload Folder</button>
-                      {assetSummary && <div className={styles.assetInfo}>{assetSummary}</div>}
                     </div>
                   )}
                 </div>

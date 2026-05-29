@@ -8,8 +8,11 @@ import { PlacedBlocks } from './components/PlacedBlocks';
 import { SelectionToolbar } from './components/SelectionToolbar';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
-import { PALETTE_KEYS, PALETTES, colorizeSvg, colorizeSvgByImage, getSvgTemplate, colorizeSvgFromTemplate } from './utils/colorize';
+import { colorizeSvg, colorizeSvgByImage, getSvgTemplate, colorizeSvgFromTemplate } from './utils/colorize';
 import { ALL_BUILTIN_ASSETS, DEFAULT_ENABLED_IDS } from './builtinAssets';
+import { useHistory } from './hooks/useHistory';
+import { useColorPalette } from './hooks/useColorPalette';
+import { useSelection } from './hooks/useSelection';
 import './App.css';
 import styles from './App.module.css';
 
@@ -18,66 +21,8 @@ function App() {
   const [activeTool, setActiveTool] = useState('select');
   const [bgColor, setBgColor] = useState('#2d2d2d');
   const [canvasBg, setCanvasBg] = useState('#ffffff');
-
-  // Scale placement
-  const [maxScale, setMaxScale] = useState(1);       // 1 | 2 | 3 | 4
-  const [scaleFreq, setScaleFreq] = useState(0);     // 0-100 %
-
-  // Colour palette
-  const [colorMode, setColorMode] = useState('none'); // 'none' | 'uniform' | 'random'
-  const [paletteKey, setPaletteKey] = useState(PALETTE_KEYS[0]);
-  const [shapeColors, setShapeColors] = useState(
-    () => PALETTES[PALETTE_KEYS[0]].map((hex, i) => ({ id: `p-${i}`, hex, enabled: true, source: 'palette' }))
-  );
-  const [bgColors, setBgColors] = useState([
-    { id: 'bg-white', hex: '#ffffff', enabled: true  },
-    { id: 'bg-black', hex: '#000000', enabled: false },
-  ]);
-
-  // Custom saved palettes — persisted to localStorage
-  const [customPalettes, setCustomPalettes] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('gb-custom-palettes') || '[]'); }
-    catch { return []; }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('gb-custom-palettes', JSON.stringify(customPalettes));
-  }, [customPalettes]);
-
-  const handleSaveCustomPalette = useCallback((name) => {
-    if (!name.trim()) return;
-    const colors = shapeColors.filter(c => c.enabled).map(c => c.hex);
-    if (!colors.length) return;
-    setCustomPalettes(prev => [...prev.filter(p => p.name !== name.trim()), { name: name.trim(), colors }]);
-  }, [shapeColors]);
-
-  const handleDeleteCustomPalette = useCallback((name) => {
-    setCustomPalettes(prev => prev.filter(p => p.name !== name));
-  }, []);
-
-  const handleApplyCustomPalette = useCallback((palette) => {
-    setShapeColors(palette.colors.map((hex, i) => ({ id: `cp-${palette.name}-${i}`, hex, enabled: true, source: 'palette' })));
-  }, []);
-
-  // When the palette theme changes: replace palette entries, keep custom colours in place
-  const handlePaletteKeyChange = useCallback((key) => {
-    setPaletteKey(key);
-    setShapeColors(prev => {
-      const custom  = prev.filter(c => c.source === 'custom');
-      const palette = (PALETTES[key] ?? []).map((hex, i) => ({ id: `p-${key}-${i}`, hex, enabled: true, source: 'palette' }));
-      return [...palette, ...custom];
-    });
-  }, []);
-
-  const effectivePalette = useMemo(() => {
-    const active = shapeColors.filter(c => c.enabled).map(c => c.hex);
-    return active.length ? active : shapeColors.map(c => c.hex);
-  }, [shapeColors]);
-
-  const activeBgColors = useMemo(
-    () => bgColors.filter(c => c.enabled).map(c => c.hex),
-    [bgColors]
-  );
+  const [maxScale, setMaxScale] = useState(1);
+  const [scaleFreq, setScaleFreq] = useState(0);
 
   // Work area
   const [presetKey, setPresetKey] = useState('a4-portrait');
@@ -94,14 +39,12 @@ function App() {
     setGridSettings(prev => ({ ...prev, ...changes }));
   }, []);
 
-  // Valid column counts for the current work area + border
   const validCols = useMemo(
     () => getValidCols(workArea, gridSettings.borderPct),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workArea.width, workArea.height, gridSettings.borderPct]
   );
 
-  // When the valid-col list changes, snap to the nearest valid value
   useEffect(() => {
     if (!validCols) return;
     setGridSettings(prev => {
@@ -119,6 +62,36 @@ function App() {
     [workArea.width, workArea.height, gridSettings.cols, gridSettings.borderPct]
   );
 
+  // Colour palette
+  const {
+    colorMode, setColorMode,
+    paletteKey, setPaletteKey, handlePaletteKeyChange,
+    shapeColors, setShapeColors,
+    bgColors, setBgColors,
+    effectivePalette,
+    activeBgColors,
+    customPalettes,
+    handleSaveCustomPalette,
+    handleDeleteCustomPalette,
+    handleApplyCustomPalette,
+  } = useColorPalette();
+
+  // Gradient
+  const [gradientSettings, setGradientSettings] = useState({
+    angle: 45,
+    gradMode: 'linear',
+    centerX: 0.5,
+    centerY: 0.5,
+    gradScale: 1,
+    reverseBg: false,
+    gradBgColors: [{ id: 'grad-bg-1', hex: '#ffffff', enabled: true }],
+  });
+
+  const activeGradientSettings = useMemo(() => ({
+    ...gradientSettings,
+    gradBgColors: (gradientSettings.gradBgColors ?? []).filter(c => c.enabled).map(c => c.hex),
+  }), [gradientSettings]);
+
   // Built-in asset enable/disable
   const [enabledAssetIds, setEnabledAssetIds] = useState(DEFAULT_ENABLED_IDS);
 
@@ -134,45 +107,25 @@ function App() {
     });
   }, []);
 
-  // Uploaded custom assets (supplementary)
-  const [assets, setAssets] = useState([]);
-
-  // All assets available for fill = enabled builtins + custom uploads
   const activeAssets = useMemo(
-    () => [...ALL_BUILTIN_ASSETS.filter(a => enabledAssetIds.has(a.id)), ...assets],
-    [enabledAssetIds, assets]
+    () => ALL_BUILTIN_ASSETS.filter(a => enabledAssetIds.has(a.id)),
+    [enabledAssetIds]
   );
 
   const [placedBlocks, setPlacedBlocks] = useState([]);
   const [dragShadow, setDragShadow] = useState(null);
   const [autoFill, setAutoFill] = useState(false);
-  const [gradientSettings, setGradientSettings] = useState({
-    angle: 45,
-    gradMode: 'linear',
-    centerX: 0.5,
-    centerY: 0.5,
-    gradScale: 1,
-    reverseBg: false,
-    gradBgColors: [{ id: 'grad-bg-1', hex: '#ffffff', enabled: true }],
-  });
-
-  // Resolve gradBgColors to active-only hex array so colorizeSvg receives plain strings
-  const activeGradientSettings = useMemo(() => ({
-    ...gradientSettings,
-    gradBgColors: (gradientSettings.gradBgColors ?? []).filter(c => c.enabled).map(c => c.hex),
-  }), [gradientSettings]);
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   // Image colour mode
   const [imageSrc, setImageSrc] = useState(null);
-  const [imagePixels, setImagePixels] = useState(null); // { data: Uint8ClampedArray, width, height }
-  const [imageDataUrls, setImageDataUrls] = useState({}); // blockId → pre-computed data URL
-  // Cache: keyed by (position + svgContent fingerprint), invalidated when imagePixels changes
+  const [imagePixels, setImagePixels] = useState(null);
+  const [imageDataUrls, setImageDataUrls] = useState({});
   const imageUrlCacheRef = useRef({ pixels: null, map: new Map() });
-  // Level-1 template cache: keyed by svgContent fingerprint, image-independent, survives image changes
   const svgTemplateCacheRef = useRef(new Map());
-  const [imageProgress, setImageProgress] = useState(null); // null = idle, 0-100 = computing
+  const [imageProgress, setImageProgress] = useState(null);
 
-  // Step 1: when the image or work area changes, extract the pixel buffer once
+  // Step 1: extract pixel buffer when image or work area changes
   useEffect(() => {
     if (colorMode !== 'image' || !imageSrc) {
       setImagePixels(null);
@@ -183,19 +136,15 @@ function App() {
       const cw = workArea.width;
       const ch = workArea.height;
       const cv = document.createElement('canvas');
-      cv.width = cw;
-      cv.height = ch;
+      cv.width = cw; cv.height = ch;
       const ctx = cv.getContext('2d');
-      // Cover scaling: fill the canvas, preserve aspect ratio, centre
       const imgAspect = img.naturalWidth / img.naturalHeight;
       const canvasAspect = cw / ch;
       let dw, dh, dx, dy;
       if (imgAspect > canvasAspect) {
-        dh = ch; dw = dh * imgAspect;
-        dx = (cw - dw) / 2; dy = 0;
+        dh = ch; dw = dh * imgAspect; dx = (cw - dw) / 2; dy = 0;
       } else {
-        dw = cw; dh = dw / imgAspect;
-        dx = 0; dy = (ch - dh) / 2;
+        dw = cw; dh = dw / imgAspect; dx = 0; dy = (ch - dh) / 2;
       }
       ctx.drawImage(img, dx, dy, dw, dh);
       const { data } = ctx.getImageData(0, 0, cw, ch);
@@ -208,7 +157,6 @@ function App() {
   // Step 2: compute coloured URLs in two phases so the browser never freezes.
   // Phase 1 builds image-independent SVG templates (DOMParser+serialize, once per unique SVG).
   // Phase 2 colorizes using those templates (no DOMParser — just pixel sampling + string replace).
-  // On a refill with the same assets at new positions, phase 1 is entirely skipped.
   useEffect(() => {
     if (colorMode !== 'image' || !imagePixels || !gridComputed || !placedBlocks.length) {
       setImageDataUrls({});
@@ -223,9 +171,7 @@ function App() {
     const tplCache = svgTemplateCacheRef.current;
 
     const makeSvgKey = (b) => `${b.svgContent.length}:${b.svgContent.slice(0, 256)}`;
-    const makeUrlKey = (b) =>
-      `${b.gridCol},${b.gridRow},${b.cols},${b.rows}:${makeSvgKey(b)}`;
-
+    const makeUrlKey = (b) => `${b.gridCol},${b.gridRow},${b.cols},${b.rows}:${makeSvgKey(b)}`;
     const { cellSize, gridOriginX, gridOriginY } = gridComputed;
 
     const fromCache = {};
@@ -237,10 +183,8 @@ function App() {
       else toCompute.push({ block, urlKey, svgKey: makeSvgKey(block) });
     }
     setImageDataUrls(fromCache);
-
     if (!toCompute.length) { setImageProgress(null); return; }
 
-    // Unique SVGs that need a template built
     const svgContentByKey = {};
     for (const { block, svgKey } of toCompute) {
       if (!svgContentByKey[svgKey]) svgContentByKey[svgKey] = block.svgContent;
@@ -250,7 +194,6 @@ function App() {
     setImageProgress(0);
     let cancelled = false, timerId;
 
-    // Phase 1: build missing templates (DOMParser + serialize, ~5-8ms each)
     let tplIdx = 0;
     const CHUNK_TPL = 4;
     const tickTemplates = () => {
@@ -265,14 +208,9 @@ function App() {
         }
       }
       setImageProgress(Math.round((tplIdx / missingTpls.length) * 30));
-      if (tplIdx < missingTpls.length) {
-        timerId = setTimeout(tickTemplates, 0);
-      } else {
-        timerId = setTimeout(tickColorize, 0);
-      }
+      timerId = setTimeout(tplIdx < missingTpls.length ? tickTemplates : tickColorize, 0);
     };
 
-    // Phase 2: colorize all toCompute blocks using templates (fast string replace)
     let clrIdx = 0;
     const CHUNK_CLR = 15;
     const tickColorize = () => {
@@ -312,43 +250,51 @@ function App() {
 
   const skipNextClear = useRef(false);
 
-  // Undo/redo history — each entry is a snapshot of placedBlocks
-  const undoStack = useRef([]);
-  const redoStack = useRef([]);
+  // ── History ────────────────────────────────────────────────────────────────
+  const {
+    pushHistory,
+    handleUndo: _handleUndo,
+    handleRedo: _handleRedo,
+    historySize,
+    syncHistorySize,
+    clearHistory,
+  } = useHistory(placedBlocks, setPlacedBlocks);
 
-  const pushHistory = useCallback((snapshot) => {
-    undoStack.current = [...undoStack.current, snapshot].slice(-50);
-    redoStack.current = [];
-  }, []);
+  // ── Selection ──────────────────────────────────────────────────────────────
+  const {
+    selectedIds, setSelectedIds,
+    selectedBlocks,
+    contextMenu, setContextMenu,
+    handleSelectBlock, handleDeselectAll,
+    handleOpenContextMenu,
+    handleContextRefresh, handleContextRandomise, handleContextToggleLock, handleContextDelete,
+    handleMarqueeSelect,
+    handleDeleteSelected, handleRefreshSelected, handleRandomiseSelected,
+    handleFlipH, handleFlipV,
+    handleToggleLockSelected, handleSwapSelected,
+  } = useSelection({
+    placedBlocks, setPlacedBlocks,
+    gridComputed, viewTransform,
+    activeAssets, colorMode,
+    pushHistory, syncHistorySize,
+  });
 
-  const [historySize, setHistorySize] = useState({ undo: 0, redo: 0 });
-  const syncHistorySize = useCallback(() => {
-    setHistorySize({ undo: undoStack.current.length, redo: redoStack.current.length });
-  }, []);
-
+  // Wrap undo/redo to also clear selection
   const handleUndo = useCallback(() => {
-    if (!undoStack.current.length) return;
-    const prev = undoStack.current[undoStack.current.length - 1];
-    undoStack.current = undoStack.current.slice(0, -1);
-    redoStack.current = [placedBlocks, ...redoStack.current].slice(0, 50);
-    setPlacedBlocks(prev);
+    _handleUndo();
     setSelectedIds(new Set());
-    syncHistorySize();
-  }, [placedBlocks, syncHistorySize]);
+  }, [_handleUndo, setSelectedIds]);
 
   const handleRedo = useCallback(() => {
-    if (!redoStack.current.length) return;
-    const next = redoStack.current[0];
-    redoStack.current = redoStack.current.slice(1);
-    undoStack.current = [...undoStack.current, placedBlocks].slice(-50);
-    setPlacedBlocks(next);
+    _handleRedo();
     setSelectedIds(new Set());
-    syncHistorySize();
-  }, [placedBlocks, syncHistorySize]);
+  }, [_handleRedo, setSelectedIds]);
 
-  // When grid geometry changes: attempt proportional rescale, clear only if incompatible.
-  // Suppressed during project load via skipNextClear.
+  // When grid geometry changes: attempt proportional rescale, clear if incompatible
   const prevGridRef = useRef(null);
+  const placedBlocksRef = useRef(placedBlocks);
+  useEffect(() => { placedBlocksRef.current = placedBlocks; }, [placedBlocks]);
+
   useEffect(() => {
     if (skipNextClear.current) { skipNextClear.current = false; prevGridRef.current = gridComputed; return; }
 
@@ -356,9 +302,8 @@ function App() {
     prevGridRef.current = gridComputed;
 
     if (!gridComputed) { setPlacedBlocks([]); return; }
-    if (!prev || !placedBlocksRef.current.length) return; // nothing to rescale
+    if (!prev || !placedBlocksRef.current.length) return;
 
-    // Only attempt rescale when col/row count changed but block sizes stay compatible
     const scaleC = gridComputed.cols / prev.cols;
     const scaleR = gridComputed.rows / prev.rows;
 
@@ -368,7 +313,6 @@ function App() {
       gridRow: Math.round(b.gridRow * scaleR),
     }));
 
-    // Validate: all blocks must fit within new grid bounds without overlap
     const fits = rescaled.every(b =>
       b.gridCol >= 0 && b.gridCol + b.cols <= gridComputed.cols &&
       b.gridRow >= 0 && b.gridRow + b.rows <= gridComputed.rows
@@ -389,31 +333,40 @@ function App() {
       setPlacedBlocks(rescaled);
     } else {
       setPlacedBlocks([]);
-      undoStack.current = [];
-      redoStack.current = [];
-      syncHistorySize();
+      clearHistory();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gridComputed?.cols, gridComputed?.rows, gridComputed?.cellSize]);
 
-  // Auto-fill when settings change (runs after the clear effect above)
+  // Auto-fill when settings change — debounced 150ms so rapid slider drags don't spam binPack
   const autoFillRef = useRef(autoFill);
   useEffect(() => { autoFillRef.current = autoFill; }, [autoFill]);
   const activeAssetsRef = useRef(activeAssets);
   useEffect(() => { activeAssetsRef.current = activeAssets; }, [activeAssets]);
+  const autoFillTimerRef = useRef(null);
 
   useEffect(() => {
     if (!autoFillRef.current || !gridComputed || !activeAssetsRef.current.length) return;
-    const blocks = fillGrid(activeAssetsRef.current, gridComputed, maxScale, scaleFreq).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
+    clearTimeout(autoFillTimerRef.current);
+    autoFillTimerRef.current = setTimeout(() => {
+      const blocks = fillGrid(activeAssetsRef.current, gridComputed, maxScale, scaleFreq).map(b => ({
+        ...b,
+        colorSeed: Math.floor(Math.random() * 0x80000000),
+        colorOffset: 0,
+      }));
+      setPlacedBlocks(blocks);
+    }, 150);
+    return () => clearTimeout(autoFillTimerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gridComputed?.cols, gridComputed?.rows, gridComputed?.cellSize, maxScale, scaleFreq]);
 
-  // Undo/redo + arrow nudge keyboard shortcuts
+  // Keyboard shortcuts (undo/redo + arrow nudge)
+  const gridComputedRef = useRef(gridComputed);
+  useEffect(() => { gridComputedRef.current = gridComputed; }, [gridComputed]);
+
+  const selectedIdsRef = useRef(selectedIds);
+  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+
   useEffect(() => {
     const onKeyDown = (e) => {
       const ctrl = e.ctrlKey || e.metaKey;
@@ -435,16 +388,14 @@ function App() {
       const dy = e.key === 'ArrowUp'   ? -1 : e.key === 'ArrowDown'  ? 1 : 0;
 
       setPlacedBlocks(prev => {
-        const moving  = prev.filter(b => selectedIdsRef.current.has(b.id));
-        const still   = prev.filter(b => !selectedIdsRef.current.has(b.id));
+        const moving = prev.filter(b => selectedIdsRef.current.has(b.id));
+        const still  = prev.filter(b => !selectedIdsRef.current.has(b.id));
 
-        // Bounds check — abort if any block would leave the grid
         for (const b of moving) {
           if (b.gridCol + dx < 0 || b.gridCol + b.cols + dx > cols) return prev;
           if (b.gridRow + dy < 0 || b.gridRow + b.rows + dy > rows) return prev;
         }
 
-        // Occupied set of still blocks
         const occupiedByStill = new Set(
           still.flatMap(b =>
             Array.from({ length: b.rows }, (_, r) =>
@@ -453,12 +404,10 @@ function App() {
           )
         );
 
-        // Check none of the moved blocks land on a still block
-        for (const b of moving) {
+        for (const b of moving)
           for (let r = 0; r < b.rows; r++)
             for (let c = 0; c < b.cols; c++)
               if (occupiedByStill.has(`${b.gridCol + c + dx},${b.gridRow + r + dy}`)) return prev;
-        }
 
         return prev.map(b =>
           selectedIdsRef.current.has(b.id)
@@ -471,31 +420,121 @@ function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleUndo, handleRedo]);
 
-  // ── Asset ingestion ─────────────────────────────────────────────────────
-  const handleIngestAssets = useCallback((e) => {
-    const files = Array.from(e.target.files).filter(f =>
-      f.name.toLowerCase().endsWith('.svg')
-    );
-    const promises = files.map(file => new Promise(resolve => {
-      const parts = file.webkitRelativePath.split('/');
-      const folderName = parts[parts.length - 2];
-      const match = folderName.match(/^(\d+)x(\d+)$/i);
-      if (!match) { resolve(null); return; }
-      const cols = parseInt(match[1], 10);
-      const rows = parseInt(match[2], 10);
-      if (cols < 1 || rows < 1) { resolve(null); return; }
-      const reader = new FileReader();
-      reader.onload = evt => resolve({
-        id: crypto.randomUUID(), name: file.name, cols, rows, svgContent: evt.target.result,
-      });
-      reader.onerror = () => resolve(null);
-      reader.readAsText(file);
-    }));
-    Promise.all(promises).then(results => {
-      setAssets(results.filter(Boolean));
-      setPlacedBlocks([]);
+  // ── Drag & drop ────────────────────────────────────────────────────────────
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  const viewScaleRef = useRef(viewTransform.scale);
+  useEffect(() => { viewScaleRef.current = viewTransform.scale; }, [viewTransform.scale]);
+
+  const handleDragMove = useCallback(({ active, delta }) => {
+    const g = gridComputedRef.current;
+    if (!g) { setDragShadow(null); return; }
+    const { block } = active.data.current;
+    const { gridOriginX, gridOriginY, cellSize, cols, rows } = g;
+    const scale = viewScaleRef.current;
+
+    const startX = gridOriginX + block.gridCol * cellSize;
+    const startY = gridOriginY + block.gridRow * cellSize;
+    const targetCol = Math.round((startX + delta.x / scale - gridOriginX) / cellSize);
+    const targetRow = Math.round((startY + delta.y / scale - gridOriginY) / cellSize);
+
+    setDragShadow({
+      gridCol: Math.max(0, Math.min(targetCol, cols - block.cols)),
+      gridRow: Math.max(0, Math.min(targetRow, rows - block.rows)),
+      cols: block.cols,
+      rows: block.rows,
     });
   }, []);
+
+  const handleDragEnd = useCallback(({ active, delta }) => {
+    setDragShadow(null);
+    const g = gridComputedRef.current;
+    if (!g) return;
+    const { block: dragged } = active.data.current;
+    const { gridOriginX, gridOriginY, cellSize, cols, rows } = g;
+    const scale = viewScaleRef.current;
+
+    const startX = gridOriginX + dragged.gridCol * cellSize;
+    const startY = gridOriginY + dragged.gridRow * cellSize;
+    const targetCol = Math.max(0, Math.min(
+      Math.round((startX + delta.x / scale - gridOriginX) / cellSize),
+      cols - dragged.cols
+    ));
+    const targetRow = Math.max(0, Math.min(
+      Math.round((startY + delta.y / scale - gridOriginY) / cellSize),
+      rows - dragged.rows
+    ));
+
+    if (targetCol === dragged.gridCol && targetRow === dragged.gridRow) return;
+
+    pushHistory(placedBlocksRef.current);
+    syncHistorySize();
+
+    setPlacedBlocks(prev => {
+      const others = prev.filter(b => b.id !== active.id);
+      const overlapping = others.filter(b =>
+        b.gridCol < targetCol + dragged.cols && b.gridCol + b.cols > targetCol &&
+        b.gridRow < targetRow + dragged.rows && b.gridRow + b.rows > targetRow
+      );
+
+      if (overlapping.length === 0) {
+        return prev.map(b =>
+          b.id === active.id ? { ...b, gridCol: targetCol, gridRow: targetRow } : b
+        );
+      }
+
+      if (overlapping.length === 1) {
+        const other = overlapping[0];
+        if (other.cols === dragged.cols && other.rows === dragged.rows) {
+          return prev.map(b => {
+            if (b.id === dragged.id) return { ...b, gridCol: targetCol, gridRow: targetRow };
+            if (b.id === other.id)   return { ...b, gridCol: dragged.gridCol, gridRow: dragged.gridRow };
+            return b;
+          });
+        }
+      }
+
+      const overlapIds = new Set(overlapping.map(b => b.id));
+      return prev
+        .filter(b => !overlapIds.has(b.id))
+        .map(b => b.id === active.id ? { ...b, gridCol: targetCol, gridRow: targetRow } : b);
+    });
+  }, [pushHistory, syncHistorySize]);
+
+  const handleDragCancel = useCallback(() => setDragShadow(null), []);
+
+  // ── View controls ──────────────────────────────────────────────────────────
+  const handleZoom = useCallback((direction) => {
+    const factor = direction > 0 ? 1.2 : 1 / 1.2;
+    setViewTransform(prev => {
+      const newScale = Math.min(Math.max(prev.scale * factor, 0.05), 20);
+      const sf = newScale / prev.scale;
+      const cx = prev.x + (workArea.width * prev.scale) / 2;
+      const cy = prev.y + (workArea.height * prev.scale) / 2;
+      return { scale: newScale, x: cx - (cx - prev.x) * sf, y: cy - (cy - prev.y) * sf };
+    });
+  }, [workArea]);
+
+  const handleResetView = useCallback(() => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const padding = 80;
+    const scale = Math.min((vw - padding * 2) / workArea.width, (vh - padding * 2) / workArea.height, 1);
+    setViewTransform({
+      x: (vw - workArea.width * scale) / 2,
+      y: (vh - workArea.height * scale) / 2,
+      scale,
+    });
+  }, [workArea]);
+
+  // ── Fill ───────────────────────────────────────────────────────────────────
+  const assetUsageCounts = useMemo(() => {
+    const counts = {};
+    for (const b of placedBlocks) counts[b.assetId] = (counts[b.assetId] ?? 0) + 1;
+    return counts;
+  }, [placedBlocks]);
 
   const handleFillGrid = useCallback(() => {
     if (!activeAssets.length || !gridComputed) return;
@@ -521,318 +560,7 @@ function App() {
     syncHistorySize();
   }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
 
-  // ── Selection ────────────────────────────────────────────────────────────
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [showShortcuts, setShowShortcuts] = useState(false);
-  const [contextMenu, setContextMenu] = useState(null); // { block, x, y }
-
-  const assetUsageCounts = useMemo(() => {
-    const counts = {};
-    for (const b of placedBlocks) counts[b.assetId] = (counts[b.assetId] ?? 0) + 1;
-    return counts;
-  }, [placedBlocks]);
-
-  const selectedBlocks = useMemo(
-    () => placedBlocks.filter(b => selectedIds.has(b.id)),
-    [placedBlocks, selectedIds]
-  );
-
-  const handleSelectBlock = useCallback((id, addToSelection) => {
-    setSelectedIds(prev => {
-      if (addToSelection) {
-        const next = new Set(prev);
-        next.has(id) ? next.delete(id) : next.add(id);
-        return next;
-      }
-      return new Set([id]);
-    });
-  }, []);
-
-  const handleDeselectAll = useCallback(() => setSelectedIds(new Set()), []);
-
-  const handleOpenContextMenu = useCallback((block, x, y) => {
-    setSelectedIds(prev => prev.has(block.id) ? prev : new Set([block.id]));
-    setContextMenu({ block, x, y });
-  }, []);
-
-  const handleContextRefresh = useCallback(() => {
-    if (!contextMenu) return;
-    const id = contextMenu.block.id;
-    setPlacedBlocks(prev => prev.map(b => {
-      if (b.id !== id || b.colorLocked) return b;
-      if (colorMode === 'random') return { ...b, colorSeed: Math.floor(Math.random() * 0x80000000) };
-      return { ...b, colorOffset: (b.colorOffset ?? 0) + 1 };
-    }));
-  }, [contextMenu, colorMode]);
-
-  const handleContextRandomise = useCallback(() => {
-    if (!contextMenu || !activeAssets.length) return;
-    const id = contextMenu.block.id;
-    const pick = activeAssets[Math.floor(Math.random() * activeAssets.length)];
-    setPlacedBlocks(prev => prev.map(b =>
-      b.id === id ? { ...b, svgContent: pick.svgContent, name: pick.name, assetId: pick.id, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0 } : b
-    ));
-  }, [contextMenu, activeAssets]);
-
-  const handleContextToggleLock = useCallback(() => {
-    if (!contextMenu) return;
-    const id = contextMenu.block.id;
-    setPlacedBlocks(prev => prev.map(b => b.id === id ? { ...b, colorLocked: !b.colorLocked } : b));
-  }, [contextMenu]);
-
-  const handleContextDelete = useCallback(() => {
-    if (!contextMenu) return;
-    const id = contextMenu.block.id;
-    pushHistory(placedBlocks);
-    setPlacedBlocks(prev => prev.filter(b => b.id !== id));
-    setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
-    syncHistorySize();
-  }, [contextMenu, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleMarqueeSelect = useCallback(({ x1, y1, x2, y2 }) => {
-    if (!gridComputed) return;
-    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
-    const { x: panX, y: panY, scale } = viewTransform;
-    const svgX1 = (x1 - panX) / scale;
-    const svgY1 = (y1 - panY) / scale;
-    const svgX2 = (x2 - panX) / scale;
-    const svgY2 = (y2 - panY) / scale;
-    const hits = placedBlocks.filter(b => {
-      const bx = gridOriginX + b.gridCol * cellSize;
-      const by = gridOriginY + b.gridRow * cellSize;
-      const bw = b.cols * cellSize;
-      const bh = b.rows * cellSize;
-      return bx < svgX2 && bx + bw > svgX1 && by < svgY2 && by + bh > svgY1;
-    });
-    setSelectedIds(new Set(hits.map(b => b.id)));
-  }, [gridComputed, viewTransform, placedBlocks]);
-
-  const handleDeleteSelected = useCallback(() => {
-    pushHistory(placedBlocks);
-    setPlacedBlocks(prev => prev.filter(b => !selectedIds.has(b.id)));
-    setSelectedIds(new Set());
-    syncHistorySize();
-  }, [selectedIds, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleRefreshSelected = useCallback(() => {
-    setPlacedBlocks(prev => prev.map(b => {
-      if (!selectedIds.has(b.id) || b.colorLocked) return b;
-      if (colorMode === 'random') return { ...b, colorSeed: Math.floor(Math.random() * 0x80000000) };
-      return { ...b, colorOffset: (b.colorOffset ?? 0) + 1 };
-    }));
-  }, [selectedIds, colorMode]);
-
-  const handleRandomiseSelected = useCallback(() => {
-    if (!activeAssets.length) return;
-    setPlacedBlocks(prev => prev.map(b => {
-      if (!selectedIds.has(b.id) || b.colorLocked) return b;
-      // Only substitute with a same-size asset so the grid layout is preserved
-      const sameSize = activeAssets.filter(a => a.cols === b.cols && a.rows === b.rows);
-      if (!sameSize.length) return b;
-      const pick = sameSize[Math.floor(Math.random() * sameSize.length)];
-      return {
-        ...b,
-        svgContent: pick.svgContent,
-        name: pick.name,
-        assetId: pick.id,
-        colorSeed: Math.floor(Math.random() * 0x80000000),
-        colorOffset: 0,
-      };
-    }));
-  }, [selectedIds, activeAssets]);
-
-  const handleFlipH = useCallback(() => {
-    if (!gridComputed) return;
-    pushHistory(placedBlocks);
-    setPlacedBlocks(prev => prev.map(b => ({
-      ...b,
-      gridCol: gridComputed.cols - b.gridCol - b.cols,
-    })));
-    syncHistorySize();
-  }, [gridComputed, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleFlipV = useCallback(() => {
-    if (!gridComputed) return;
-    pushHistory(placedBlocks);
-    setPlacedBlocks(prev => prev.map(b => ({
-      ...b,
-      gridRow: gridComputed.rows - b.gridRow - b.rows,
-    })));
-    syncHistorySize();
-  }, [gridComputed, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleToggleLockSelected = useCallback(() => {
-    const allLocked = [...selectedIds].every(id => {
-      const b = placedBlocks.find(bl => bl.id === id);
-      return b?.colorLocked;
-    });
-    setPlacedBlocks(prev => prev.map(b =>
-      selectedIds.has(b.id) ? { ...b, colorLocked: !allLocked } : b
-    ));
-  }, [selectedIds, placedBlocks]);
-
-  const handleSwapSelected = useCallback((asset) => {
-    setPlacedBlocks(prev => {
-      let result = prev;
-      for (const id of selectedIds) {
-        const block = result.find(b => b.id === id);
-        if (!block) continue;
-        const newCols = asset.cols ?? block.cols;
-        const newRows = asset.rows ?? block.rows;
-        // Remove any blocks that would now be overlapped by the resized block
-        const overlapIds = new Set(
-          result
-            .filter(b =>
-              b.id !== id &&
-              b.gridCol < block.gridCol + newCols && b.gridCol + b.cols > block.gridCol &&
-              b.gridRow < block.gridRow + newRows && b.gridRow + b.rows > block.gridRow
-            )
-            .map(b => b.id)
-        );
-        result = result
-          .filter(b => !overlapIds.has(b.id))
-          .map(b => b.id === id ? {
-            ...b,
-            cols: newCols,
-            rows: newRows,
-            svgContent: asset.svgContent,
-            name: asset.name,
-            assetId: asset.id,
-            colorSeed: Math.floor(Math.random() * 0x80000000),
-            colorOffset: 0,
-          } : b);
-      }
-      return result;
-    });
-  }, [selectedIds]);
-
-  // ── Drag & drop ─────────────────────────────────────────────────────────
-  const sensors = useSensors(
-    // 5px activation distance lets clicks still fire (for the delete button etc.)
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  );
-
-  // Refs so the drag callbacks always read the latest values without
-  // needing them in their dependency arrays (avoids re-creating on every pan/zoom).
-  const viewScaleRef = useRef(viewTransform.scale);
-  useEffect(() => { viewScaleRef.current = viewTransform.scale; }, [viewTransform.scale]);
-
-  const gridComputedRef = useRef(gridComputed);
-  useEffect(() => { gridComputedRef.current = gridComputed; }, [gridComputed]);
-
-  const handleDragMove = useCallback(({ active, delta }) => {
-    const g = gridComputedRef.current;
-    if (!g) { setDragShadow(null); return; }
-    const { block } = active.data.current;
-    const { gridOriginX, gridOriginY, cellSize, cols, rows } = g;
-    const scale = viewScaleRef.current;
-
-    const startX = gridOriginX + block.gridCol * cellSize;
-    const startY = gridOriginY + block.gridRow * cellSize;
-    const targetCol = Math.round((startX + delta.x / scale - gridOriginX) / cellSize);
-    const targetRow = Math.round((startY + delta.y / scale - gridOriginY) / cellSize);
-
-    setDragShadow({
-      gridCol: Math.max(0, Math.min(targetCol, cols - block.cols)),
-      gridRow: Math.max(0, Math.min(targetRow, rows - block.rows)),
-      cols: block.cols,
-      rows: block.rows,
-    });
-  }, []);
-
-  const placedBlocksRef = useRef(placedBlocks);
-  useEffect(() => { placedBlocksRef.current = placedBlocks; }, [placedBlocks]);
-
-  const selectedIdsRef = useRef(selectedIds);
-  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
-
-  const handleDragEnd = useCallback(({ active, delta }) => {
-    setDragShadow(null);
-    const g = gridComputedRef.current;
-    if (!g) return;
-    const { block: dragged } = active.data.current;
-    const { gridOriginX, gridOriginY, cellSize, cols, rows } = g;
-    const scale = viewScaleRef.current;
-
-    const startX = gridOriginX + dragged.gridCol * cellSize;
-    const startY = gridOriginY + dragged.gridRow * cellSize;
-    const targetCol = Math.max(0, Math.min(
-      Math.round((startX + delta.x / scale - gridOriginX) / cellSize),
-      cols - dragged.cols
-    ));
-    const targetRow = Math.max(0, Math.min(
-      Math.round((startY + delta.y / scale - gridOriginY) / cellSize),
-      rows - dragged.rows
-    ));
-
-    // No-op if position didn't change
-    if (targetCol === dragged.gridCol && targetRow === dragged.gridRow) return;
-
-    pushHistory(placedBlocksRef.current);
-    syncHistorySize();
-
-    setPlacedBlocks(prev => {
-      const others = prev.filter(b => b.id !== active.id);
-
-      // Find any blocks whose bounding boxes overlap the target area
-      const overlapping = others.filter(b =>
-        b.gridCol < targetCol + dragged.cols && b.gridCol + b.cols > targetCol &&
-        b.gridRow < targetRow + dragged.rows && b.gridRow + b.rows > targetRow
-      );
-
-      if (overlapping.length === 0) {
-        // Empty target — simple move
-        return prev.map(b =>
-          b.id === active.id ? { ...b, gridCol: targetCol, gridRow: targetRow } : b
-        );
-      }
-
-      if (overlapping.length === 1) {
-        const other = overlapping[0];
-        // Exact same size — swap positions
-        if (other.cols === dragged.cols && other.rows === dragged.rows) {
-          return prev.map(b => {
-            if (b.id === dragged.id) return { ...b, gridCol: targetCol, gridRow: targetRow };
-            if (b.id === other.id)   return { ...b, gridCol: dragged.gridCol, gridRow: dragged.gridRow };
-            return b;
-          });
-        }
-      }
-
-      // Different sizes — remove all overlapping blocks and place dragged at target
-      const overlapIds = new Set(overlapping.map(b => b.id));
-      return prev
-        .filter(b => !overlapIds.has(b.id))
-        .map(b => b.id === active.id ? { ...b, gridCol: targetCol, gridRow: targetRow } : b);
-    });
-  }, []);
-
-  const handleDragCancel = useCallback(() => setDragShadow(null), []);
-
-  // ── View controls ────────────────────────────────────────────────────────
-  const handleZoom = useCallback((direction) => {
-    const factor = direction > 0 ? 1.2 : 1 / 1.2;
-    setViewTransform(prev => {
-      const newScale = Math.min(Math.max(prev.scale * factor, 0.05), 20);
-      const sf = newScale / prev.scale;
-      const cx = prev.x + (workArea.width * prev.scale) / 2;
-      const cy = prev.y + (workArea.height * prev.scale) / 2;
-      return { scale: newScale, x: cx - (cx - prev.x) * sf, y: cy - (cy - prev.y) * sf };
-    });
-  }, [workArea]);
-
-  const handleResetView = useCallback(() => {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const padding = 80;
-    const scale = Math.min((vw - padding * 2) / workArea.width, (vh - padding * 2) / workArea.height, 1);
-    setViewTransform({
-      x: (vw - workArea.width * scale) / 2,
-      y: (vh - workArea.height * scale) / 2,
-      scale,
-    });
-  }, [workArea]);
-
+  // ── Save / Load / Export ───────────────────────────────────────────────────
   const handleLoadProject = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -855,7 +583,6 @@ function App() {
         if (state.bgColors)    setBgColors(state.bgColors);
         if (state.gradientSettings) setGradientSettings(prev => ({ ...prev, ...state.gradientSettings }));
         if (state.enabledAssetIds) setEnabledAssetIds(new Set(state.enabledAssetIds));
-        if (state.assets)        setAssets(state.assets);
         if (state.placedBlocks)  setPlacedBlocks(state.placedBlocks);
         setSelectedIds(new Set());
       } catch {
@@ -864,7 +591,7 @@ function App() {
     };
     reader.readAsText(file);
     e.target.value = '';
-  }, []);
+  }, [setColorMode, setPaletteKey, setShapeColors, setBgColors, setSelectedIds]);
 
   const handleSaveProject = useCallback(() => {
     const state = {
@@ -882,7 +609,6 @@ function App() {
       bgColors,
       gradientSettings,
       enabledAssetIds: [...enabledAssetIds],
-      assets,
       placedBlocks,
     };
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -894,7 +620,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, enabledAssetIds, assets, placedBlocks]);
+  }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, enabledAssetIds, placedBlocks]);
 
   const handleExport = useCallback(() => {
     if (!placedBlocks.length || !gridComputed) return;
@@ -905,11 +631,6 @@ function App() {
     const svgNS = 'http://www.w3.org/2000/svg';
     const parser = new DOMParser();
 
-    // When multiple SVGs are inlined into one document their <style> blocks all
-    // apply globally — a later block's `.cls-1 { fill: grey }` overwrites an
-    // earlier block's `.cls-1 { fill: none }`, producing stray grey shapes.
-    // Fix: convert every CSS class fill to an inline style attribute (inline
-    // styles beat class rules), then remove the <style> elements entirely.
     const flattenStyles = (doc) => {
       const root = doc.documentElement;
       const map = {};
@@ -925,7 +646,6 @@ function App() {
         const cssFill = cls.map(c => map[c]).find(v => v !== undefined);
         if (cssFill === undefined) return;
         const style = el.getAttribute('style') || '';
-        // Only set if no inline fill already present (colorisation takes priority)
         if (!/\bfill\s*:/.test(style)) {
           el.setAttribute('style', `${style}${style ? ';' : ''}fill:${cssFill}`);
         }
@@ -933,8 +653,6 @@ function App() {
       root.querySelectorAll('style').forEach(s => s.remove());
     };
 
-    // Build the output SVG from scratch — assets are inlined as real vectors,
-    // no <image> links, so Illustrator imports them as editable paths/shapes.
     const out = document.createElementNS(svgNS, 'svg');
     out.setAttribute('xmlns', svgNS);
     out.setAttribute('width', String(width));
@@ -947,14 +665,12 @@ function App() {
     bgRect.setAttribute('fill', canvasBg);
     out.appendChild(bgRect);
 
-
     placedBlocks.forEach(block => {
       const bx = gridOriginX + block.gridCol * cellSize;
       const by = gridOriginY + block.gridRow * cellSize;
       const bw = block.cols * cellSize;
       const bh = block.rows * cellSize;
 
-      // Apply the same colorisation used in the live preview
       let svgText;
       if (colorMode === 'image') {
         svgText = colorizeSvgByImage(block.svgContent, bx, by, bw, bh, imagePixels);
@@ -970,7 +686,6 @@ function App() {
       flattenStyles(blockDoc);
       const blockRoot = blockDoc.documentElement;
 
-      // Resolve the source coordinate space from viewBox or width/height attrs
       let vbX = 0, vbY = 0, vbW, vbH;
       const vbStr = blockRoot.getAttribute('viewBox');
       if (vbStr) {
@@ -981,18 +696,13 @@ function App() {
         vbH = parseFloat(blockRoot.getAttribute('height') || String(bh));
       }
 
-      // Replicate <image preserveAspectRatio="xMidYMid meet"> scaling
       const scale = Math.min(bw / vbW, bh / vbH);
       const tx = bx + (bw - vbW * scale) / 2 - vbX * scale;
       const ty = by + (bh - vbH * scale) / 2 - vbY * scale;
 
       const g = document.createElementNS(svgNS, 'g');
       g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
-
-      for (const child of [...blockRoot.childNodes]) {
-        g.appendChild(document.importNode(child, true));
-      }
-
+      for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
       out.appendChild(g);
     });
 
@@ -1008,7 +718,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, activeBgColors, canvasBg, imagePixels, imageDataUrls, activeGradientSettings]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, effectivePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings]);
 
   return (
     <DndContext
@@ -1032,7 +742,6 @@ function App() {
               selectedBlocks={selectedBlocks}
               viewTransform={viewTransform}
               gridComputed={gridComputed}
-              uploadedAssets={assets}
               colorMode={colorMode}
               effectivePalette={effectivePalette}
               bgOptions={activeBgColors}
@@ -1094,8 +803,6 @@ function App() {
           onGridSettingsChange={handleGridSettingsChange}
           gridComputed={gridComputed}
           validCols={validCols}
-          assets={assets}
-          onIngestAssets={handleIngestAssets}
           enabledAssetIds={enabledAssetIds}
           onEnableAssets={handleEnableAssets}
           onDisableAssets={handleDisableAssets}

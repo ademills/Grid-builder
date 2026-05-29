@@ -7,7 +7,6 @@ export function SelectionToolbar({
   selectedBlocks,
   viewTransform,
   gridComputed,
-  uploadedAssets,
   colorMode,
   effectivePalette,
   bgOptions,
@@ -28,15 +27,11 @@ export function SelectionToolbar({
     if (!hasSelection) setSwapOpen(false);
   }, [hasSelection]);
 
-  const allAssets = useMemo(
-    () => [...ALL_BUILTIN_ASSETS, ...uploadedAssets],
-    [uploadedAssets]
-  );
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? allAssets.filter(a => a.name.toLowerCase().includes(q)) : allAssets;
-  }, [allAssets, query]);
+    return q ? ALL_BUILTIN_ASSETS.filter(a => a.name.toLowerCase().includes(q)) : ALL_BUILTIN_ASSETS;
+  }, [query]);
+
 
   // ── Early return after all hooks ─────────────────────────────────────────
 
