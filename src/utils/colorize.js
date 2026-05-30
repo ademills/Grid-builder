@@ -1,6 +1,6 @@
 export const PALETTES = {
   // ── Brands ───────────────────────────────────────────────
-  'Ade Mills': ['#4d34d3', '#8272dc', '#adeeee', '#53565a', '#000000', '#fefefe'],
+  'Ade Mills': ['#4d34d3', '#8272dc', '#adeeee', '#53565a', '#141318', '#ECE9E2'],
 
   // ── Originals ────────────────────────────────────────────
   Vibrant:  ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'],
