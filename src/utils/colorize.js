@@ -1,4 +1,7 @@
 export const PALETTES = {
+  // ── Brands ───────────────────────────────────────────────
+  'Ade Mills': ['#4d34d3', '#8272dc', '#adeeee', '#53565a', '#000000', '#fefefe'],
+
   // ── Originals ────────────────────────────────────────────
   Vibrant:  ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'],
   Bold:     ['#E63946', '#457B9D', '#2A9D8F', '#E9C46A', '#F4A261', '#264653'],
@@ -277,6 +280,10 @@ export const PALETTES = {
 export const PALETTE_KEYS = Object.keys(PALETTES);
 
 export const PALETTE_GROUPS = [
+  {
+    name: 'Brands',
+    keys: ['Ade Mills'],
+  },
   {
     name: 'Design',
     keys: ['Vibrant', 'Bold', 'Pastel', 'Earth', 'Nordic', 'Sunset', 'Forest', 'Mono', 'Candy', 'Jewel', 'Slate'],
