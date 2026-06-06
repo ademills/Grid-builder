@@ -142,11 +142,8 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
         xmlns="http://www.w3.org/2000/svg"
         className={styles.svg}
       >
-        <g
-          transform={`translate(${x},${y}) scale(${scale})`}
-          style={{ filter: 'drop-shadow(0 8px 40px rgba(0,0,0,0.35))' }}
-        >
-          <rect width={width} height={height} fill={canvasBg ?? '#ffffff'} />
+        <g transform={`translate(${x},${y}) scale(${scale})`}>
+          <rect width={width} height={height} fill={canvasBg ?? '#ffffff'} style={{ filter: 'drop-shadow(0 8px 40px rgba(0,0,0,0.35))' }} />
           {children}
         </g>
       </svg>

@@ -657,9 +657,11 @@ export function colorizeSvgByImage(svgContent, bx, by, bw, bh, imgData) {
   const baseX = bx + (bw - vbW * blockScale) / 2 - vbX * blockScale;
   const baseY = by + (bh - vbH * blockScale) / 2 - vbY * blockScale;
 
+  const sx = imgData.scaleX ?? 1;
+  const sy = imgData.scaleY ?? 1;
   const samplePixel = (canvasX, canvasY) => {
-    const px = Math.max(0, Math.min(Math.round(canvasX), imgData.width  - 1));
-    const py = Math.max(0, Math.min(Math.round(canvasY), imgData.height - 1));
+    const px = Math.max(0, Math.min(Math.round(canvasX * sx), imgData.width  - 1));
+    const py = Math.max(0, Math.min(Math.round(canvasY * sy), imgData.height - 1));
     const i = (py * imgData.width + px) * 4;
     const d = imgData.data;
     return `#${d[i].toString(16).padStart(2,'0')}${d[i+1].toString(16).padStart(2,'0')}${d[i+2].toString(16).padStart(2,'0')}`;
@@ -774,9 +776,11 @@ export function colorizeSvgFromTemplate(tmpl, bx, by, bw, bh, imgData) {
   const baseX = bx + (bw - vbW * blockScale) / 2 - vbX * blockScale;
   const baseY = by + (bh - vbH * blockScale) / 2 - vbY * blockScale;
 
+  const sx = imgData.scaleX ?? 1;
+  const sy = imgData.scaleY ?? 1;
   const samplePixel = (canvasX, canvasY) => {
-    const px = Math.max(0, Math.min(Math.round(canvasX), imgData.width - 1));
-    const py = Math.max(0, Math.min(Math.round(canvasY), imgData.height - 1));
+    const px = Math.max(0, Math.min(Math.round(canvasX * sx), imgData.width - 1));
+    const py = Math.max(0, Math.min(Math.round(canvasY * sy), imgData.height - 1));
     const i = (py * imgData.width + px) * 4;
     const d = imgData.data;
     return `#${d[i].toString(16).padStart(2, '0')}${d[i + 1].toString(16).padStart(2, '0')}${d[i + 2].toString(16).padStart(2, '0')}`;

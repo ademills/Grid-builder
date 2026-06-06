@@ -1,38 +1,26 @@
-import { useMemo } from 'react';
-import { useDraggable } from '@dnd-kit/core';
+import { useMemo, useRef, useCallback, useEffect, memo } from 'react';
 import { colorizeSvg } from '../utils/colorize';
 
-function DraggableBlock({
+const GridBlock = memo(function GridBlock({
   block, cellSize, gridOriginX, gridOriginY,
-  viewTransform, activeTool,
+  scale, activeTool,
   isSelected, onSelect, onContextMenu,
   colorMode, effectivePalette, bgOptions,
   gridCols, gridRows, gradientSettings, imageDataUrls,
   randomReverseEnabled,
+  imageRefsMap,
 }) {
-  const { setNodeRef, listeners, attributes, isDragging, transform } = useDraggable({
-    id: block.id,
-    data: { block },
-    disabled: activeTool !== 'select',
-  });
-
   const x = gridOriginX + block.gridCol * cellSize;
   const y = gridOriginY + block.gridRow * cellSize;
   const w = block.cols * cellSize;
   const h = block.rows * cellSize;
 
-  const svgDx = transform ? transform.x / viewTransform.scale : 0;
-  const svgDy = transform ? transform.y / viewTransform.scale : 0;
+  // Cheap image-mode lookup — does NOT trigger palette re-computation
+  const imageDataUrl = colorMode === 'image' ? (imageDataUrls?.[block.id] ?? null) : null;
 
-  const dataUrl = useMemo(() => {
-    // Image mode: use the pre-computed data URL from App.jsx (computed off the render cycle).
-    // Fall back to the raw SVG while computation is still in progress.
-    if (colorMode === 'image') {
-      const precomputed = imageDataUrls?.[block.id];
-      if (precomputed) return precomputed;
-      const clean = block.svgContent.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
-      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-    }
+  // Expensive colour computation — imageDataUrls intentionally excluded from deps
+  const colorDataUrl = useMemo(() => {
+    if (colorMode === 'image') return null;
     const blockPalette = (randomReverseEnabled && block.reverseColor)
       ? [...effectivePalette].reverse()
       : effectivePalette;
@@ -44,21 +32,35 @@ function DraggableBlock({
       : block.svgContent;
     const clean = svg.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-  }, [block.svgContent, block.id, block.colorSeed, block.colorOffset, block.reverseColor, block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions, gridCols, gridRows, gradientSettings, imageDataUrls, randomReverseEnabled]);
+  }, [block.svgContent, block.id, block.colorSeed, block.colorOffset, block.reverseColor,
+      block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions,
+      gridCols, gridRows, gradientSettings, randomReverseEnabled]);
+
+  const dataUrl = colorMode === 'image' ? imageDataUrl : colorDataUrl;
+
+  const imageElRef = useRef(null);
+
+  const setImageRef = useCallback((el) => {
+    imageElRef.current = el;
+    if (imageRefsMap) {
+      if (el) imageRefsMap.current[block.id] = el;
+      else delete imageRefsMap.current[block.id];
+    }
+  }, [block.id, imageRefsMap]);
+
+  // Keep data-original-href up-to-date so animation can restore it on stop
+  useEffect(() => {
+    if (imageElRef.current) {
+      imageElRef.current.setAttribute('data-original-href', dataUrl);
+    }
+  }, [dataUrl]);
 
   const isInteractive = activeTool === 'select';
-  const ui = 1 / viewTransform.scale;
+  const ui = 1 / scale;
 
   return (
     <g
-      ref={setNodeRef}
-      {...(isInteractive ? listeners : {})}
-      {...(isInteractive ? attributes : {})}
-      transform={`translate(${svgDx},${svgDy})`}
-      style={{
-        cursor: !isInteractive ? 'default' : isDragging ? 'grabbing' : 'grab',
-        outline: 'none',
-      }}
+      style={{ cursor: 'default', outline: 'none' }}
       onClick={e => {
         if (isInteractive) {
           e.stopPropagation();
@@ -81,16 +83,19 @@ function DraggableBlock({
       {/* Transparent hit-area */}
       <rect x={x} y={y} width={w} height={h} fill="transparent" style={{ pointerEvents: 'all' }} />
 
-      <image
-        href={dataUrl}
-        x={x} y={y}
-        width={w} height={h}
-        preserveAspectRatio="xMidYMid meet"
-        opacity={isDragging ? 0.45 : 1}
-      />
+      {dataUrl && (
+        <image
+          ref={setImageRef}
+          href={dataUrl}
+          x={x} y={y}
+          width={w} height={h}
+          preserveAspectRatio="xMidYMid meet"
+          opacity={1}
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
 
-      {/* Selection highlight */}
-      {isSelected && !isDragging && (
+      {isSelected && (
         <rect
           x={x} y={y} width={w} height={h}
           fill="rgba(124,58,237,0.07)"
@@ -101,8 +106,7 @@ function DraggableBlock({
         />
       )}
 
-      {/* Color lock badge */}
-      {block.colorLocked && !isDragging && (
+      {block.colorLocked && (
         <text
           x={x + w - 4 * ui}
           y={y + 4 * ui}
@@ -114,29 +118,17 @@ function DraggableBlock({
           style={{ userSelect: 'none' }}
         >🔒</text>
       )}
-
-      {/* Drag ghost outline */}
-      {isDragging && (
-        <rect
-          x={x} y={y} width={w} height={h}
-          fill="rgba(255,255,255,0.06)"
-          stroke="rgba(124,58,237,0.5)"
-          strokeWidth={2 * ui}
-          strokeDasharray={`${6 * ui} ${3 * ui}`}
-          data-noexport="true"
-          pointerEvents="none"
-        />
-      )}
     </g>
   );
-}
+});
 
-export function PlacedBlocks({
-  placedBlocks, gridComputed, viewTransform, activeTool,
-  dragShadow,
+export const PlacedBlocks = memo(function PlacedBlocks({
+  placedBlocks, gridComputed, viewScale, activeTool,
   selectedIds, onSelect, onContextMenu,
   colorMode, effectivePalette, bgOptions, gradientSettings, imageDataUrls,
   randomReverseEnabled,
+  filterUrl,
+  imageRefsMap,
 }) {
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;
 
@@ -146,30 +138,16 @@ export function PlacedBlocks({
     <g
       id="placed-blocks"
       style={{ pointerEvents: activeTool === 'hand' ? 'none' : 'auto' }}
+      filter={filterUrl || undefined}
     >
-      {dragShadow && (
-        <rect
-          x={gridOriginX + dragShadow.gridCol * cellSize}
-          y={gridOriginY + dragShadow.gridRow * cellSize}
-          width={dragShadow.cols * cellSize}
-          height={dragShadow.rows * cellSize}
-          fill="rgba(124,58,237,0.1)"
-          stroke="rgba(124,58,237,0.65)"
-          strokeWidth={2}
-          strokeDasharray="5 3"
-          data-noexport="true"
-          pointerEvents="none"
-        />
-      )}
-
       {placedBlocks.map(block => (
-        <DraggableBlock
+        <GridBlock
           key={block.id}
           block={block}
           cellSize={cellSize}
           gridOriginX={gridOriginX}
           gridOriginY={gridOriginY}
-          viewTransform={viewTransform}
+          scale={viewScale}
           activeTool={activeTool}
           isSelected={selectedIds?.has(block.id) ?? false}
           onSelect={onSelect}
@@ -182,8 +160,9 @@ export function PlacedBlocks({
           gradientSettings={gradientSettings}
           imageDataUrls={imageDataUrls}
           randomReverseEnabled={randomReverseEnabled}
+          imageRefsMap={imageRefsMap}
         />
       ))}
     </g>
   );
-}
+});

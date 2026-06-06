@@ -70,6 +70,7 @@ export function FloatingPanel({
   onRandomRerun,
   gradientSettings, onGradientSettingsChange,
   imageSrc, onImageSrcChange, imageProgress,
+  animSettings, onAnimSettingsChange,
   showShortcuts, onToggleShortcuts,
   assetUsageCounts,
   onFlipH, onFlipV, canFlip,
@@ -1237,6 +1238,175 @@ export function FloatingPanel({
                     </div>
                   )}
                 </div>
+
+                {/* Animation */}
+                {animSettings && onAnimSettingsChange && (
+                <div className={styles.section}>
+                  <button className={styles.sectionHeader} onClick={() => toggleSection('Animation')}>
+                    <span className={styles.sectionTitle}>
+                      Animation
+                      {animSettings.enabled && <span className={styles.animActiveDot} />}
+                    </span>
+                    <span className={styles.sectionArrow}>{openSections.has('Animation') ? '▼' : '▶'}</span>
+                  </button>
+                  {openSections.has('Animation') && (
+                    <div className={styles.sectionContent}>
+
+                      {/* Play / Pause */}
+                      <div className={styles.animPlayRow}>
+                        <button
+                          className={`${styles.actionBtn} ${animSettings.enabled ? styles.actionBtnPrimary : ''}`}
+                          onClick={() => onAnimSettingsChange({ enabled: !animSettings.enabled })}
+                        >
+                          {animSettings.enabled ? '⏸ Pause' : '▶ Play'}
+                        </button>
+                      </div>
+
+                      {/* Type selector */}
+                      <div className={styles.animTypeGrid}>
+                        {[
+                          { key: 'noise',         label: 'Noise'    },
+                          { key: 'gradientSweep', label: 'Gradient' },
+                          { key: 'paletteWave',   label: 'Wave'     },
+                          { key: 'hueDrift',      label: 'Hue'      },
+                          { key: 'warp',          label: 'Warp'     },
+                          { key: 'flicker',       label: 'Flicker'  },
+                        ].map(({ key, label }) => (
+                          <button
+                            key={key}
+                            className={`${styles.animTypeBtn} ${animSettings.type === key ? styles.active : ''}`}
+                            onClick={() => onAnimSettingsChange({ type: key })}
+                          >{label}</button>
+                        ))}
+                      </div>
+
+                      {/* Speed */}
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Speed</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider}
+                            min={0.05} max={3} step={0.05}
+                            value={animSettings.speed}
+                            onChange={e => onAnimSettingsChange({ speed: parseFloat(e.target.value) })}
+                          />
+                          <span className={styles.sliderVal}>{animSettings.speed.toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      {/* Intensity */}
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Intensity</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider}
+                            min={0.05} max={1} step={0.05}
+                            value={animSettings.intensity}
+                            onChange={e => onAnimSettingsChange({ intensity: parseFloat(e.target.value) })}
+                          />
+                          <span className={styles.sliderVal}>{Math.round(animSettings.intensity * 100)}%</span>
+                        </div>
+                      </div>
+
+                      {/* ── Per-type controls ── */}
+                      {animSettings.type === 'noise' && (
+                        <>
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Scale</span>
+                            <div className={styles.sliderRow}>
+                              <input type="range" className={styles.slider}
+                                min={0.02} max={0.6} step={0.01}
+                                value={animSettings.noise?.scale ?? 0.18}
+                                onChange={e => onAnimSettingsChange({ noise: { ...animSettings.noise, scale: parseFloat(e.target.value) } })}
+                              />
+                              <span className={styles.sliderVal}>{(animSettings.noise?.scale ?? 0.18).toFixed(2)}</span>
+                            </div>
+                          </div>
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Octaves</span>
+                            <div className={styles.animTypeGrid} style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
+                              {[1,2,3,4].map(n => (
+                                <button key={n}
+                                  className={`${styles.animTypeBtn} ${(animSettings.noise?.octaves ?? 3) === n ? styles.active : ''}`}
+                                  onClick={() => onAnimSettingsChange({ noise: { ...animSettings.noise, octaves: n } })}
+                                >{n}</button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {animSettings.type === 'paletteWave' && (
+                        <div className={styles.formRow}>
+                          <span className={styles.label}>Wavelength</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider}
+                              min={1} max={12} step={0.5}
+                              value={animSettings.paletteWave?.wavelength ?? 4}
+                              onChange={e => onAnimSettingsChange({ paletteWave: { ...animSettings.paletteWave, wavelength: parseFloat(e.target.value) } })}
+                            />
+                            <span className={styles.sliderVal}>{(animSettings.paletteWave?.wavelength ?? 4).toFixed(1)}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {animSettings.type === 'hueDrift' && (
+                        <div className={styles.formRow}>
+                          <span className={styles.label}>Range</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider}
+                              min={15} max={360} step={5}
+                              value={animSettings.hueDrift?.range ?? 120}
+                              onChange={e => onAnimSettingsChange({ hueDrift: { ...animSettings.hueDrift, range: parseInt(e.target.value) } })}
+                            />
+                            <span className={styles.sliderVal}>{animSettings.hueDrift?.range ?? 120}°</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {animSettings.type === 'warp' && (
+                        <>
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Scale</span>
+                            <div className={styles.sliderRow}>
+                              <input type="range" className={styles.slider}
+                                min={2} max={60} step={1}
+                                value={animSettings.warp?.scale ?? 18}
+                                onChange={e => onAnimSettingsChange({ warp: { ...animSettings.warp, scale: parseInt(e.target.value) } })}
+                              />
+                              <span className={styles.sliderVal}>{animSettings.warp?.scale ?? 18}</span>
+                            </div>
+                          </div>
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Frequency</span>
+                            <div className={styles.sliderRow}>
+                              <input type="range" className={styles.slider}
+                                min={0.001} max={0.025} step={0.001}
+                                value={animSettings.warp?.frequency ?? 0.006}
+                                onChange={e => onAnimSettingsChange({ warp: { ...animSettings.warp, frequency: parseFloat(e.target.value) } })}
+                              />
+                              <span className={styles.sliderVal}>{(animSettings.warp?.frequency ?? 0.006).toFixed(3)}</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {animSettings.type === 'flicker' && (
+                        <div className={styles.formRow}>
+                          <span className={styles.label}>Density</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider}
+                              min={0.01} max={0.5} step={0.01}
+                              value={animSettings.flicker?.density ?? 0.07}
+                              onChange={e => onAnimSettingsChange({ flicker: { ...animSettings.flicker, density: parseFloat(e.target.value) } })}
+                            />
+                            <span className={styles.sliderVal}>{Math.round((animSettings.flicker?.density ?? 0.07) * 100)}%</span>
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+                </div>
+                )}
 
                 {/* Actions */}
                 <div className={styles.section}>

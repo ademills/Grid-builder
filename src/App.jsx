@@ -1,14 +1,16 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { Canvas } from './components/Canvas';
 import { ContextMenu } from './components/ContextMenu';
 import { FloatingPanel } from './components/FloatingPanel';
+import { AnimationLayer, ANIM_DEFAULTS, ANIM_FILTER_ID } from './components/AnimationLayer';
 import { Grid } from './components/Grid';
 import { PlacedBlocks } from './components/PlacedBlocks';
 import { SelectionToolbar } from './components/SelectionToolbar';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
-import { colorizeSvg, colorizeSvgByImage, getSvgTemplate, colorizeSvgFromTemplate } from './utils/colorize';
+import { colorizeSvg, colorizeSvgByImage } from './utils/colorize';
+import { buildGridCells, renderImageFrame } from './utils/shapeLibraryRender';
+import shapeLibraryData from './assets/shapeLibrary.json';
 import { ALL_BUILTIN_ASSETS, DEFAULT_ENABLED_IDS } from './builtinAssets';
 import { useHistory } from './hooks/useHistory';
 import { useColorPalette } from './hooks/useColorPalette';
@@ -140,17 +142,22 @@ function App() {
   );
 
   const [placedBlocks, setPlacedBlocks] = useState([]);
-  const [dragShadow, setDragShadow] = useState(null);
-  const [autoFill, setAutoFill] = useState(false);
+const [autoFill, setAutoFill] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   // Image colour mode
   const [imageSrc, setImageSrc] = useState(null);
   const [imagePixels, setImagePixels] = useState(null);
   const [imageDataUrls, setImageDataUrls] = useState({});
-  const imageUrlCacheRef = useRef({ pixels: null, map: new Map() });
-  const svgTemplateCacheRef = useRef(new Map());
   const [imageProgress, setImageProgress] = useState(null);
+
+  // Animation
+  const [animSettings, setAnimSettings] = useState(ANIM_DEFAULTS);
+  const handleAnimSettingsChange = useCallback(
+    updates => setAnimSettings(prev => ({ ...prev, ...updates })),
+    []
+  );
+  const imageRefsMap = useRef({});
 
   // Step 1: extract pixel buffer when image or work area changes
   useEffect(() => {
@@ -162,118 +169,65 @@ function App() {
     img.onload = () => {
       const cw = workArea.width;
       const ch = workArea.height;
+      // Downsample to at most 512px on the longest side — colour sampling
+      // needs only rough per-block colour; smaller buffer = much faster
+      // getImageData and ready for per-frame video sampling later.
+      const MAX_SAMPLE = 512;
+      const ratio = Math.min(1, MAX_SAMPLE / Math.max(cw, ch));
+      const sw = Math.round(cw * ratio);
+      const sh = Math.round(ch * ratio);
       const cv = document.createElement('canvas');
-      cv.width = cw; cv.height = ch;
+      cv.width = sw; cv.height = sh;
       const ctx = cv.getContext('2d');
       const imgAspect = img.naturalWidth / img.naturalHeight;
-      const canvasAspect = cw / ch;
+      const canvasAspect = sw / sh;
       let dw, dh, dx, dy;
       if (imgAspect > canvasAspect) {
-        dh = ch; dw = dh * imgAspect; dx = (cw - dw) / 2; dy = 0;
+        dh = sh; dw = dh * imgAspect; dx = (sw - dw) / 2; dy = 0;
       } else {
-        dw = cw; dh = dw / imgAspect; dx = 0; dy = (ch - dh) / 2;
+        dw = sw; dh = dw / imgAspect; dx = 0; dy = (sh - dh) / 2;
       }
       ctx.drawImage(img, dx, dy, dw, dh);
-      const { data } = ctx.getImageData(0, 0, cw, ch);
-      setImagePixels({ data, width: cw, height: ch });
+      const { data } = ctx.getImageData(0, 0, sw, sh);
+      setImagePixels({ data, width: sw, height: sh, scaleX: ratio, scaleY: ratio });
     };
     img.src = imageSrc;
+    return () => { img.onload = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorMode, imageSrc, workArea.width, workArea.height]);
 
-  // Step 2: compute coloured URLs in two phases so the browser never freezes.
-  // Phase 1 builds image-independent SVG templates (DOMParser+serialize, once per unique SVG).
-  // Phase 2 colorizes using those templates (no DOMParser — just pixel sampling + string replace).
+  // Virtual cell state — flat array of { id, libKey, cellX, cellY, cellW, cellH }.
+  // Memoized so it only recomputes on block or grid geometry changes, not image changes.
+  const gridCells = useMemo(
+    () => buildGridCells(placedBlocks, gridComputed),
+    [placedBlocks, gridComputed]
+  );
+
+  // Image colour mode — pure arithmetic pass against the pre-built shape library.
+  // Pre-clears old URLs so the browser frees decoded SVG bitmaps before allocating new ones,
+  // then defers the computation one rAF so it doesn't block the React render cycle.
   useEffect(() => {
-    if (colorMode !== 'image' || !imagePixels || !gridComputed || !placedBlocks.length) {
+    if (colorMode !== 'image' || !imagePixels || !gridCells.length) {
       setImageDataUrls({});
       setImageProgress(null);
       return;
     }
-
-    if (imageUrlCacheRef.current.pixels !== imagePixels) {
-      imageUrlCacheRef.current = { pixels: imagePixels, map: new Map() };
-    }
-    const urlCache = imageUrlCacheRef.current.map;
-    const tplCache = svgTemplateCacheRef.current;
-
-    const makeSvgKey = (b) => `${b.svgContent.length}:${b.svgContent.slice(0, 256)}`;
-    const makeUrlKey = (b) => `${b.gridCol},${b.gridRow},${b.cols},${b.rows}:${makeSvgKey(b)}`;
-    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
-
-    const fromCache = {};
-    const toCompute = [];
-    for (const block of placedBlocks) {
-      const urlKey = makeUrlKey(block);
-      const hit = urlCache.get(urlKey);
-      if (hit) fromCache[block.id] = hit;
-      else toCompute.push({ block, urlKey, svgKey: makeSvgKey(block) });
-    }
-    setImageDataUrls(fromCache);
-    if (!toCompute.length) { setImageProgress(null); return; }
-
-    const svgContentByKey = {};
-    for (const { block, svgKey } of toCompute) {
-      if (!svgContentByKey[svgKey]) svgContentByKey[svgKey] = block.svgContent;
-    }
-    const missingTpls = Object.keys(svgContentByKey).filter(k => !tplCache.has(k));
-
-    setImageProgress(0);
-    let cancelled = false, timerId;
-
-    let tplIdx = 0;
-    const CHUNK_TPL = 4;
-    const tickTemplates = () => {
-      if (cancelled) return;
-      const end = Math.min(tplIdx + CHUNK_TPL, missingTpls.length);
-      for (; tplIdx < end; tplIdx++) {
-        const key = missingTpls[tplIdx];
-        const tpl = getSvgTemplate(svgContentByKey[key]);
-        if (tpl) {
-          if (tplCache.size >= 500) tplCache.clear();
-          tplCache.set(key, tpl);
-        }
-      }
-      setImageProgress(Math.round((tplIdx / missingTpls.length) * 30));
-      timerId = setTimeout(tplIdx < missingTpls.length ? tickTemplates : tickColorize, 0);
-    };
-
-    let clrIdx = 0;
-    const CHUNK_CLR = 15;
-    const tickColorize = () => {
-      if (cancelled) return;
-      const end = Math.min(clrIdx + CHUNK_CLR, toCompute.length);
-      const chunk = {};
-      for (; clrIdx < end; clrIdx++) {
-        const { block, urlKey, svgKey } = toCompute[clrIdx];
-        const bx = gridOriginX + block.gridCol * cellSize;
-        const by = gridOriginY + block.gridRow * cellSize;
-        const bw = block.cols * cellSize;
-        const bh = block.rows * cellSize;
-        const tpl = tplCache.get(svgKey);
-        let svgStr = tpl ? colorizeSvgFromTemplate(tpl, bx, by, bw, bh, imagePixels) : null;
-        if (!svgStr) {
-          const raw = colorizeSvgByImage(block.svgContent, bx, by, bw, bh, imagePixels);
-          svgStr = raw.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
-        }
-        const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
-        chunk[block.id] = url;
-        if (urlCache.size >= 300) urlCache.clear();
-        urlCache.set(urlKey, url);
-      }
-      setImageDataUrls(prev => ({ ...prev, ...chunk }));
-      setImageProgress(30 + Math.round((clrIdx / toCompute.length) * 70));
-      if (clrIdx < toCompute.length) {
-        timerId = setTimeout(tickColorize, 0);
-      } else {
-        timerId = setTimeout(() => { if (!cancelled) setImageProgress(null); }, 800);
-      }
-    };
-
-    timerId = setTimeout(missingTpls.length ? tickTemplates : tickColorize, 0);
-    return () => { cancelled = true; clearTimeout(timerId); setImageProgress(null); };
+    // Clear old data URLs first — lets the browser release old decoded SVG bitmaps before
+    // we allocate a new set, halving peak GPU/browser-side memory usage.
+    setImageDataUrls({});
+    const snapPixels = imagePixels;
+    const snapCells  = gridCells;
+    const snapW      = workArea.width;
+    const snapH      = workArea.height;
+    const rafId = requestAnimationFrame(() => {
+      setImageDataUrls(
+        renderImageFrame(snapCells, shapeLibraryData.shapes, snapPixels, snapW, snapH)
+      );
+      setImageProgress(null);
+    });
+    return () => cancelAnimationFrame(rafId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colorMode, imagePixels, placedBlocks, gridComputed]);
+  }, [colorMode, imagePixels, gridCells, workArea.width, workArea.height]);
 
   const skipNextClear = useRef(false);
 
@@ -446,91 +400,6 @@ function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleUndo, handleRedo]);
-
-  // ── Drag & drop ────────────────────────────────────────────────────────────
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  );
-
-  const viewScaleRef = useRef(viewTransform.scale);
-  useEffect(() => { viewScaleRef.current = viewTransform.scale; }, [viewTransform.scale]);
-
-  const handleDragMove = useCallback(({ active, delta }) => {
-    const g = gridComputedRef.current;
-    if (!g) { setDragShadow(null); return; }
-    const { block } = active.data.current;
-    const { gridOriginX, gridOriginY, cellSize, cols, rows } = g;
-    const scale = viewScaleRef.current;
-
-    const startX = gridOriginX + block.gridCol * cellSize;
-    const startY = gridOriginY + block.gridRow * cellSize;
-    const targetCol = Math.round((startX + delta.x / scale - gridOriginX) / cellSize);
-    const targetRow = Math.round((startY + delta.y / scale - gridOriginY) / cellSize);
-
-    setDragShadow({
-      gridCol: Math.max(0, Math.min(targetCol, cols - block.cols)),
-      gridRow: Math.max(0, Math.min(targetRow, rows - block.rows)),
-      cols: block.cols,
-      rows: block.rows,
-    });
-  }, []);
-
-  const handleDragEnd = useCallback(({ active, delta }) => {
-    setDragShadow(null);
-    const g = gridComputedRef.current;
-    if (!g) return;
-    const { block: dragged } = active.data.current;
-    const { gridOriginX, gridOriginY, cellSize, cols, rows } = g;
-    const scale = viewScaleRef.current;
-
-    const startX = gridOriginX + dragged.gridCol * cellSize;
-    const startY = gridOriginY + dragged.gridRow * cellSize;
-    const targetCol = Math.max(0, Math.min(
-      Math.round((startX + delta.x / scale - gridOriginX) / cellSize),
-      cols - dragged.cols
-    ));
-    const targetRow = Math.max(0, Math.min(
-      Math.round((startY + delta.y / scale - gridOriginY) / cellSize),
-      rows - dragged.rows
-    ));
-
-    if (targetCol === dragged.gridCol && targetRow === dragged.gridRow) return;
-
-    pushHistory(placedBlocksRef.current);
-    syncHistorySize();
-
-    setPlacedBlocks(prev => {
-      const others = prev.filter(b => b.id !== active.id);
-      const overlapping = others.filter(b =>
-        b.gridCol < targetCol + dragged.cols && b.gridCol + b.cols > targetCol &&
-        b.gridRow < targetRow + dragged.rows && b.gridRow + b.rows > targetRow
-      );
-
-      if (overlapping.length === 0) {
-        return prev.map(b =>
-          b.id === active.id ? { ...b, gridCol: targetCol, gridRow: targetRow } : b
-        );
-      }
-
-      if (overlapping.length === 1) {
-        const other = overlapping[0];
-        if (other.cols === dragged.cols && other.rows === dragged.rows) {
-          return prev.map(b => {
-            if (b.id === dragged.id) return { ...b, gridCol: targetCol, gridRow: targetRow };
-            if (b.id === other.id)   return { ...b, gridCol: dragged.gridCol, gridRow: dragged.gridRow };
-            return b;
-          });
-        }
-      }
-
-      const overlapIds = new Set(overlapping.map(b => b.id));
-      return prev
-        .filter(b => !overlapIds.has(b.id))
-        .map(b => b.id === active.id ? { ...b, gridCol: targetCol, gridRow: targetRow } : b);
-    });
-  }, [pushHistory, syncHistorySize]);
-
-  const handleDragCancel = useCallback(() => setDragShadow(null), []);
 
   // ── View controls ──────────────────────────────────────────────────────────
   const handleZoom = useCallback((direction) => {
@@ -749,13 +618,7 @@ function App() {
   }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled]);
 
   return (
-    <DndContext
-      sensors={sensors}
-      onDragMove={handleDragMove}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div className={styles.app}>
+    <div className={styles.app}>
         <Canvas
           viewTransform={viewTransform}
           setViewTransform={setViewTransform}
@@ -785,10 +648,9 @@ function App() {
           <PlacedBlocks
             placedBlocks={placedBlocks}
             gridComputed={gridComputed}
-            viewTransform={viewTransform}
+            viewScale={viewTransform.scale}
             activeTool={activeTool}
-            dragShadow={dragShadow}
-            selectedIds={selectedIds}
+selectedIds={selectedIds}
             onSelect={handleSelectBlock}
             onContextMenu={handleOpenContextMenu}
             colorMode={colorMode}
@@ -797,6 +659,20 @@ function App() {
             gradientSettings={activeGradientSettings}
             imageDataUrls={imageDataUrls}
             randomReverseEnabled={randomReverseEnabled}
+            filterUrl={
+              animSettings.enabled && ANIM_FILTER_ID[animSettings.type]
+                ? `url(#${ANIM_FILTER_ID[animSettings.type]})`
+                : undefined
+            }
+            imageRefsMap={imageRefsMap}
+          />
+          <AnimationLayer
+            animSettings={animSettings}
+            gridCells={gridCells}
+            gridComputed={gridComputed}
+            palette={activePalette}
+            workArea={workArea}
+            imageRefsMap={imageRefsMap}
           />
         </Canvas>
 
@@ -878,6 +754,8 @@ function App() {
           imageSrc={imageSrc}
           onImageSrcChange={setImageSrc}
           imageProgress={imageProgress}
+          animSettings={animSettings}
+          onAnimSettingsChange={handleAnimSettingsChange}
           showShortcuts={showShortcuts}
           onToggleShortcuts={() => setShowShortcuts(s => !s)}
           assetUsageCounts={assetUsageCounts}
@@ -885,8 +763,7 @@ function App() {
           onFlipV={handleFlipV}
           canFlip={placedBlocks.length > 0}
         />
-      </div>
-    </DndContext>
+    </div>
   );
 }
 

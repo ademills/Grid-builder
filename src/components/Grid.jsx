@@ -8,30 +8,25 @@ export function Grid({ workArea, gridSettings }) {
 
   const { cellSize, rows, cols, gridOriginX, gridOriginY, gridW, gridH } = g;
 
-  const lines = [];
+  const dParts = [];
   for (let c = 0; c <= cols; c++) {
     const x = gridOriginX + c * cellSize;
-    lines.push(
-      <line key={`v${c}`} x1={x} y1={gridOriginY} x2={x} y2={gridOriginY + gridH} />
-    );
+    dParts.push(`M${x},${gridOriginY}V${gridOriginY + gridH}`);
   }
   for (let r = 0; r <= rows; r++) {
     const y = gridOriginY + r * cellSize;
-    lines.push(
-      <line key={`h${r}`} x1={gridOriginX} y1={y} x2={gridOriginX + gridW} y2={y} />
-    );
+    dParts.push(`M${gridOriginX},${y}H${gridOriginX + gridW}`);
   }
 
   return (
     <g data-noexport="true">
-      <g
+      <path
+        d={dParts.join(' ')}
         stroke="rgba(0, 100, 220, 0.2)"
         strokeWidth={0.75}
         fill="none"
         shapeRendering="crispEdges"
-      >
-        {lines}
-      </g>
+      />
       {gridSettings.borderPct > 0 && (
         <rect
           x={gridOriginX}
