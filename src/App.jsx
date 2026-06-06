@@ -142,6 +142,7 @@ function App() {
   );
 
   const [placedBlocks, setPlacedBlocks] = useState([]);
+  const [exportMode, setExportMode] = useState('current');
 const [autoFill, setAutoFill] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
@@ -617,6 +618,185 @@ const [autoFill, setAutoFill] = useState(false);
     URL.revokeObjectURL(url);
   }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled]);
 
+  const handleExportLayered = useCallback((mode) => {
+    if (!placedBlocks.length || !gridComputed) return;
+
+    const { width, height } = workArea;
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    const palette = activePalette;
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const parser = new DOMParser();
+
+    const flattenStyles = (doc) => {
+      const root = doc.documentElement;
+      const map = {};
+      root.querySelectorAll('style').forEach(s => {
+        for (const [, cls, fill] of (s.textContent || '').matchAll(
+          /\.([^{,\s]+)[^{]*\{[^}]*\bfill\s*:\s*([^;}\s]+)/gs
+        )) map[cls] = fill.trim();
+      });
+      if (!Object.keys(map).length) return;
+      root.querySelectorAll('rect,circle,ellipse,path,polygon,polyline,line').forEach(el => {
+        const cls = (el.getAttribute('class') || '').trim().split(/\s+/);
+        const cssFill = cls.map(c => map[c]).find(v => v !== undefined);
+        if (cssFill === undefined) return;
+        const style = el.getAttribute('style') || '';
+        if (!/\bfill\s*:/.test(style))
+          el.setAttribute('style', `${style}${style ? ';' : ''}fill:${cssFill}`);
+      });
+      root.querySelectorAll('style').forEach(s => s.remove());
+    };
+
+    const getFill = (el) => {
+      const m = (el.getAttribute('style') || '').match(/\bfill\s*:\s*([^;}\s]+)/);
+      if (m) return m[1];
+      return el.getAttribute('fill') || null;
+    };
+
+    const out = document.createElementNS(svgNS, 'svg');
+    out.setAttribute('xmlns', svgNS);
+    out.setAttribute('width', String(width));
+    out.setAttribute('height', String(height));
+    out.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+    const bgRect = document.createElementNS(svgNS, 'rect');
+    bgRect.setAttribute('width', String(width));
+    bgRect.setAttribute('height', String(height));
+    bgRect.setAttribute('fill', canvasBg);
+    out.appendChild(bgRect);
+
+    // Collect every shape from every block in z-order (placedBlocks order = bottom to top)
+    const allShapes = [];
+    const blockBoundsArr = [];
+
+    placedBlocks.forEach((block, blockIndex) => {
+      const bx = gridOriginX + block.gridCol * cellSize;
+      const by = gridOriginY + block.gridRow * cellSize;
+      const bw = block.cols * cellSize;
+      const bh = block.rows * cellSize;
+      blockBoundsArr.push({ bx, by, bw, bh });
+
+      const blockPalette = (randomReverseEnabled && block.reverseColor) ? [...palette].reverse() : palette;
+      let svgText;
+      if (colorMode === 'image') {
+        svgText = colorizeSvgByImage(block.svgContent, bx, by, bw, bh, imagePixels);
+      } else if (colorMode !== 'none') {
+        svgText = colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
+          colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null);
+      } else {
+        svgText = block.svgContent;
+      }
+
+      const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
+      if (blockDoc.querySelector('parsererror')) return;
+      flattenStyles(blockDoc);
+      const blockRoot = blockDoc.documentElement;
+
+      let vbX = 0, vbY = 0, vbW, vbH;
+      const vbStr = blockRoot.getAttribute('viewBox');
+      if (vbStr) {
+        const p = vbStr.trim().split(/[\s,]+/).map(Number);
+        [vbX, vbY, vbW, vbH] = p;
+      } else {
+        vbW = parseFloat(blockRoot.getAttribute('width') || String(bw));
+        vbH = parseFloat(blockRoot.getAttribute('height') || String(bh));
+      }
+
+      const scale = Math.min(bw / vbW, bh / vbH);
+      const tx = bx + (bw - vbW * scale) / 2 - vbX * scale;
+      const ty = by + (bh - vbH * scale) / 2 - vbY * scale;
+
+      blockRoot.querySelectorAll('rect,circle,ellipse,path,polygon,polyline').forEach(el => {
+        const fill = getFill(el);
+        if (!fill || fill === 'none' || fill === 'transparent') return;
+        allShapes.push({
+          el: document.importNode(el, true),
+          transform: `translate(${tx},${ty}) scale(${scale})`,
+          fill: fill.toLowerCase(),
+          blockIndex,
+          blockBounds: { bx, by, bw, bh },
+        });
+      });
+    });
+
+    const colourGroups = {};
+    const colourOrder = [];
+
+    if (mode === 'grouped') {
+      // Simple grouping — no masking. Good for print colour separation.
+      // Same-colour shapes across all z-levels go into one named group.
+      allShapes.forEach(shape => {
+        if (!colourGroups[shape.fill]) { colourGroups[shape.fill] = []; colourOrder.push(shape.fill); }
+        const w = document.createElementNS(svgNS, 'g');
+        w.setAttribute('transform', shape.transform);
+        w.appendChild(shape.el);
+        colourGroups[shape.fill].push(w);
+      });
+
+    } else if (mode === 'masked') {
+      // Clip each shape to its block bounding box, then group by colour.
+      // Shapes covered by later blocks are masked out using bounding-box rects.
+      const defs = document.createElementNS(svgNS, 'defs');
+      out.insertBefore(defs, out.firstChild);
+
+      allShapes.forEach((shape, i) => {
+        const maskId = `em${i}`;
+        const mask = document.createElementNS(svgNS, 'mask');
+        mask.setAttribute('id', maskId);
+
+        // White base — show the shape
+        const white = document.createElementNS(svgNS, 'rect');
+        white.setAttribute('x', '0'); white.setAttribute('y', '0');
+        white.setAttribute('width', String(width)); white.setAttribute('height', String(height));
+        white.setAttribute('fill', 'white');
+        mask.appendChild(white);
+
+        // Black rect for each block stacked above this shape — hide where covered
+        blockBoundsArr.forEach((b, bi) => {
+          if (bi <= shape.blockIndex) return;
+          const black = document.createElementNS(svgNS, 'rect');
+          black.setAttribute('x', String(b.bx)); black.setAttribute('y', String(b.by));
+          black.setAttribute('width', String(b.bw)); black.setAttribute('height', String(b.bh));
+          black.setAttribute('fill', 'black');
+          mask.appendChild(black);
+        });
+
+        defs.appendChild(mask);
+
+        if (!colourGroups[shape.fill]) { colourGroups[shape.fill] = []; colourOrder.push(shape.fill); }
+        const w = document.createElementNS(svgNS, 'g');
+        w.setAttribute('transform', shape.transform);
+        w.setAttribute('mask', `url(#${maskId})`);
+        w.appendChild(shape.el);
+        colourGroups[shape.fill].push(w);
+      });
+    }
+
+    colourOrder.forEach(colour => {
+      const g = document.createElementNS(svgNS, 'g');
+      g.setAttribute('id', colour.replace(/[^a-zA-Z0-9]/g, '_'));
+      g.setAttribute('inkscape:label', colour);
+      colourGroups[colour].forEach(el => g.appendChild(el));
+      out.appendChild(g);
+    });
+
+    const suffix = mode === 'grouped' ? '-grouped' : '-masked';
+    const blob = new Blob([new XMLSerializer().serializeToString(out)], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `grid-layout${suffix}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled]);
+
+  const handleExportDispatch = useCallback(() => {
+    if (exportMode === 'grouped' || exportMode === 'masked') handleExportLayered(exportMode);
+    else handleExport();
+  }, [exportMode, handleExport, handleExportLayered]);
+
   return (
     <div className={styles.app}>
         <Canvas
@@ -713,7 +893,9 @@ selectedIds={selectedIds}
           onDisableAssets={handleDisableAssets}
           onFillGrid={handleFillGrid}
           onFillGaps={handleFillGaps}
-          onExport={handleExport}
+          onExport={handleExportDispatch}
+          exportMode={exportMode}
+          onExportModeChange={setExportMode}
           onSaveProject={handleSaveProject}
           onLoadProject={handleLoadProject}
           onUndo={handleUndo}

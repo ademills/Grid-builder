@@ -56,6 +56,7 @@ export function FloatingPanel({
   gridSettings, onGridSettingsChange, gridComputed, validCols,
   enabledAssetIds, onEnableAssets, onDisableAssets,
   onFillGrid, onFillGaps, onExport, onSaveProject, onLoadProject, canFill, canFillGaps, canExport,
+  exportMode, onExportModeChange,
   onUndo, onRedo, canUndo, canRedo,
   maxScale, onMaxScaleChange,
   scaleFreq, onScaleFreqChange,
@@ -1419,6 +1420,15 @@ export function FloatingPanel({
                       <div className={styles.actionBtns}>
                         <button className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} onClick={onFillGrid} disabled={!canFill}>▶ Fill Grid</button>
                         <button className={styles.actionBtn} onClick={onFillGaps} disabled={!canFillGaps}>⊞ Fill Gaps</button>
+                        <div className={styles.exportModeRow}>
+                          {[['current','Flat'],['grouped','Grouped'],['masked','Masked']].map(([val, label]) => (
+                            <button
+                              key={val}
+                              className={`${styles.exportModeBtn}${exportMode === val ? ` ${styles.exportModeBtnActive}` : ''}`}
+                              onClick={() => onExportModeChange(val)}
+                            >{label}</button>
+                          ))}
+                        </div>
                         <button className={styles.actionBtn} onClick={onExport} disabled={!canExport}>↓ Export SVG</button>
                       </div>
                       <div className={styles.actionBtns} style={{ marginTop: 6 }}>
