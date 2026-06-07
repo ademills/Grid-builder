@@ -79,6 +79,76 @@ export function assetIdToLibKey(assetId) {
   return `${themePath}/${size}/${name}`;
 }
 
+// ── Shape render cache ────────────────────────────────────────────────────────
+// For each shape we pre-compute, once, and cache by libKey:
+//   parts        — SVG template split at __SLOT_N__ markers, static segments
+//                  pre-encoded (fast string-concat URL assembly for data URIs)
+//   slotCenters  — [ [cx, cy], ... ] averaged anchor point per slot, in viewbox
+//                  coordinates — used to derive each slot's canvas position so
+//                  continuous animations can sample a colour per slot
+//   innerMarkup  — template with the outer <svg> wrapper stripped and each
+//                  __SLOT_N__ marker replaced with a placeholder fill plus a
+//                  data-slot="N" tag, for inline (non-<image>) rendering whose
+//                  fills can be mutated directly via element.style.fill
+//
+// This preserves multi-colour shapes (bauhaus blocks with bg/fg/accent slots).
+
+const _shapeCache = new Map(); // libKey → { parts, slotCenters, innerMarkup }
+
+const SVG_WRAPPER_RE = /^<svg[^>]*>([\s\S]*)<\/svg>\s*$/;
+const INLINE_PLACEHOLDER_FILL = '#9ca3af';
+
+export function getShapeCache(entry, libKey) {
+  if (_shapeCache.has(libKey)) return _shapeCache.get(libKey);
+
+  // Pre-encode static SVG segments; record slot indices as numbers in-between
+  const parts = [];
+  let last = 0;
+  for (const m of entry.template.matchAll(/__SLOT_(\d+)__/g)) {
+    parts.push(encodeURIComponent(entry.template.slice(last, m.index)));
+    parts.push(+m[1]);
+    last = m.index + m[0].length;
+  }
+  parts.push(encodeURIComponent(entry.template.slice(last)));
+
+  // Average anchor points per slot → single representative position in viewbox space
+  const slotCenters = entry.slots.map(({ pts }) => {
+    if (!pts.length) return [0, 0];
+    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    return [cx, cy];
+  });
+
+  // Inline-renderable markup: strip the outer <svg> wrapper and tag each slot
+  // element with data-slot="N" so it can be queried once and its fill mutated
+  // directly per frame — bypasses data-URI rebuild + <image> redecode entirely.
+  const wrapped = entry.template.match(SVG_WRAPPER_RE);
+  const inner = wrapped ? wrapped[1] : entry.template;
+  const innerMarkup = inner.replace(
+    /style="fill:__SLOT_(\d+)__"/g,
+    (_, i) => `style="fill:${INLINE_PLACEHOLDER_FILL}" data-slot="${i}"`
+  );
+
+  const cached = { parts, slotCenters, innerMarkup };
+  _shapeCache.set(libKey, cached);
+  return cached;
+}
+
+// Build a data URL using one colour per slot (indexed by slot number).
+// Colours is an array; each part that is a number indexes into it.
+export function buildUrlMulti(parts, colours) {
+  let url = 'data:image/svg+xml;charset=utf-8,';
+  for (let i = 0; i < parts.length; i++) {
+    if (typeof parts[i] === 'number') {
+      const c = colours[parts[i]] ?? colours[0] ?? '#000000';
+      url += '%23' + c.slice(1);   // '#rrggbb' → '%23rrggbb'
+    } else {
+      url += parts[i];
+    }
+  }
+  return url;
+}
+
 // ── Virtual grid state ────────────────────────────────────────────────────────
 
 /**

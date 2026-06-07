@@ -1,5 +1,47 @@
 import { useMemo, useRef, useCallback, useEffect, memo } from 'react';
 import { colorizeSvg } from '../utils/colorize';
+import { assetIdToLibKey, getShapeCache } from '../utils/shapeLibraryRender';
+import shapeLibraryData from '../assets/shapeLibrary.json';
+
+// Animation types that repaint every cell every frame — for these, blocks are
+// rendered as inline SVG (below) so AnimationLayer can recolour them via plain
+// `element.style.fill` writes instead of rebuilding+redecoding <image> hrefs.
+// See AnimationLayer.jsx's matching INLINE_ANIM_TYPES for the full rationale.
+const CONTINUOUS_COLOUR_ANIM_TYPES = new Set(['noise', 'gradientSweep', 'paletteWave']);
+
+// Renders a shape inline (nested <svg> with real DOM elements carrying
+// style="fill:...") instead of as a rasterised <image href="data:...">.
+// A nested <svg> with x/y/width/height/viewBox/preserveAspectRatio letterboxes
+// identically to <image> — so geometry matches exactly — but its fills can be
+// mutated directly per frame, which is what makes continuous colour animation cheap.
+const AnimatedShapeImage = memo(function AnimatedShapeImage({ entry, libKey, x, y, w, h, blockId, slotRefsMap }) {
+  const { innerMarkup } = getShapeCache(entry, libKey);
+  const [vbX, vbY, vbW, vbH] = entry.vb;
+
+  const setSlotRefs = useCallback((node) => {
+    if (!slotRefsMap) return;
+    if (node) {
+      const slotEls = [];
+      node.querySelectorAll('[data-slot]').forEach((el) => {
+        slotEls[+el.getAttribute('data-slot')] = el;
+      });
+      slotRefsMap.current[blockId] = slotEls;
+    } else {
+      delete slotRefsMap.current[blockId];
+    }
+  }, [blockId, slotRefsMap]);
+
+  return (
+    <svg
+      ref={setSlotRefs}
+      x={x} y={y} width={w} height={h}
+      viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
+      preserveAspectRatio="xMidYMid meet"
+      style={{ pointerEvents: 'none' }}
+      dangerouslySetInnerHTML={{ __html: innerMarkup }}
+    />
+  );
+});
 
 const GridBlock = memo(function GridBlock({
   block, cellSize, gridOriginX, gridOriginY,
@@ -9,11 +51,20 @@ const GridBlock = memo(function GridBlock({
   gridCols, gridRows, gradientSettings, imageDataUrls,
   randomReverseEnabled,
   imageRefsMap,
+  animSettings,
+  slotRefsMap,
 }) {
   const x = gridOriginX + block.gridCol * cellSize;
   const y = gridOriginY + block.gridRow * cellSize;
   const w = block.cols * cellSize;
   const h = block.rows * cellSize;
+
+  // While a continuous colour-replacement animation is running, every block is
+  // repainted every frame regardless of colorMode — render inline so the
+  // animation can mutate fills directly rather than rebuilding <image> hrefs.
+  const useAnimatedInline = animSettings?.enabled && CONTINUOUS_COLOUR_ANIM_TYPES.has(animSettings.type);
+  const shapeEntry = useAnimatedInline ? shapeLibraryData.shapes[assetIdToLibKey(block.assetId)] : null;
+  const libKey = useAnimatedInline ? assetIdToLibKey(block.assetId) : null;
 
   // Cheap image-mode lookup — does NOT trigger palette re-computation
   const imageDataUrl = colorMode === 'image' ? (imageDataUrls?.[block.id] ?? null) : null;
@@ -83,7 +134,15 @@ const GridBlock = memo(function GridBlock({
       {/* Transparent hit-area */}
       <rect x={x} y={y} width={w} height={h} fill="transparent" style={{ pointerEvents: 'all' }} />
 
-      {dataUrl && (
+      {useAnimatedInline && shapeEntry ? (
+        <AnimatedShapeImage
+          entry={shapeEntry}
+          libKey={libKey}
+          x={x} y={y} w={w} h={h}
+          blockId={block.id}
+          slotRefsMap={slotRefsMap}
+        />
+      ) : dataUrl && (
         <image
           ref={setImageRef}
           href={dataUrl}
@@ -129,6 +188,8 @@ export const PlacedBlocks = memo(function PlacedBlocks({
   randomReverseEnabled,
   filterUrl,
   imageRefsMap,
+  animSettings,
+  slotRefsMap,
 }) {
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;
 
@@ -161,6 +222,8 @@ export const PlacedBlocks = memo(function PlacedBlocks({
           imageDataUrls={imageDataUrls}
           randomReverseEnabled={randomReverseEnabled}
           imageRefsMap={imageRefsMap}
+          animSettings={animSettings}
+          slotRefsMap={slotRefsMap}
         />
       ))}
     </g>

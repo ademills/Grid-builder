@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { simplex2 } from '../utils/noise';
+import { getShapeCache, buildUrlMulti } from '../utils/shapeLibraryRender';
 import shapeLibraryData from '../assets/shapeLibrary.json';
 
 // ── Colour helpers ─────────────────────────────────────────────────────────────
@@ -10,58 +11,13 @@ function palettePick(pal, t) {
   return pal[Math.min(Math.floor(t * pal.length), pal.length - 1)];
 }
 
-// ── Shape cache ────────────────────────────────────────────────────────────────
-// For each shape we pre-compute:
-//   parts        — SVG template split at __SLOT_N__ markers, static segments
-//                  pre-encoded (fast string-concat URL assembly)
-//   slotCenters  — [ [cx, cy], ... ] averaged anchor point per slot, in viewbox
-//                  coordinates — used to get per-slot canvas positions so each
-//                  slot gets an independently computed palette colour
-//
-// This preserves multi-colour shapes (bauhaus blocks with bg/fg/accent slots).
-
-const _shapeCache = new Map(); // libKey → { parts, slotCenters }
-
-function getShapeCache(entry, libKey) {
-  if (_shapeCache.has(libKey)) return _shapeCache.get(libKey);
-
-  // Pre-encode static SVG segments; record slot indices as numbers in-between
-  const parts = [];
-  let last = 0;
-  for (const m of entry.template.matchAll(/__SLOT_(\d+)__/g)) {
-    parts.push(encodeURIComponent(entry.template.slice(last, m.index)));
-    parts.push(+m[1]);
-    last = m.index + m[0].length;
-  }
-  parts.push(encodeURIComponent(entry.template.slice(last)));
-
-  // Average anchor points per slot → single representative position in viewbox space
-  const slotCenters = entry.slots.map(({ pts }) => {
-    if (!pts.length) return [0, 0];
-    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
-    const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
-    return [cx, cy];
-  });
-
-  const cached = { parts, slotCenters };
-  _shapeCache.set(libKey, cached);
-  return cached;
-}
-
-// Build a data URL using one colour per slot (indexed by slot number).
-// Colours is an array; each part that is a number indexes into it.
-function buildUrlMulti(parts, colours) {
-  let url = 'data:image/svg+xml;charset=utf-8,';
-  for (let i = 0; i < parts.length; i++) {
-    if (typeof parts[i] === 'number') {
-      const c = colours[parts[i]] ?? colours[0] ?? '#000000';
-      url += '%23' + c.slice(1);   // '#rrggbb' → '%23rrggbb'
-    } else {
-      url += parts[i];
-    }
-  }
-  return url;
-}
+// Continuous animations repaint every cell every frame, so the colour of every
+// slot is recomputed regardless — these are rendered inline (see PlacedBlocks'
+// AnimatedShapeImage) so colour changes are plain `element.style.fill` writes
+// rather than data-URI rebuild + <image> redecode. `flicker` only repaints a
+// random fraction of cells per tick and must preserve the real static colour
+// at rest, so it stays on the <image>/href-swap path via imageRefsMap.
+const INLINE_ANIM_TYPES = new Set(['noise', 'gradientSweep', 'paletteWave']);
 
 // ── Letterbox helper ───────────────────────────────────────────────────────────
 // Replicates the preserveAspectRatio="xMidYMid meet" geometry from renderImageFrame
@@ -103,6 +59,7 @@ export function AnimationLayer({
   workArea,
   gridComputed,
   imageRefsMap,
+  slotRefsMap,
 }) {
   const { enabled, type } = animSettings;
   const shapeLib = shapeLibraryData.shapes;
@@ -156,14 +113,19 @@ export function AnimationLayer({
       }
 
       // ── Colour-replacement ────────────────────────────────────────────────────
-      if (!cells?.length || !imageRefsMap) { rafId = requestAnimationFrame(tick); return; }
+      const isInlineType = INLINE_ANIM_TYPES.has(s.type);
+      if (!cells?.length || (isInlineType ? !slotRefsMap : !imageRefsMap)) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
 
       const cellSize = grid?.cellSize ?? 80;
       const wa_w    = wa?.width  ?? 800;
       const wa_h    = wa?.height ?? 600;
       const cx      = wa_w / 2;
       const cy      = wa_h / 2;
-      const refs    = imageRefsMap.current;
+      const refs     = imageRefsMap?.current;
+      const slotRefs = slotRefsMap?.current;
 
       // Shared: compute a colour for a canvas-space position using the active algorithm
       const colourAt = (() => {
@@ -253,21 +215,25 @@ export function AnimationLayer({
           }
         }
       } else {
-        // Continuous animations — compute colour per slot from its canvas position
+        // Continuous animations — every cell repaints every frame, so they're
+        // rendered inline (AnimatedShapeImage) and recoloured by writing
+        // straight to each slot element's style.fill: no string rebuild, no
+        // <image> href reassignment/redecode — just a cheap DOM property write.
         for (const cell of cells) {
           const entry = shapeLib[cell.libKey];
           if (!entry) continue;
-          const { parts, slotCenters } = getShapeCache(entry, cell.libKey);
+          const { slotCenters } = getShapeCache(entry, cell.libKey);
           const { blockScale, baseX, baseY } = letterboxTransform(entry, cell);
+          const slotEls = slotRefs[cell.id];
+          if (!slotEls) continue;
 
-          const colours = slotCenters.map(([scx, scy]) => {
+          slotCenters.forEach(([scx, scy], i) => {
+            const el = slotEls[i];
+            if (!el) return;
             const canvasX = baseX + scx * blockScale;
             const canvasY = baseY + scy * blockScale;
-            return colourAt(canvasX, canvasY);
+            el.style.fill = colourAt(canvasX, canvasY);
           });
-
-          const el = refs[cell.id];
-          if (el) el.setAttribute('href', buildUrlMulti(parts, colours));
         }
       }
 
@@ -285,7 +251,7 @@ export function AnimationLayer({
         }
       }
     };
-  }, [animSettings.enabled, animSettings.type, imageRefsMap, shapeLib]);
+  }, [animSettings.enabled, animSettings.type, imageRefsMap, slotRefsMap, shapeLib]);
 
   if (!enabled) return null;
   if (type !== 'hueDrift' && type !== 'warp') return null;

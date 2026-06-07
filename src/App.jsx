@@ -13,6 +13,8 @@ import { separateByColourSVG, extractShapesAsPaths } from './utils/colourSeparat
 import { buildGridCells, renderImageFrame } from './utils/shapeLibraryRender';
 import shapeLibraryData from './assets/shapeLibrary.json';
 import { ALL_BUILTIN_ASSETS, DEFAULT_ENABLED_IDS } from './builtinAssets';
+import { check as checkForUpdate } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import { useHistory } from './hooks/useHistory';
 import { useColorPalette } from './hooks/useColorPalette';
 import { useSelection } from './hooks/useSelection';
@@ -27,6 +29,15 @@ function App() {
   const [canvasBg, setCanvasBg] = useState('#ffffff');
   const [maxScale, setMaxScale] = useState(1);
   const [scaleFreq, setScaleFreq] = useState(0);
+
+  // Check for app updates on launch (no-op outside the Tauri shell)
+  useEffect(() => {
+    checkForUpdate().then(update => {
+      if (!update) return;
+      if (!confirm(`Version ${update.version} is available. Download and install now?`)) return;
+      update.downloadAndInstall().then(relaunch);
+    }).catch(() => {});
+  }, []);
 
   // Work area
   const [presetKey, setPresetKey] = useState('a4-portrait');
@@ -164,6 +175,7 @@ const [autoFill, setAutoFill] = useState(false);
     []
   );
   const imageRefsMap = useRef({});
+  const slotRefsMap = useRef({});
 
   // Step 1: extract pixel buffer when image or work area changes
   useEffect(() => {
@@ -912,6 +924,8 @@ selectedIds={selectedIds}
                 : undefined
             }
             imageRefsMap={imageRefsMap}
+            animSettings={animSettings}
+            slotRefsMap={slotRefsMap}
           />
           <AnimationLayer
             animSettings={animSettings}
@@ -920,6 +934,7 @@ selectedIds={selectedIds}
             palette={activePalette}
             workArea={workArea}
             imageRefsMap={imageRefsMap}
+            slotRefsMap={slotRefsMap}
           />
         </Canvas>
 
