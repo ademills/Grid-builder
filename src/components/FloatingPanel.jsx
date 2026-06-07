@@ -56,7 +56,7 @@ export function FloatingPanel({
   gridSettings, onGridSettingsChange, gridComputed, validCols,
   enabledAssetIds, onEnableAssets, onDisableAssets,
   onFillGrid, onFillGaps, onExport, onSaveProject, onLoadProject, canFill, canFillGaps, canExport,
-  exportMode, onExportModeChange,
+  exportMode, onExportModeChange, separationProgress, onReprocessSvg,
   onUndo, onRedo, canUndo, canRedo,
   maxScale, onMaxScaleChange,
   scaleFreq, onScaleFreqChange,
@@ -70,7 +70,7 @@ export function FloatingPanel({
   randomReverseEnabled, onRandomReverseEnabledChange, randomReversePct, onRandomReversePctChange, onRandomReverse,
   onRandomRerun,
   gradientSettings, onGradientSettingsChange,
-  imageSrc, onImageSrcChange, imageProgress,
+  imageSrc, onImageSrcChange, imageProgress, imageColourTolerance, onImageColourToleranceChange,
   animSettings, onAnimSettingsChange,
   showShortcuts, onToggleShortcuts,
   assetUsageCounts,
@@ -974,6 +974,20 @@ export function FloatingPanel({
                               />
                             </div>
                           )}
+                          <div className={styles.formRow} style={{ marginTop: 8 }}>
+                            <span className={styles.label}>Colour tolerance</span>
+                            <span className={styles.stepVal}>{imageColourTolerance}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={50}
+                            step={1}
+                            value={imageColourTolerance}
+                            onChange={e => onImageColourToleranceChange(Number(e.target.value))}
+                            className={styles.slider}
+                            style={{ width: '100%', marginTop: 4 }}
+                          />
                         </div>
                       )}
 
@@ -1421,7 +1435,7 @@ export function FloatingPanel({
                         <button className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} onClick={onFillGrid} disabled={!canFill}>▶ Fill Grid</button>
                         <button className={styles.actionBtn} onClick={onFillGaps} disabled={!canFillGaps}>⊞ Fill Gaps</button>
                         <div className={styles.exportModeRow}>
-                          {[['current','Flat'],['grouped','Grouped'],['masked','Masked']].map(([val, label]) => (
+                          {[['current','Flat'],['separated','Separated']].map(([val, label]) => (
                             <button
                               key={val}
                               className={`${styles.exportModeBtn}${exportMode === val ? ` ${styles.exportModeBtnActive}` : ''}`}
@@ -1429,9 +1443,27 @@ export function FloatingPanel({
                             >{label}</button>
                           ))}
                         </div>
-                        <button className={styles.actionBtn} onClick={onExport} disabled={!canExport}>↓ Export SVG</button>
+                        <button className={styles.actionBtn} onClick={onExport} disabled={!canExport || separationProgress !== null}>
+                          {separationProgress !== null ? `Processing… ${separationProgress}%` : '↓ Export SVG'}
+                        </button>
+                        {separationProgress !== null && (
+                          <div className={styles.progressTrack}>
+                            <div className={styles.progressBar} style={{ width: `${separationProgress}%` }} />
+                          </div>
+                        )}
                       </div>
                       <div className={styles.actionBtns} style={{ marginTop: 6 }}>
+                        <input
+                          type="file" accept=".svg" style={{ display: 'none' }}
+                          id="reprocess-svg-input"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) { onReprocessSvg(f); e.target.value = ''; } }}
+                        />
+                        <button
+                          className={styles.actionBtn}
+                          onClick={() => document.getElementById('reprocess-svg-input').click()}
+                          disabled={separationProgress !== null}
+                          title="Load an existing SVG and separate it by colour"
+                        >⟳ Reprocess SVG</button>
                         <button className={styles.actionBtn} onClick={onSaveProject} disabled={!canExport}>↓ Save Project</button>
                         <input ref={projectInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={onLoadProject} />
                         <button className={styles.actionBtn} onClick={() => projectInputRef.current.click()}>↑ Load Project</button>

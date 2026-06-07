@@ -3,14 +3,18 @@
   <defs>
     <style>
       .cls-1 {
-        fill: #7f7f7f;
+        fill: #4d34d3;
+      }
+
+      .cls-2 {
+        fill: #adeeee;
       }
     </style>
   </defs>
   <g id="Background">
-    <rect class="cls-1" width="500" height="500"/>
+    <path class="cls-1" d="M0,0v500h500C223.86,500,0,276.14,0,0Z"/>
   </g>
   <g id="Shapes">
-    <path class="cls-1" d="M0,0h500v500h0C224.04,500,0,275.96,0,0h0Z"/>
+    <path class="cls-2" d="M0,0c0,276.14,223.86,500,500,500h0V0H0Z"/>
   </g>
 </svg>

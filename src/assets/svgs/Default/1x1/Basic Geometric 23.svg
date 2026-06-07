@@ -3,15 +3,22 @@
   <defs>
     <style>
       .cls-1 {
-        fill: #7f7f7f;
+        fill: #4d34d3;
+      }
+
+      .cls-2 {
+        fill: #adeeee;
       }
     </style>
   </defs>
   <g id="Background">
-    <rect class="cls-1" width="500" height="500"/>
+    <path class="cls-1" d="M0,500h500V0H0v500ZM139.51,183.71l44.19-44.19,66.29,66.29,66.29-66.29,44.19,44.19-66.29,66.29,66.29,66.29-44.19,44.19-66.29-66.29-66.29,66.29-44.19-44.19,66.29-66.29-66.29-66.29Z"/>
   </g>
   <g id="Shapes">
-    <rect class="cls-1" x="125" y="218.75" width="250" height="62.5" transform="translate(-103.55 250) rotate(-45)"/>
-    <rect class="cls-1" x="125" y="218.75" width="250" height="62.5" transform="translate(250 603.55) rotate(-135)"/>
+    <rect class="cls-2" x="258.37" y="163.51" width="93.75" height="62.5" transform="translate(-48.31 272.88) rotate(-45)"/>
+    <rect class="cls-2" x="147.88" y="273.99" width="93.75" height="62.5" transform="translate(-158.8 227.12) rotate(-45)"/>
+    <rect class="cls-2" x="163.51" y="147.88" width="62.5" height="93.75" transform="translate(-80.67 194.76) rotate(-45)"/>
+    <rect class="cls-2" x="273.99" y="258.37" width="62.5" height="93.75" transform="translate(-126.44 305.24) rotate(-45)"/>
+    <rect class="cls-2" x="218.75" y="218.75" width="62.5" height="62.5" transform="translate(-103.55 250) rotate(-45)"/>
   </g>
 </svg>

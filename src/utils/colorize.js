@@ -2,6 +2,23 @@ export const PALETTES = {
   // ── Brands ───────────────────────────────────────────────
   'Ade Mills': ['#4d34d3', '#8272dc', '#adeeee', '#53565a', '#141318', '#ECE9E2'],
 
+  // Global brands
+  'Google':      ['#4285F4', '#EA4335', '#FBBC05', '#34A853', '#F1F3F4', '#202124'],
+  'Coca-Cola':   ['#F40009', '#CC0000', '#990000', '#1A1A1A', '#C4C4C4', '#FFFFFF'],
+  "McDonald's":  ['#FFC72C', '#DA291C', '#BD8B13', '#27251F', '#FFF4CE', '#FFFFFF'],
+  'IKEA':        ['#0058A3', '#FFDA1A', '#005299', '#111111', '#CCE0F5', '#FFFFFF'],
+  'Spotify':     ['#1DB954', '#158A3E', '#191414', '#535353', '#B3B3B3', '#FFFFFF'],
+  'Netflix':     ['#E50914', '#B20710', '#6B0000', '#141414', '#000000', '#FFFFFF'],
+  'Instagram':   ['#833AB4', '#E1306C', '#F77737', '#FCAF45', '#405DE6', '#262626'],
+  'Starbucks':   ['#00704A', '#1E3932', '#006241', '#CBA258', '#D4E9E2', '#FFFFFF'],
+  'Amazon':      ['#FF9900', '#E47911', '#232F3E', '#146EB4', '#F3F3F3', '#FFFFFF'],
+  'Apple':       ['#1D1D1F', '#86868B', '#F5F5F7', '#0071E3', '#FF375F', '#30D158'],
+  'Nike':        ['#111111', '#FFFFFF', '#FA5400', '#CFFF04', '#444444', '#888888'],
+  'Ferrari':     ['#D40000', '#9E0000', '#FFD04B', '#1A1A1A', '#C0C0C0', '#FFFFFF'],
+  'Lego':        ['#E3000B', '#FFD700', '#006DB7', '#00A650', '#1A1A1A', '#FFFFFF'],
+  'Pepsi':       ['#0061A1', '#E31837', '#004B87', '#C8102E', '#D8D8D8', '#FFFFFF'],
+  'Twitter':     ['#1DA1F2', '#14171A', '#657786', '#AAB8C2', '#E1E8ED', '#FFFFFF'],
+
   // ── Originals ────────────────────────────────────────────
   Vibrant:  ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'],
   Bold:     ['#E63946', '#457B9D', '#2A9D8F', '#E9C46A', '#F4A261', '#264653'],
@@ -153,6 +170,7 @@ export const PALETTES = {
   Indiana:           ['#990000', '#DFBE85', '#FFFFFF', '#660000', '#C4A060', '#8B6030'],
   'Michigan State':  ['#18453B', '#FFFFFF', '#2D7060', '#0D2D22', '#4A9080', '#F0F0E8'],
   Syracuse:          ['#D44500', '#002147', '#FFFFFF', '#9A3A00', '#001030', '#A0A0A0'],
+  'Arizona State':   ['#8C1D40', '#FFC627', '#5C1130', '#000000', '#FFD96A', '#FFFFFF'],
 
   // ── NFL (12 teams) ────────────────────────────────────────
   Cowboys:           ['#003594', '#869397', '#FFFFFF', '#002060', '#606870', '#C0C8CC'],
@@ -282,7 +300,7 @@ export const PALETTE_KEYS = Object.keys(PALETTES);
 export const PALETTE_GROUPS = [
   {
     name: 'Brands',
-    keys: ['Ade Mills'],
+    keys: ['Ade Mills', 'Google', 'Coca-Cola', "McDonald's", 'IKEA', 'Spotify', 'Netflix', 'Instagram', 'Starbucks', 'Amazon', 'Apple', 'Nike', 'Ferrari', 'Lego', 'Pepsi', 'Twitter'],
   },
   {
     name: 'Design',
@@ -306,7 +324,7 @@ export const PALETTE_GROUPS = [
   },
   {
     name: 'NCAA',
-    keys: ['Alabama', 'Ohio State', 'Georgia', 'Michigan', 'Notre Dame', 'Clemson', 'Texas', 'Penn State', 'LSU', 'Oklahoma', 'Kentucky', 'Duke', 'Kansas', 'UNC', 'UCLA', 'UConn', 'Gonzaga', 'Indiana', 'Michigan State', 'Syracuse'],
+    keys: ['Alabama', 'Ohio State', 'Georgia', 'Michigan', 'Notre Dame', 'Clemson', 'Texas', 'Penn State', 'LSU', 'Oklahoma', 'Kentucky', 'Duke', 'Kansas', 'UNC', 'UCLA', 'UConn', 'Gonzaga', 'Indiana', 'Michigan State', 'Syracuse', 'Arizona State'],
   },
   {
     name: 'NFL',
@@ -540,6 +558,36 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0
   } catch {
     return svgContent;
   }
+}
+
+// ── Colour aggregation ───────────────────────────────────────────────────────
+// After per-shape colour assignment, merge colours whose RGB Euclidean distance
+// is within `tolerance`. Most-frequent colours win (become cluster centres).
+export function buildColourRemap(colours, tolerance) {
+  if (tolerance <= 0) return null;
+  const counts = {};
+  for (const c of colours) counts[c] = (counts[c] || 0) + 1;
+  const unique = Object.keys(counts)
+    .sort((a, b) => counts[b] - counts[a])
+    .map(hex => ({
+      hex,
+      r: parseInt(hex.slice(1, 3), 16),
+      g: parseInt(hex.slice(3, 5), 16),
+      b: parseInt(hex.slice(5, 7), 16),
+    }));
+  const remap = {};
+  const assigned = new Set();
+  for (const pivot of unique) {
+    if (assigned.has(pivot.hex)) continue;
+    remap[pivot.hex] = pivot.hex;
+    assigned.add(pivot.hex);
+    for (const other of unique) {
+      if (assigned.has(other.hex)) continue;
+      const d = Math.sqrt((pivot.r - other.r) ** 2 + (pivot.g - other.g) ** 2 + (pivot.b - other.b) ** 2);
+      if (d <= tolerance) { remap[other.hex] = pivot.hex; assigned.add(other.hex); }
+    }
+  }
+  return remap;
 }
 
 // ── Image colour mode ────────────────────────────────────────────────────────

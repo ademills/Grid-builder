@@ -306,6 +306,20 @@
   box-shadow: inset -1px -1px 2px rgba(255,255,255,0.7), inset 1px 1px 3px rgba(0,0,0,0.12);
 }
 
+.progressTrack {
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressBar {
+  height: 100%;
+  background: #4d34d3;
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
 /* ── Zoom controls ─────────────────────────────────────── */
 
 .zoomRow {

@@ -9,14 +9,20 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "generate:shapes": "node scripts/generate-shape-library.js --new",
-    "generate:shapes:all": "node scripts/generate-shape-library.js --all"
+    "generate:shapes:all": "node scripts/generate-shape-library.js --all",
+    "tauri": "tauri"
   },
   "dependencies": {
-"react": "^19.2.6",
+    "@tauri-apps/api": "^2.11.0",
+    "clipper-lib": "^6.4.2",
+    "pathkit-wasm": "^1.0.0",
+    "polygon-clipping": "^0.15.7",
+    "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@tauri-apps/cli": "^2.11.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
