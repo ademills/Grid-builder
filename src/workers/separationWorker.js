@@ -1,6 +1,6 @@
 import PathKitInit from 'pathkit-wasm/bin/pathkit.js';
 import wasmUrl from 'pathkit-wasm/bin/pathkit.wasm?url';
-import { divideGroupUnitePathKit } from '../utils/colourSeparation.js';
+import { divideGroupUnite } from '../utils/colourSeparation.js';
 
 const pkPromise = PathKitInit({ locateFile: () => wasmUrl });
 
@@ -13,7 +13,7 @@ self.onmessage = async ({ data }) => {
 
     // Divide + unite within each block independently
     const blockResults = blockShapesList.map((shapes, bi) =>
-      divideGroupUnitePathKit(shapes, PathKit, (pct) => {
+      divideGroupUnite(shapes, PathKit, (pct) => {
         // Cap at 99 so 100 is only posted once the done message is about to send
         const overall = Math.min(99, Math.round((bi * 100 + pct) / totalBlocks));
         self.postMessage({ type: 'progress', value: overall });

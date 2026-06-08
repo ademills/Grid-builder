@@ -1,5 +1,3 @@
-import ClipperLib from 'clipper-lib';
-
 // ── Path tokeniser ────────────────────────────────────────────────────────────
 
 function tokenisePath(d) {
@@ -587,114 +585,6 @@ export function separateByColourSVG(svgEl, canvasWidth, canvasHeight, canvasBg) 
   return out;
 }
 
-// ── Rings → Clipper paths ─────────────────────────────────────────────────────
-
-const CLIP_SCALE = 1000; // sub-pixel precision (Clipper uses integers)
-
-function dedupeRing(ring) {
-  const out = [ring[0]];
-  for (let i = 1; i < ring.length; i++) {
-    const p = ring[i], q = out[out.length - 1];
-    if (p[0] !== q[0] || p[1] !== q[1]) out.push(p);
-  }
-  return out;
-}
-
-function toClipperPaths(rings) {
-  const paths = [];
-  for (const ring of rings) {
-    const d = dedupeRing(ring);
-    // Strip closing duplicate if present
-    const pts = (d.length >= 2 && d[0][0] === d[d.length-1][0] && d[0][1] === d[d.length-1][1])
-      ? d.slice(0, -1) : d;
-    if (pts.length < 3) continue;
-    paths.push(pts.map(([x, y]) => ({ X: Math.round(x * CLIP_SCALE), Y: Math.round(y * CLIP_SCALE) })));
-  }
-  return paths;
-}
-
-function fromClipperPaths(paths) {
-  const rings = [];
-  for (const path of paths) {
-    if (!path.length) continue;
-    const ring = path.map(({ X, Y }) => [X / CLIP_SCALE, Y / CLIP_SCALE]);
-    ring.push([ring[0][0], ring[0][1]]); // close (last === first convention)
-    if (ring.length >= 4) rings.push(ring);
-  }
-  return rings;
-}
-
-function clipDifference(subjectRings, clipRings) {
-  const subPaths = toClipperPaths(subjectRings);
-  if (!subPaths.length) return [];
-  const clipPaths = toClipperPaths(clipRings);
-  if (!clipPaths.length) return subjectRings;
-  const cpr = new ClipperLib.Clipper();
-  cpr.AddPaths(subPaths, ClipperLib.PolyType.ptSubject, true);
-  cpr.AddPaths(clipPaths, ClipperLib.PolyType.ptClip, true);
-  const solution = new ClipperLib.Paths();
-  const ok = cpr.Execute(ClipperLib.ClipType.ctDifference, solution,
-    ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
-  return ok ? fromClipperPaths(solution) : subjectRings;
-}
-
-function clipUnion(ringsGroups) {
-  const cpr = new ClipperLib.Clipper();
-  for (const rings of ringsGroups) {
-    const paths = toClipperPaths(rings);
-    if (paths.length) cpr.AddPaths(paths, ClipperLib.PolyType.ptSubject, true);
-  }
-  const solution = new ClipperLib.Paths();
-  cpr.Execute(ClipperLib.ClipType.ctUnion, solution,
-    ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
-  return fromClipperPaths(solution);
-}
-
-// ── Edge snap — extend near-boundary coordinates to exact canvas edge ─────────
-
-export function snapShapesToBounds(shapes, width, height, threshold = 1) {
-  return shapes.map(shape => ({
-    ...shape,
-    rings: shape.rings.map(ring => ring.map(([x, y]) => [
-      x <= threshold ? 0 : x >= width - threshold ? width : x,
-      y <= threshold ? 0 : y >= height - threshold ? height : y,
-    ])),
-  }));
-}
-
-// ── Sliver filter — remove near-zero-area polygon fragments ──────────────────
-
-function ringArea(ring) {
-  let a = 0;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
-    a += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
-  return Math.abs(a) / 2;
-}
-
-function filterSlivers(multiPoly, minArea = 1) {
-  if (!multiPoly) return multiPoly;
-  return multiPoly
-    .map(polygon => polygon.filter(ring => ringArea(ring) >= minArea))
-    .filter(polygon => polygon.length > 0);
-}
-
-// ── MultiPolygon → SVG path d ─────────────────────────────────────────────────
-
-export function multiPolyToPathD(multiPoly) {
-  if (!multiPoly || !multiPoly.length) return '';
-  let d = '';
-  for (const polygon of multiPoly) {
-    for (const ring of polygon) {
-      if (!ring.length) continue;
-      d += `M${ring[0][0].toFixed(2)},${ring[0][1].toFixed(2)}`;
-      for (let i = 1; i < ring.length - 1; i++)
-        d += `L${ring[i][0].toFixed(2)},${ring[i][1].toFixed(2)}`;
-      d += 'Z';
-    }
-  }
-  return d;
-}
-
 // ── Bounding box helpers ──────────────────────────────────────────────────────
 
 function getBBox(rings) {
@@ -711,73 +601,17 @@ function bboxOverlap([ax1, ay1, ax2, ay2], [bx1, by1, bx2, by2]) {
   return ax1 < bx2 && ax2 > bx1 && ay1 < by2 && ay2 > by1;
 }
 
-// ── Main pipeline ─────────────────────────────────────────────────────────────
-
-/**
- * shapes: [{rings: Ring[][], fill: string}] in z-order (bottom to top)
- * onProgress: (0-100) => void
- * Returns: { order: string[], united: { [fill]: MultiPolygon } }
- */
-export function divideGroupUnite(shapes, onProgress) {
-  const total = shapes.length;
-  const boxes = shapes.map(s => getBBox(s.rings));
-
-  // Step 1: Divide — subtract higher-z shapes of a different colour.
-  // Same-colour shapes are skipped: they merge in unite anyway, and clipping
-  // along shared boundaries creates degenerate fragments.
-  const divided = shapes.map((shape, i) => {
-    onProgress?.(Math.round((i / total) * 60));
-    if (!shape.rings.length) return null;
-
-    const aboveRings = shapes
-      .slice(i + 1)
-      .filter((s, j) => s.fill !== shape.fill && bboxOverlap(boxes[i], boxes[i + 1 + j]))
-      .flatMap(s => s.rings);
-
-    if (!aboveRings.length) return { fill: shape.fill, rings: shape.rings };
-
-    try {
-      const result = clipDifference(shape.rings, aboveRings);
-      return result?.length ? { fill: shape.fill, rings: result } : null;
-    } catch {
-      return { fill: shape.fill, rings: shape.rings };
-    }
-  }).filter(Boolean);
-
-  onProgress?.(60);
-
-  // Step 2: Group by colour
-  const groups = {};
-  const order = [];
-  for (const { fill, rings } of divided) {
-    if (!rings?.length) continue;
-    if (!groups[fill]) { groups[fill] = []; order.push(fill); }
-    groups[fill].push(rings);
-  }
-
-  // Step 3: Unite same-colour shapes (Clipper handles all shapes in one pass —
-  // no batching needed since integer arithmetic can't silently fail).
-  const united = {};
-  const colourCount = order.length;
-  order.forEach((colour, ci) => {
-    const ringsGroups = groups[colour];
-    const merged = ringsGroups.length === 1 ? ringsGroups[0] : clipUnion(ringsGroups);
-    // Wrap each ring as its own polygon (MultiPolygon format for downstream compat)
-    united[colour] = merged?.length ? filterSlivers(merged.map(r => [r])) : null;
-    onProgress?.(60 + Math.round(((ci + 1) / colourCount) * 40));
-  });
-
-  onProgress?.(100);
-  return { order, united };
-}
-
 // ── Skia PathOps pipeline (PathKit WASM) ──────────────────────────────────────
 // Receives shapes from extractShapesAsPaths. PathKit must be pre-initialised
 // and passed in (the worker does this asynchronously at startup).
+// Operates on native Bezier curves throughout — no polygon approximation —
+// via Skia's PathOps boolean engine (the same engine behind Illustrator-style
+// Divide/Unite, just curve-native instead of polygon-based).
 // Returns {order, united} where united[fill] is an SVG path d string.
 
-export function divideGroupUnitePathKit(shapes, PathKit, onProgress) {
+export function divideGroupUnite(shapes, PathKit, onProgress) {
   const total = shapes.length;
+  const { UNION, DIFFERENCE } = PathKit.PathOp;
 
   function toTransformedPKPath(pathD, matrix) {
     const p = PathKit.FromSVGString(pathD);
@@ -790,31 +624,96 @@ export function divideGroupUnitePathKit(shapes, PathKit, onProgress) {
     return p;
   }
 
-  // Group by colour — divide is baked into the SVG designs, no boolean subtract needed
-  const groups = {};
-  const order = [];
-  shapes.forEach((shape, i) => {
+  // Convert every shape to a canvas-space path up front — boolean ops need
+  // real geometry, so transforms can't be deferred to the end. `paths[i]` is
+  // nulled out once its ownership transfers elsewhere, so the cleanup sweep
+  // below only deletes what's still unclaimed.
+  const paths = shapes.map(s => toTransformedPKPath(s.d, s.matrix));
+
+  // Step 1: Divide — subtract the union of higher-z shapes of a different
+  // colour from each shape (cutting against their original geometry, same as
+  // Illustrator's Divide). Same-colour shapes are skipped: they merge in
+  // unite anyway, and clipping along shared boundaries creates degenerate
+  // fragments.
+  const divided = shapes.map((shape, i) => {
     onProgress?.(Math.round((i / total) * 60));
-    if (!groups[shape.fill]) { groups[shape.fill] = []; order.push(shape.fill); }
-    groups[shape.fill].push(shape);
+    const subject = paths[i];
+    if (!subject) return null;
+
+    const above = [];
+    for (let j = i + 1; j < shapes.length; j++) {
+      if (paths[j] && shapes[j].fill !== shape.fill && bboxOverlap(shape.bbox, shapes[j].bbox))
+        above.push(paths[j]);
+    }
+
+    if (!above.length) {
+      paths[i] = null; // ownership transfers to `divided[i]`
+      return { fill: shape.fill, path: subject };
+    }
+
+    // SkOpBuilder.resolve() returns null when fed only a single path (it needs
+    // at least one combination to occur), so a lone "above" shape is used
+    // directly as the cutter rather than routed through the builder.
+    let cutter, cutterBorrowed;
+    if (above.length === 1) {
+      cutter = above[0];
+      cutterBorrowed = true;
+    } else {
+      const cutterBuilder = new PathKit.SkOpBuilder();
+      for (const p of above) cutterBuilder.add(p, UNION);
+      cutter = cutterBuilder.resolve();
+      cutterBuilder.delete();
+      cutterBorrowed = false;
+    }
+
+    const result = cutter ? PathKit.MakeFromOp(subject, cutter, DIFFERENCE) : null;
+    if (!cutterBorrowed) cutter?.delete();
+
+    if (result) return { fill: shape.fill, path: result };
+    paths[i] = null; // fall back to the untouched subject; it now owns the path
+    return { fill: shape.fill, path: subject };
   });
+
+  // Whatever remains in `paths` was only ever read as cutter input (or
+  // superseded by a MakeFromOp result) — safe to free now.
+  for (const p of paths) p?.delete();
 
   onProgress?.(60);
 
-  // Apply transforms and concatenate same-colour paths — no UNION needed since
-  // divide is baked into the SVG geometry. UNION on touching paths corrupts winding.
+  // Step 2: Group by colour
+  const groups = {};
+  const order = [];
+  for (const entry of divided) {
+    if (!entry?.path) continue;
+    if (!groups[entry.fill]) { groups[entry.fill] = []; order.push(entry.fill); }
+    groups[entry.fill].push(entry.path);
+  }
+
+  // Step 3: Unite same-colour shapes — one SkOpBuilder per colour batched into
+  // a single resolve(). Batching (rather than chaining pairwise op() unions)
+  // is what avoids the winding corruption that touching/coincident edges
+  // trigger when paths are combined one pair at a time.
   const united = {};
   const colourCount = order.length;
   order.forEach((colour, ci) => {
-    const transformedDs = groups[colour].map(s => {
-      const p = toTransformedPKPath(s.d, s.matrix);
-      if (!p) return null;
-      const d = p.toSVGString();
-      p.delete();
-      return d;
-    }).filter(Boolean);
+    const groupPaths = groups[colour];
+    let result;
+    if (groupPaths.length === 1) {
+      result = groupPaths[0];
+    } else {
+      const builder = new PathKit.SkOpBuilder();
+      for (const p of groupPaths) builder.add(p, UNION);
+      result = builder.resolve();
+      builder.delete();
+      for (const p of groupPaths) p.delete();
+    }
 
-    united[colour] = transformedDs.length ? transformedDs.join(' ') : null;
+    if (result) {
+      united[colour] = result.toSVGString();
+      result.delete();
+    } else {
+      united[colour] = null;
+    }
     onProgress?.(60 + Math.round(((ci + 1) / colourCount) * 40));
   });
 

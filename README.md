@@ -1,16 +1,56 @@
-# React + Vite
+# Grid Builder
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A Windows desktop app for building pattern/grid artwork from a library of SVG
+shapes. Lay shapes out on a grid, colourize them with random/uniform/gradient/
+image palettes, animate them, and export the result as SVG.
 
-Currently, two official plugins are available:
+Built with React 19 + Vite, packaged as a native Windows app with
+[Tauri 2](https://v2.tauri.app/).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
 
-## React Compiler
+- **Grid layout** — pack a library of ~112 built-in SVG shapes onto a
+  configurable grid, with auto-fill, gap-filling, flip H/V, and undo/redo
+- **Colour modes** — `none`, `random`, `uniform`, `gradient` (linear/radial,
+  angle/scale/repeat/jitter controls), and `image` (sample colours from a
+  reference image)
+- **Animation** — continuous colour-replacement effects (noise, gradient
+  sweep, palette wave, flicker) and filter-based effects (hue drift, warp)
+- **Selection & editing** — marquee/click select, lock individual blocks'
+  colours, per-block context menu actions
+- **Export** — export the finished pattern as an SVG file
+- **Project save/load** — persist and restore a layout
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Development
 
-## Expanding the ESLint configuration
+```sh
+npm install
+npm run dev          # Vite dev server
+npm run tauri dev    # run inside the Tauri shell (native window)
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Building
+
+```sh
+npm run build        # production frontend build
+npm run tauri build  # produce a native Windows installer/binary
+```
+
+Release builds are versioned and published via `npm run release:minor` /
+`npm run release:major` (see `scripts/release.js`), which bump the version
+and drive the GitHub Actions release workflow.
+
+## Project structure
+
+- `src/components/` — Canvas, grid rendering (`PlacedBlocks`, `Grid`), the
+  animation layer, floating panels, selection toolbar, context menu
+- `src/hooks/` — colour palette, selection, and undo/redo history state
+- `src/utils/` — shape-library rendering/caching, colourizing, colour
+  separation, bin-packing, noise generation
+- `src/workers/` — off-main-thread colour separation
+- `src-tauri/` — the Rust/Tauri shell that wraps the frontend into a native
+  Windows app (window config, capabilities, updater, release packaging)
+
+## Tracking improvements
+
+Planned performance and feature work is tracked in [updates.md](updates.md).

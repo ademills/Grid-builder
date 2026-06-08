@@ -54,6 +54,22 @@
  *   }, [colorMode, gridCells, workArea]);
  */
 
+// ── Lazy library loading ──────────────────────────────────────────────────────
+// shapeLibrary.json (~200KB) is only needed for image-mode colorization and
+// shape-based animation — never for placing/colouring blocks via the normal
+// palette/gradient/image-svg paths (those use block.svgContent directly). Load
+// it asynchronously so its parse cost doesn't sit on the app's startup path;
+// the dynamic import is cached so every caller shares one in-flight request.
+
+let _shapeLibPromise = null;
+
+export function loadShapeLibrary() {
+  if (!_shapeLibPromise) {
+    _shapeLibPromise = import('../assets/shapeLibrary.json').then(m => m.default);
+  }
+  return _shapeLibPromise;
+}
+
 // ── Key conversion ────────────────────────────────────────────────────────────
 
 /**
@@ -132,6 +148,18 @@ export function getShapeCache(entry, libKey) {
   const cached = { parts, slotCenters, innerMarkup };
   _shapeCache.set(libKey, cached);
   return cached;
+}
+
+// _shapeCache is naturally bounded — one entry per shape in the library
+// (currently 112), keyed by libKey, never invalidated. Rather than let entries
+// trickle in lazily (the first time each shape is animated, potentially
+// mid-frame), pre-populate the whole cache once, right after the library
+// loads — a few ms of string work done up front instead of as scattered
+// per-shape hitches during animation.
+export function warmShapeCache(shapeLib) {
+  for (const [libKey, entry] of Object.entries(shapeLib)) {
+    getShapeCache(entry, libKey);
+  }
 }
 
 // Build a data URL using one colour per slot (indexed by slot number).

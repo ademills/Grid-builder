@@ -1,7 +1,6 @@
 import { useMemo, useRef, useCallback, useEffect, memo } from 'react';
 import { colorizeSvg } from '../utils/colorize';
 import { assetIdToLibKey, getShapeCache } from '../utils/shapeLibraryRender';
-import shapeLibraryData from '../assets/shapeLibrary.json';
 
 // Animation types that repaint every cell every frame — for these, blocks are
 // rendered as inline SVG (below) so AnimationLayer can recolour them via plain
@@ -45,7 +44,7 @@ const AnimatedShapeImage = memo(function AnimatedShapeImage({ entry, libKey, x, 
 
 const GridBlock = memo(function GridBlock({
   block, cellSize, gridOriginX, gridOriginY,
-  scale, activeTool,
+  activeTool,
   isSelected, onSelect, onContextMenu,
   colorMode, effectivePalette, bgOptions,
   gridCols, gridRows, gradientSettings, imageDataUrls,
@@ -53,6 +52,7 @@ const GridBlock = memo(function GridBlock({
   imageRefsMap,
   animSettings,
   slotRefsMap,
+  shapeLibrary,
 }) {
   const x = gridOriginX + block.gridCol * cellSize;
   const y = gridOriginY + block.gridRow * cellSize;
@@ -62,9 +62,9 @@ const GridBlock = memo(function GridBlock({
   // While a continuous colour-replacement animation is running, every block is
   // repainted every frame regardless of colorMode — render inline so the
   // animation can mutate fills directly rather than rebuilding <image> hrefs.
-  const useAnimatedInline = animSettings?.enabled && CONTINUOUS_COLOUR_ANIM_TYPES.has(animSettings.type);
-  const shapeEntry = useAnimatedInline ? shapeLibraryData.shapes[assetIdToLibKey(block.assetId)] : null;
+  const useAnimatedInline = animSettings?.enabled && CONTINUOUS_COLOUR_ANIM_TYPES.has(animSettings.type) && !!shapeLibrary;
   const libKey = useAnimatedInline ? assetIdToLibKey(block.assetId) : null;
+  const shapeEntry = useAnimatedInline ? shapeLibrary.shapes[libKey] : null;
 
   // Cheap image-mode lookup — does NOT trigger palette re-computation
   const imageDataUrl = colorMode === 'image' ? (imageDataUrls?.[block.id] ?? null) : null;
@@ -107,7 +107,10 @@ const GridBlock = memo(function GridBlock({
   }, [dataUrl]);
 
   const isInteractive = activeTool === 'select';
-  const ui = 1 / scale;
+  // Lock-badge size as a fraction of the cell — scales with the grid rather
+  // than the view, which (unlike 1/viewScale) keeps GridBlock's props stable
+  // across zoom so memo() can skip re-rendering every visible block per tick.
+  const badge = cellSize * 0.12;
 
   return (
     <g
@@ -159,7 +162,8 @@ const GridBlock = memo(function GridBlock({
           x={x} y={y} width={w} height={h}
           fill="rgba(124,58,237,0.07)"
           stroke="#7c3aed"
-          strokeWidth={2.5 * ui}
+          strokeWidth={2.5}
+          vectorEffect="non-scaling-stroke"
           data-noexport="true"
           pointerEvents="none"
         />
@@ -167,9 +171,9 @@ const GridBlock = memo(function GridBlock({
 
       {block.colorLocked && (
         <text
-          x={x + w - 4 * ui}
-          y={y + 4 * ui}
-          fontSize={10 * ui}
+          x={x + w - badge * 0.4}
+          y={y + badge * 0.4}
+          fontSize={badge}
           textAnchor="end"
           dominantBaseline="hanging"
           data-noexport="true"
@@ -182,7 +186,7 @@ const GridBlock = memo(function GridBlock({
 });
 
 export const PlacedBlocks = memo(function PlacedBlocks({
-  placedBlocks, gridComputed, viewScale, activeTool,
+  placedBlocks, visibleRect, gridComputed, activeTool,
   selectedIds, onSelect, onContextMenu,
   colorMode, effectivePalette, bgOptions, gradientSettings, imageDataUrls,
   randomReverseEnabled,
@@ -190,7 +194,39 @@ export const PlacedBlocks = memo(function PlacedBlocks({
   imageRefsMap,
   animSettings,
   slotRefsMap,
+  shapeLibrary,
 }) {
+  // Bounding boxes only change with block/grid geometry, not on every pan/zoom
+  // frame — precomputing them here means the (per-frame) visibility filter below
+  // is pure numeric comparison instead of re-deriving bx/by/bw/bh for every
+  // block on every visibleRect change.
+  const blockBounds = useMemo(() => {
+    if (!gridComputed || !placedBlocks?.length) return null;
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    return placedBlocks.map(block => {
+      const left = gridOriginX + block.gridCol * cellSize;
+      const top  = gridOriginY + block.gridRow * cellSize;
+      return { block, left, top, right: left + block.cols * cellSize, bottom: top + block.rows * cellSize };
+    });
+  }, [placedBlocks, gridComputed]);
+
+  // Render only blocks that intersect the visible viewport (+ overscan margin
+  // baked into visibleRect by App). Selection/export/history all operate on
+  // `placedBlocks` data directly, not on mounted DOM, so culling off-screen
+  // blocks here is purely a render-cost reduction with no behavioural effect.
+  const visibleBlocks = useMemo(() => {
+    if (!blockBounds) return null;
+    if (!visibleRect) return placedBlocks;
+    const result = [];
+    for (const { block, left, top, right, bottom } of blockBounds) {
+      if (right >= visibleRect.left && left <= visibleRect.right &&
+          bottom >= visibleRect.top && top <= visibleRect.bottom) {
+        result.push(block);
+      }
+    }
+    return result;
+  }, [blockBounds, visibleRect, placedBlocks]);
+
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;
 
   const { cellSize, gridOriginX, gridOriginY } = gridComputed;
@@ -201,14 +237,13 @@ export const PlacedBlocks = memo(function PlacedBlocks({
       style={{ pointerEvents: activeTool === 'hand' ? 'none' : 'auto' }}
       filter={filterUrl || undefined}
     >
-      {placedBlocks.map(block => (
+      {visibleBlocks.map(block => (
         <GridBlock
           key={block.id}
           block={block}
           cellSize={cellSize}
           gridOriginX={gridOriginX}
           gridOriginY={gridOriginY}
-          scale={viewScale}
           activeTool={activeTool}
           isSelected={selectedIds?.has(block.id) ?? false}
           onSelect={onSelect}
@@ -224,6 +259,7 @@ export const PlacedBlocks = memo(function PlacedBlocks({
           imageRefsMap={imageRefsMap}
           animSettings={animSettings}
           slotRefsMap={slotRefsMap}
+          shapeLibrary={shapeLibrary}
         />
       ))}
     </g>

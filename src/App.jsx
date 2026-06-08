@@ -10,8 +10,7 @@ import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
 import { colorizeSvg, colorizeSvgByImage, buildColourRemap } from './utils/colorize';
 import { separateByColourSVG, extractShapesAsPaths } from './utils/colourSeparation';
-import { buildGridCells, renderImageFrame } from './utils/shapeLibraryRender';
-import shapeLibraryData from './assets/shapeLibrary.json';
+import { buildGridCells, renderImageFrame, loadShapeLibrary, warmShapeCache } from './utils/shapeLibraryRender';
 import { ALL_BUILTIN_ASSETS, DEFAULT_ENABLED_IDS } from './builtinAssets';
 import { check as checkForUpdate } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -24,6 +23,7 @@ import styles from './App.module.css';
 
 function App() {
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const [viewportSize, setViewportSize] = useState(null);
   const [activeTool, setActiveTool] = useState('select');
   const [bgColor, setBgColor] = useState('#2d2d2d');
   const [canvasBg, setCanvasBg] = useState('#ffffff');
@@ -76,6 +76,26 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workArea.width, workArea.height, gridSettings.cols, gridSettings.borderPct]
   );
+
+  // Visible canvas-space rectangle, derived from the on-screen viewport size
+  // and current pan/zoom — lets PlacedBlocks render only blocks that are
+  // actually on screen (plus a cell-sized overscan margin) instead of every
+  // placed block regardless of whether it's visible. Quantized to whole grid
+  // cells so the rect's edges land on cell boundaries — blocks don't pop in
+  // mid-cell at the overscan edge, and the bounds stay stable across the
+  // sub-cell pan deltas that dominate a smooth drag.
+  const visibleRect = useMemo(() => {
+    if (!viewportSize || !gridComputed) return null;
+    const { x, y, scale } = viewTransform;
+    const cellSize = gridComputed.cellSize || 1;
+    const margin = cellSize * 2;
+    return {
+      left:   Math.floor((-x / scale - margin) / cellSize) * cellSize,
+      top:    Math.floor((-y / scale - margin) / cellSize) * cellSize,
+      right:  Math.ceil(((-x + viewportSize.width)  / scale + margin) / cellSize) * cellSize,
+      bottom: Math.ceil(((-y + viewportSize.height) / scale + margin) / cellSize) * cellSize,
+    };
+  }, [viewTransform, viewportSize, gridComputed]);
 
   // Colour palette
   const {
@@ -177,6 +197,20 @@ const [autoFill, setAutoFill] = useState(false);
   const imageRefsMap = useRef({});
   const slotRefsMap = useRef({});
 
+  // shapeLibrary.json (~200KB) is only needed for image-mode colorization and
+  // shape-based animation, never for normal block placement/colouring — load
+  // it off the startup path and warm its render cache once it's ready.
+  const [shapeLibrary, setShapeLibrary] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadShapeLibrary().then(lib => {
+      if (cancelled) return;
+      setShapeLibrary(lib);
+      warmShapeCache(lib.shapes);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   // Step 1: extract pixel buffer when image or work area changes
   useEffect(() => {
     if (colorMode !== 'image' || !imageSrc) {
@@ -225,7 +259,7 @@ const [autoFill, setAutoFill] = useState(false);
   // Pre-clears old URLs so the browser frees decoded SVG bitmaps before allocating new ones,
   // then defers the computation one rAF so it doesn't block the React render cycle.
   useEffect(() => {
-    if (colorMode !== 'image' || !imagePixels || !gridCells.length) {
+    if (colorMode !== 'image' || !imagePixels || !gridCells.length || !shapeLibrary) {
       setImageDataUrls({});
       setImageProgress(null);
       return;
@@ -237,15 +271,16 @@ const [autoFill, setAutoFill] = useState(false);
     const snapCells  = gridCells;
     const snapW      = workArea.width;
     const snapH      = workArea.height;
+    const snapLib    = shapeLibrary;
     const rafId = requestAnimationFrame(() => {
       setImageDataUrls(
-        renderImageFrame(snapCells, shapeLibraryData.shapes, snapPixels, snapW, snapH)
+        renderImageFrame(snapCells, snapLib.shapes, snapPixels, snapW, snapH)
       );
       setImageProgress(null);
     });
     return () => cancelAnimationFrame(rafId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colorMode, imagePixels, gridCells, workArea.width, workArea.height]);
+  }, [colorMode, imagePixels, gridCells, workArea.width, workArea.height, shapeLibrary]);
 
   const skipNextClear = useRef(false);
 
@@ -887,6 +922,7 @@ const [autoFill, setAutoFill] = useState(false);
           workArea={workArea}
           onDeselectAll={handleDeselectAll}
           onMarqueeSelect={handleMarqueeSelect}
+          onViewportResize={setViewportSize}
           overlay={
             <SelectionToolbar
               selectedBlocks={selectedBlocks}
@@ -906,8 +942,9 @@ const [autoFill, setAutoFill] = useState(false);
           <Grid workArea={workArea} gridSettings={gridSettings} />
           <PlacedBlocks
             placedBlocks={placedBlocks}
+            visibleRect={visibleRect}
+            shapeLibrary={shapeLibrary}
             gridComputed={gridComputed}
-            viewScale={viewTransform.scale}
             activeTool={activeTool}
 selectedIds={selectedIds}
             onSelect={handleSelectBlock}
@@ -933,6 +970,7 @@ selectedIds={selectedIds}
             gridComputed={gridComputed}
             palette={activePalette}
             workArea={workArea}
+            shapeLibrary={shapeLibrary}
             imageRefsMap={imageRefsMap}
             slotRefsMap={slotRefsMap}
           />

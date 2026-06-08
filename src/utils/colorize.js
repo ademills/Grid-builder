@@ -424,63 +424,96 @@ function applyFill(el, color, classFillMap) {
 
 // Gradient mode: colour each block by its normalised canvas position.
 // gridCol/gridRow/gridCols/gridRows are passed as extra args when mode === 'gradient'.
-export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgOptions = [], gradientPos = null) {
-  if (mode === 'none') return svgContent;
+// ── Colour-template cache ─────────────────────────────────────────────────────
+// colorizeSvg runs once per visible block per relevant state change — for grids
+// with hundreds of blocks, that's hundreds of DOMParser/XMLSerializer round
+// trips on every palette swap, gradient tweak, or offset nudge. But
+// block.svgContent is a static per-asset string (every block of a given asset
+// shares the same reference), and the *set* of fillable elements plus how each
+// one expresses its fill (attribute / inline style / class override) depends
+// only on that static markup — never on mode, palette, seed, or position.
+//
+// So: parse + stamp placeholder fills + serialize exactly once per unique
+// svgContent, split the result into static string segments around the
+// placeholders (the same parts/slot pattern shapeLibraryRender.js uses for the
+// shape library), and cache it. Every later call becomes pure colour arithmetic
+// plus string concatenation — no DOM involved at all.
+const _colorTemplateCache = new Map(); // svgContent → template | null
 
-  let doc;
+function buildColorTemplate(svgContent) {
+  if (_colorTemplateCache.has(svgContent)) return _colorTemplateCache.get(svgContent);
+
+  let template = null;
   try {
-    doc = new DOMParser().parseFromString(svgContent, 'image/svg+xml');
-    if (doc.querySelector('parsererror')) return svgContent;
+    const doc = new DOMParser().parseFromString(svgContent, 'image/svg+xml');
+    if (!doc.querySelector('parsererror')) {
+      const root = doc.documentElement;
+      const classFillMap = buildClassFillMap(root);
+      const bgLayer    = findLayer(root, 'background') || findLayer(root, 'bg');
+      const shapeLayer = findLayer(root, 'shape');
+      const hasLayers  = !!(bgLayer || shapeLayer);
+
+      // Slot order must match the sequence colorizeSvg originally assigned
+      // colours in (bg layer first, then shape layer, else document order) —
+      // each mode's colour math depends on a slot's position in that sequence.
+      const slots = [];
+      if (hasLayers) {
+        if (bgLayer)    [...bgLayer.querySelectorAll(SHAPE_SEL)].forEach((el, i)    => slots.push({ el, group: 'bg',    indexInGroup: i }));
+        if (shapeLayer) [...shapeLayer.querySelectorAll(SHAPE_SEL)].forEach((el, i) => slots.push({ el, group: 'shape', indexInGroup: i }));
+      } else {
+        [...root.querySelectorAll(SHAPE_SEL)].forEach((el, i) => slots.push({ el, group: 'all', indexInGroup: i }));
+      }
+
+      // Stamp each fillable element with a unique placeholder through the same
+      // applyFill() codepath used at runtime, so it lands in whichever
+      // mechanism (attribute / inline style / class override) the real colour
+      // would use — then split the serialized markup around those placeholders.
+      slots.forEach((slot, i) => applyFill(slot.el, `__FILL_${i}__`, classFillMap));
+      const marked = new XMLSerializer().serializeToString(doc);
+
+      const parts = [];
+      let last = 0;
+      for (const m of marked.matchAll(/__FILL_(\d+)__/g)) {
+        parts.push(marked.slice(last, m.index));
+        parts.push(+m[1]);
+        last = m.index + m[0].length;
+      }
+      parts.push(marked.slice(last));
+
+      template = {
+        parts,
+        slotMeta: slots.map(({ group, indexInGroup }) => ({ group, indexInGroup })),
+        hasLayers,
+      };
+    }
   } catch {
-    return svgContent;
+    template = null;
   }
 
-  const root = doc.documentElement;
-  const classFillMap = buildClassFillMap(root);
-  const rand = mulberry32(seed);
+  _colorTemplateCache.set(svgContent, template);
+  return template;
+}
 
-  const bgLayer    = findLayer(root, 'background') || findLayer(root, 'bg');
-  const shapeLayer = findLayer(root, 'shape');
-  const hasLayers  = bgLayer || shapeLayer;
+// Pure re-derivation of colorizeSvg's per-mode colour assignment as a flat
+// colours[] array indexed by slot id — or null if this mode/state combination
+// applies no fill changes (caller falls back to the original markup).
+function computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos) {
+  const { slotMeta, hasLayers } = template;
+  if (!slotMeta.length) return [];
 
   if (mode === 'random') {
-    if (hasLayers) {
-      // Background → random pick from the palette
-      if (bgLayer) {
-        bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => {
-          applyFill(el, palette[Math.floor(rand() * palette.length)], classFillMap);
-        });
-      }
-      // Shapes → random picks from the selected palette
-      if (shapeLayer) {
-        shapeLayer.querySelectorAll(SHAPE_SEL).forEach(el => {
-          applyFill(el, palette[Math.floor(rand() * palette.length)], classFillMap);
-        });
-      }
-    } else {
-      // No named layers — colour everything with random palette picks
-      root.querySelectorAll(SHAPE_SEL).forEach(el => {
-        applyFill(el, palette[Math.floor(rand() * palette.length)], classFillMap);
-      });
-    }
-  } else if (mode === 'uniform') {
+    const rand = mulberry32(seed);
+    return slotMeta.map(() => palette[Math.floor(rand() * palette.length)]);
+  }
+
+  if (mode === 'uniform') {
+    const rand    = mulberry32(seed);
     const bgPool  = bgOptions.length ? bgOptions : [palette[0]];
     const bgColor = bgPool[Math.floor(rand() * bgPool.length)];
-
-    if (hasLayers) {
-      if (bgLayer) {
-        bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, bgColor, classFillMap));
-      }
-      // Shapes → palette colours in order, starting at index 1, shifted by colorOffset
-      if (shapeLayer) {
-        const shapes = [...shapeLayer.querySelectorAll(SHAPE_SEL)];
-        shapes.forEach((el, i) => applyFill(el, palette[(i + 1 + colorOffset) % palette.length], classFillMap));
-      }
-    } else {
-      // No named layers — sequential from palette[0], shifted by colorOffset
-      const shapes = [...root.querySelectorAll(SHAPE_SEL)];
-      shapes.forEach((el, i) => applyFill(el, palette[(i + colorOffset) % palette.length], classFillMap));
-    }
+    return slotMeta.map(({ group, indexInGroup }) => {
+      if (hasLayers) return group === 'bg' ? bgColor : palette[(indexInGroup + 1 + colorOffset) % palette.length];
+      return palette[(indexInGroup + colorOffset) % palette.length];
+    });
   }
 
   if (mode === 'gradient' && gradientPos) {
@@ -541,23 +574,32 @@ export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0
     t = Math.min(1, Math.max(0, t));
     const blockColor = palette[Math.round(t * (palette.length - 1))];
     const bgPool = gradBgColors && gradBgColors.length ? gradBgColors : [palette[0]];
+    const rand = mulberry32(seed);
     const bgColorForGrad = reverseBg
       ? palette[Math.round((1 - t) * (palette.length - 1))]
       : bgPool[Math.floor(rand() * bgPool.length)];
 
-    if (bgLayer || shapeLayer) {
-      if (bgLayer)    bgLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, bgColorForGrad, classFillMap));
-      if (shapeLayer) shapeLayer.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, blockColor, classFillMap));
-    } else {
-      root.querySelectorAll(SHAPE_SEL).forEach(el => applyFill(el, blockColor, classFillMap));
-    }
+    return slotMeta.map(({ group }) => (hasLayers && group === 'bg') ? bgColorForGrad : blockColor);
   }
 
-  try {
-    return new XMLSerializer().serializeToString(doc);
-  } catch {
-    return svgContent;
+  return null;
+}
+
+export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgOptions = [], gradientPos = null) {
+  if (mode === 'none') return svgContent;
+
+  const template = buildColorTemplate(svgContent);
+  if (!template) return svgContent;
+
+  const colours = computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos);
+  if (!colours) return svgContent;
+
+  const { parts } = template;
+  let out = '';
+  for (let i = 0; i < parts.length; i++) {
+    out += typeof parts[i] === 'number' ? colours[parts[i]] : parts[i];
   }
+  return out;
 }
 
 // ── Colour aggregation ───────────────────────────────────────────────────────

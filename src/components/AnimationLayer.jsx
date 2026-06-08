@@ -1,7 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { simplex2 } from '../utils/noise';
 import { getShapeCache, buildUrlMulti } from '../utils/shapeLibraryRender';
-import shapeLibraryData from '../assets/shapeLibrary.json';
 
 // ── Colour helpers ─────────────────────────────────────────────────────────────
 
@@ -58,11 +57,12 @@ export function AnimationLayer({
   palette,
   workArea,
   gridComputed,
+  shapeLibrary,
   imageRefsMap,
   slotRefsMap,
 }) {
   const { enabled, type } = animSettings;
-  const shapeLib = shapeLibraryData.shapes;
+  const shapeLib = shapeLibrary?.shapes;
 
   const settingsRef = useRef(animSettings);
   const paletteRef  = useRef(palette);
@@ -77,6 +77,13 @@ export function AnimationLayer({
 
   const hueMatrixRef = useRef(null);
   const warpTurbRef  = useRef(null);
+
+  // Per-cell letterbox geometry (blockScale/baseX/baseY) only changes when the
+  // grid layout changes, not every frame — cache it keyed by cell id and
+  // invalidate by comparing against the gridCells array reference (a fresh
+  // array is only produced by buildGridCells' useMemo when blocks/grid change).
+  const geomCacheRef = useRef(new Map());
+  const geomCellsRef = useRef(null);
 
   useEffect(() => {
     if (!animSettings.enabled) return;
@@ -98,7 +105,7 @@ export function AnimationLayer({
       const wa    = waRef.current;
       const phase = elapsed * (s.speed * 2);
 
-      if (!pal?.length) { rafId = requestAnimationFrame(tick); return; }
+      if (!pal?.length || !shapeLib) { rafId = requestAnimationFrame(tick); return; }
 
       // ── Filter-based ──────────────────────────────────────────────────────────
       if (isFilterType) {
@@ -126,6 +133,20 @@ export function AnimationLayer({
       const cy      = wa_h / 2;
       const refs     = imageRefsMap?.current;
       const slotRefs = slotRefsMap?.current;
+
+      if (geomCellsRef.current !== cells) {
+        geomCacheRef.current = new Map();
+        geomCellsRef.current = cells;
+      }
+      const geomCache = geomCacheRef.current;
+      const getCellGeometry = (cell, entry) => {
+        let geom = geomCache.get(cell.id);
+        if (!geom) {
+          geom = letterboxTransform(entry, cell);
+          geomCache.set(cell.id, geom);
+        }
+        return geom;
+      };
 
       // Shared: compute a colour for a canvas-space position using the active algorithm
       const colourAt = (() => {
@@ -199,7 +220,7 @@ export function AnimationLayer({
             const entry = shapeLib[cell.libKey];
             if (!entry) continue;
             const { parts, slotCenters } = getShapeCache(entry, cell.libKey);
-            const { blockScale, baseX, baseY } = letterboxTransform(entry, cell);
+            const { blockScale, baseX, baseY } = getCellGeometry(cell, entry);
             // Pick one random palette colour for the block but vary per slot
             const baseColour = pal[Math.floor(Math.random() * pal.length)];
             const colours = slotCenters.map((_, i) => {
@@ -223,7 +244,7 @@ export function AnimationLayer({
           const entry = shapeLib[cell.libKey];
           if (!entry) continue;
           const { slotCenters } = getShapeCache(entry, cell.libKey);
-          const { blockScale, baseX, baseY } = letterboxTransform(entry, cell);
+          const { blockScale, baseX, baseY } = getCellGeometry(cell, entry);
           const slotEls = slotRefs[cell.id];
           if (!slotEls) continue;
 
@@ -240,9 +261,25 @@ export function AnimationLayer({
       rafId = requestAnimationFrame(tick);
     };
 
-    rafId = requestAnimationFrame(tick);
+    // Halt the rAF loop while the window is minimized/backgrounded — a
+    // desktop app can sit hidden for hours, and there's no point burning
+    // CPU/GPU/battery animating something nobody can see. Resuming resets
+    // startTime so `phase` continues smoothly from 0 rather than jumping
+    // forward by however long the window was hidden.
+    const start = () => {
+      startTime = null;
+      rafId = requestAnimationFrame(tick);
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) cancelAnimationFrame(rafId);
+      else start();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    start();
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       cancelAnimationFrame(rafId);
       if (imageRefsMap) {
         for (const el of Object.values(imageRefsMap.current)) {

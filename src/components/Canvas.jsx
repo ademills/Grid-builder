@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import styles from './Canvas.module.css';
 
-export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, overlay, children }) {
+export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, onViewportResize, overlay, children }) {
   const containerRef = useRef(null);
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
@@ -28,6 +28,19 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
       scale,
     });
   }, [width, height, setViewTransform]);
+
+  // Report the container's on-screen pixel size so callers can derive which
+  // part of canvas-space is actually visible (e.g. for render virtualization).
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !onViewportResize) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      onViewportResize({ width, height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onViewportResize]);
 
   // Non-passive wheel listener so we can preventDefault and stop page scroll
   useEffect(() => {
@@ -143,7 +156,7 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
         className={styles.svg}
       >
         <g transform={`translate(${x},${y}) scale(${scale})`}>
-          <rect width={width} height={height} fill={canvasBg ?? '#ffffff'} style={{ filter: 'drop-shadow(0 8px 40px rgba(0,0,0,0.35))' }} />
+          <rect width={width} height={height} fill={canvasBg ?? '#ffffff'} />
           {children}
         </g>
       </svg>
