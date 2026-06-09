@@ -279,46 +279,6 @@
   box-shadow: -3px -3px 6px rgba(255,255,255,0.9), 4px 4px 8px rgba(0,0,0,0.15), 0 0 12px rgba(77,52,211,0.2);
 }
 
-.exportModeRow {
-  display: flex;
-  gap: 4px;
-}
-
-.exportModeBtn {
-  flex: 1;
-  padding: 5px 4px;
-  background: #efefef;
-  border: none;
-  border-radius: 6px;
-  color: #999;
-  font-size: 10px;
-  cursor: pointer;
-  box-shadow: -1px -1px 3px rgba(255,255,255,0.85), 2px 2px 4px rgba(0,0,0,0.1);
-  transition: color 0.15s;
-}
-
-.exportModeBtn:hover {
-  color: #555;
-}
-
-.exportModeBtnActive {
-  color: #4d34d3;
-  box-shadow: inset -1px -1px 2px rgba(255,255,255,0.7), inset 1px 1px 3px rgba(0,0,0,0.12);
-}
-
-.progressTrack {
-  height: 4px;
-  background: #e0e0e0;
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.progressBar {
-  height: 100%;
-  background: #4d34d3;
-  border-radius: 2px;
-  transition: width 0.2s ease;
-}
 
 /* ── Zoom controls ─────────────────────────────────────── */
 

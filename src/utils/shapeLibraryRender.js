@@ -205,6 +205,32 @@ export function buildGridCells(placedBlocks, gridComputed) {
 
 // ── Core render ───────────────────────────────────────────────────────────────
 
+function sampleSlots(entry, cell, data, iW, iH, scaleX, scaleY) {
+  const [vbX, vbY, vbW, vbH] = entry.vb;
+  const { cellX, cellY, cellW, cellH } = cell;
+  const blockScale = Math.min(cellW / vbW, cellH / vbH);
+  const baseX      = cellX + (cellW - vbW * blockScale) / 2 - vbX * blockScale;
+  const baseY      = cellY + (cellH - vbH * blockScale) / 2 - vbY * blockScale;
+
+  return entry.slots.map(({ pts }) => {
+    if (!pts.length) return 'currentColor';
+    let r = 0, g = 0, b = 0;
+    for (const [ax, ay] of pts) {
+      const px = Math.max(0, Math.min(Math.round((baseX + ax * blockScale) * scaleX), iW - 1));
+      const py = Math.max(0, Math.min(Math.round((baseY + ay * blockScale) * scaleY), iH - 1));
+      const i  = (py * iW + px) * 4;
+      r += data[i]; g += data[i + 1]; b += data[i + 2];
+    }
+    const n = pts.length;
+    return (
+      '#' +
+      Math.round(r / n).toString(16).padStart(2, '0') +
+      Math.round(g / n).toString(16).padStart(2, '0') +
+      Math.round(b / n).toString(16).padStart(2, '0')
+    );
+  });
+}
+
 /**
  * Pure, synchronous image-mode colorization.
  * No DOMParser, no XMLSerializer, no DOM reads — only Uint8ClampedArray lookups
@@ -213,19 +239,17 @@ export function buildGridCells(placedBlocks, gridComputed) {
  * @param {Array}   gridCells     - from buildGridCells()
  * @param {object}  shapeLib      - shapeLibraryData.shapes  (the .shapes sub-object from the JSON)
  * @param {object}  imgData       - { data: Uint8ClampedArray, width, height, scaleX, scaleY }
- *                                  (scaleX/scaleY = imgData.width / canvas.width, etc.)
  * @param {number}  canvasW       - workArea.width  (unscaled canvas dimensions)
  * @param {number}  canvasH       - workArea.height
+ * @param {object}  [colourRemap] - optional { '#rrggbb': '#rrggbb' } map from buildColourRemap()
  * @returns {object}  { [blockId]: dataUrl }  — drop-in replacement for imageDataUrls state
  */
-export function renderImageFrame(gridCells, shapeLib, imgData, canvasW, canvasH) {
+export function renderImageFrame(gridCells, shapeLib, imgData, canvasW, canvasH, colourRemap = null) {
   if (!imgData || !gridCells?.length) return {};
 
   // imgData may be a downsampled buffer (max 512px longest side).
-  // Use the stored scale factors if present, otherwise derive from dimensions.
   const scaleX = imgData.scaleX ?? (imgData.width  / canvasW);
   const scaleY = imgData.scaleY ?? (imgData.height / canvasH);
-
   const { data, width: iW, height: iH } = imgData;
   const result = {};
 
@@ -234,48 +258,39 @@ export function renderImageFrame(gridCells, shapeLib, imgData, canvasW, canvasH)
     const entry = shapeLib[cell.libKey];
     if (!entry) continue;
 
-    const [vbX, vbY, vbW, vbH] = entry.vb;
-    const { cellX, cellY, cellW, cellH } = cell;
-
-    // Replicate preserveAspectRatio="xMidYMid meet" letterbox geometry
-    const blockScale = Math.min(cellW / vbW, cellH / vbH);
-    const baseX      = cellX + (cellW - vbW * blockScale) / 2 - vbX * blockScale;
-    const baseY      = cellY + (cellH - vbH * blockScale) / 2 - vbY * blockScale;
-
-    // Sample pixels for every slot and average across that slot's anchor points
-    const colors = entry.slots.map(({ pts }) => {
-      if (!pts.length) return 'currentColor';
-
-      let r = 0, g = 0, b = 0;
-      for (const [ax, ay] of pts) {
-        // Canvas → downsampled imgData coordinate space
-        const px = Math.max(0, Math.min(Math.round((baseX + ax * blockScale) * scaleX), iW - 1));
-        const py = Math.max(0, Math.min(Math.round((baseY + ay * blockScale) * scaleY), iH - 1));
-        const i  = (py * iW + px) * 4;
-        r += data[i];
-        g += data[i + 1];
-        b += data[i + 2];
-      }
-
-      const n = pts.length;
-      return (
-        '#' +
-        Math.round(r / n).toString(16).padStart(2, '0') +
-        Math.round(g / n).toString(16).padStart(2, '0') +
-        Math.round(b / n).toString(16).padStart(2, '0')
-      );
-    });
-
-    // Single regex pass replaces all __SLOT_N__ markers in the pre-built template
+    const colors = sampleSlots(entry, cell, data, iW, iH, scaleX, scaleY);
     const svgStr = entry.template.replace(
       /__SLOT_(\d+)__/g,
-      (_, i) => colors[+i] ?? 'currentColor'
+      (_, i) => {
+        const c = colors[+i];
+        return c === 'currentColor' ? c : (colourRemap?.[c] ?? c);
+      }
     );
-
     result[cell.id] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
   }
 
   return result;
+}
+
+/**
+ * Returns all sampled slot colours across all cells — used to compute a
+ * colourRemap before calling renderImageFrame, so the tolerance slider can
+ * live-update the preview without a second full render pass.
+ */
+export function sampleFrameColours(gridCells, shapeLib, imgData, canvasW, canvasH) {
+  if (!imgData || !gridCells?.length) return [];
+  const scaleX = imgData.scaleX ?? (imgData.width  / canvasW);
+  const scaleY = imgData.scaleY ?? (imgData.height / canvasH);
+  const { data, width: iW, height: iH } = imgData;
+  const all = [];
+  for (const cell of gridCells) {
+    if (!cell.libKey) continue;
+    const entry = shapeLib[cell.libKey];
+    if (!entry) continue;
+    for (const c of sampleSlots(entry, cell, data, iW, iH, scaleX, scaleY))
+      if (c !== 'currentColor') all.push(c);
+  }
+  return all;
 }
 
 // ── Optional: video frame capture helper ──────────────────────────────────────

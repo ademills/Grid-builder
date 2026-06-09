@@ -9,8 +9,9 @@ import { SelectionToolbar } from './components/SelectionToolbar';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid } from './utils/binPack';
 import { colorizeSvg, colorizeSvgByImage, buildColourRemap } from './utils/colorize';
-import { separateByColourSVG, extractShapesAsPaths } from './utils/colourSeparation';
-import { buildGridCells, renderImageFrame, loadShapeLibrary, warmShapeCache } from './utils/shapeLibraryRender';
+import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { buildGridCells, renderImageFrame, sampleFrameColours, loadShapeLibrary, warmShapeCache } from './utils/shapeLibraryRender';
 import { ALL_BUILTIN_ASSETS, DEFAULT_ENABLED_IDS } from './builtinAssets';
 import { check as checkForUpdate } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -20,6 +21,122 @@ import { useSelection } from './hooks/useSelection';
 import './App.css';
 import styles from './App.module.css';
 
+const isTauri = typeof window !== 'undefined' && '__TAURI__' in window;
+
+// Replace fill="#rrggbb" and fill:#rrggbb in style attrs using a colour remap map.
+function applyFillRemap(svgStr, remap) {
+  if (!remap) return svgStr;
+  return svgStr
+    .replace(/fill="(#[0-9a-fA-F]{3,8})"/g, (m, c) => {
+      const mapped = remap[c.toLowerCase()];
+      return mapped ? `fill="${mapped}"` : m;
+    })
+    .replace(/(fill\s*:\s*)(#[0-9a-fA-F]{3,8})/g, (m, prefix, c) => {
+      const mapped = remap[c.toLowerCase()];
+      return mapped ? `${prefix}${mapped}` : m;
+    });
+}
+
+const FLAT_SVG_NS = 'http://www.w3.org/2000/svg';
+const FLAT_SVG_EXPORT_UNIT = 500;
+
+// Builds the assembled flat SVG element from placed blocks. Returns { svgEl, exportW, exportH }.
+// Called from both handleExport (download) and handleExportSeparated (send to worker).
+function buildFlatSvgElement({
+  placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
+  canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled, colourRemap,
+}) {
+  const { width, height } = workArea;
+  const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+  const unitPerPx = FLAT_SVG_EXPORT_UNIT / cellSize;
+  const exportW = Math.round(width  * unitPerPx);
+  const exportH = Math.round(height * unitPerPx);
+  const exportMX = Math.round(gridOriginX * unitPerPx);
+  const exportMY = Math.round(gridOriginY * unitPerPx);
+  const parser = new DOMParser();
+  const palette = activePalette;
+
+  const flattenStyles = (doc) => {
+    const root = doc.documentElement;
+    const map = {};
+    root.querySelectorAll('style').forEach(s => {
+      for (const [, cls, fill] of (s.textContent || '').matchAll(
+        /\.([^{,\s]+)[^{]*\{[^}]*\bfill\s*:\s*([^;}\s]+)/gs
+      )) map[cls] = fill.trim();
+    });
+    if (!Object.keys(map).length) return;
+    root.querySelectorAll('rect,circle,ellipse,path,polygon,polyline,line').forEach(el => {
+      const cls = (el.getAttribute('class') || '').trim().split(/\s+/);
+      const cssFill = cls.map(c => map[c]).find(v => v !== undefined);
+      if (cssFill === undefined) return;
+      const style = el.getAttribute('style') || '';
+      if (!/\bfill\s*:/.test(style))
+        el.setAttribute('style', `${style}${style ? ';' : ''}fill:${cssFill}`);
+    });
+    root.querySelectorAll('style').forEach(s => s.remove());
+  };
+
+  const out = document.createElementNS(FLAT_SVG_NS, 'svg');
+  out.setAttribute('xmlns', FLAT_SVG_NS);
+  out.setAttribute('width', String(width));
+  out.setAttribute('height', String(height));
+  out.setAttribute('viewBox', `0 0 ${exportW} ${exportH}`);
+
+  const bgRect = document.createElementNS(FLAT_SVG_NS, 'rect');
+  bgRect.setAttribute('width', String(exportW));
+  bgRect.setAttribute('height', String(exportH));
+  bgRect.setAttribute('fill', canvasBg);
+  out.appendChild(bgRect);
+
+  placedBlocks.forEach(block => {
+    const imgBx = gridOriginX + block.gridCol * cellSize;
+    const imgBy = gridOriginY + block.gridRow * cellSize;
+    const imgBw = block.cols * cellSize;
+    const imgBh = block.rows * cellSize;
+    const bx = exportMX + block.gridCol * FLAT_SVG_EXPORT_UNIT;
+    const by = exportMY + block.gridRow * FLAT_SVG_EXPORT_UNIT;
+    const bw = block.cols * FLAT_SVG_EXPORT_UNIT;
+    const bh = block.rows * FLAT_SVG_EXPORT_UNIT;
+
+    const blockPalette = (randomReverseEnabled && block.reverseColor) ? [...palette].reverse() : palette;
+    let svgText;
+    if (colorMode === 'image') {
+      svgText = colorizeSvgByImage(block.svgContent, imgBx, imgBy, imgBw, imgBh, imagePixels);
+      if (colourRemap) svgText = applyFillRemap(svgText, colourRemap);
+    } else if (colorMode !== 'none') {
+      svgText = colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
+        colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null);
+    } else {
+      svgText = block.svgContent;
+    }
+
+    const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
+    if (blockDoc.querySelector('parsererror')) return;
+    flattenStyles(blockDoc);
+    const blockRoot = blockDoc.documentElement;
+
+    let vbX = 0, vbY = 0, vbW, vbH;
+    const vbStr = blockRoot.getAttribute('viewBox');
+    if (vbStr) {
+      const p = vbStr.trim().split(/[\s,]+/).map(Number);
+      [vbX, vbY, vbW, vbH] = p;
+    } else {
+      vbW = parseFloat(blockRoot.getAttribute('width')  || String(bw));
+      vbH = parseFloat(blockRoot.getAttribute('height') || String(bh));
+    }
+
+    const scale = Math.min(bw / vbW, bh / vbH);
+    const tx = bx + (bw - vbW * scale) / 2 - vbX * scale;
+    const ty = by + (bh - vbH * scale) / 2 - vbY * scale;
+
+    const g = document.createElementNS(FLAT_SVG_NS, 'g');
+    g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+    for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
+    out.appendChild(g);
+  });
+
+  return { svgEl: out, exportW, exportH };
+}
 
 function App() {
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -175,9 +292,6 @@ function App() {
   );
 
   const [placedBlocks, setPlacedBlocks] = useState([]);
-  const [exportMode, setExportMode] = useState('current');
-  const [separationProgress, setSeparationProgress] = useState(null);
-  const separationWorkerRef = useRef(null);
 const [autoFill, setAutoFill] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
@@ -255,6 +369,15 @@ const [autoFill, setAutoFill] = useState(false);
     [placedBlocks, gridComputed]
   );
 
+  // Colour-tolerance remap for image mode — computed from sampled slot colours so the
+  // slider live-updates the preview without a separate full render pass.
+  const imageColourRemap = useMemo(() => {
+    if (colorMode !== 'image' || !imagePixels || !gridCells.length || !shapeLibrary || imageColourTolerance <= 0)
+      return null;
+    const allFills = sampleFrameColours(gridCells, shapeLibrary.shapes, imagePixels, workArea.width, workArea.height);
+    return buildColourRemap(allFills, imageColourTolerance) ?? null;
+  }, [colorMode, imagePixels, gridCells, shapeLibrary, imageColourTolerance, workArea.width, workArea.height]);
+
   // Image colour mode — pure arithmetic pass against the pre-built shape library.
   // Pre-clears old URLs so the browser frees decoded SVG bitmaps before allocating new ones,
   // then defers the computation one rAF so it doesn't block the React render cycle.
@@ -272,15 +395,16 @@ const [autoFill, setAutoFill] = useState(false);
     const snapW      = workArea.width;
     const snapH      = workArea.height;
     const snapLib    = shapeLibrary;
+    const snapRemap  = imageColourRemap;
     const rafId = requestAnimationFrame(() => {
       setImageDataUrls(
-        renderImageFrame(snapCells, snapLib.shapes, snapPixels, snapW, snapH)
+        renderImageFrame(snapCells, snapLib.shapes, snapPixels, snapW, snapH, snapRemap)
       );
       setImageProgress(null);
     });
     return () => cancelAnimationFrame(rafId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colorMode, imagePixels, gridCells, workArea.width, workArea.height, shapeLibrary]);
+  }, [colorMode, imagePixels, gridCells, workArea.width, workArea.height, shapeLibrary, imageColourRemap]);
 
   const skipNextClear = useRef(false);
 
@@ -571,345 +695,38 @@ const [autoFill, setAutoFill] = useState(false);
     URL.revokeObjectURL(url);
   }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, enabledAssetIds, placedBlocks]);
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     if (!placedBlocks.length || !gridComputed) return;
-
-    const { width, height } = workArea;
-    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
-    const EXPORT_UNIT = 500;
-    // Convert page and margin dimensions to the native 500-unit coordinate space.
-    // This gives scale=1.0 for standard 500×500 blocks while preserving margins.
-    const unitPerPx = EXPORT_UNIT / cellSize;
-    const exportW = Math.round(width  * unitPerPx);
-    const exportH = Math.round(height * unitPerPx);
-    const exportMX = Math.round(gridOriginX * unitPerPx);
-    const exportMY = Math.round(gridOriginY * unitPerPx);
-    const palette = activePalette;
-    const svgNS = 'http://www.w3.org/2000/svg';
-    const parser = new DOMParser();
-
-    const flattenStyles = (doc) => {
-      const root = doc.documentElement;
-      const map = {};
-      root.querySelectorAll('style').forEach(s => {
-        for (const [, cls, fill] of (s.textContent || '').matchAll(
-          /\.([^{,\s]+)[^{]*\{[^}]*\bfill\s*:\s*([^;}\s]+)/gs
-        )) map[cls] = fill.trim();
-      });
-      if (!Object.keys(map).length) return;
-      const sel = 'rect,circle,ellipse,path,polygon,polyline,line';
-      root.querySelectorAll(sel).forEach(el => {
-        const cls = (el.getAttribute('class') || '').trim().split(/\s+/);
-        const cssFill = cls.map(c => map[c]).find(v => v !== undefined);
-        if (cssFill === undefined) return;
-        const style = el.getAttribute('style') || '';
-        if (!/\bfill\s*:/.test(style)) {
-          el.setAttribute('style', `${style}${style ? ';' : ''}fill:${cssFill}`);
-        }
-      });
-      root.querySelectorAll('style').forEach(s => s.remove());
-    };
-
-    const out = document.createElementNS(svgNS, 'svg');
-    out.setAttribute('xmlns', svgNS);
-    out.setAttribute('width', String(width));
-    out.setAttribute('height', String(height));
-    out.setAttribute('viewBox', `0 0 ${exportW} ${exportH}`);
-
-    const bgRect = document.createElementNS(svgNS, 'rect');
-    bgRect.setAttribute('width', String(exportW));
-    bgRect.setAttribute('height', String(exportH));
-    bgRect.setAttribute('fill', canvasBg);
-    out.appendChild(bgRect);
-
-    placedBlocks.forEach(block => {
-      // Screen-space coords used only for image-pixel sampling
-      const imgBx = gridOriginX + block.gridCol * cellSize;
-      const imgBy = gridOriginY + block.gridRow * cellSize;
-      const imgBw = block.cols * cellSize;
-      const imgBh = block.rows * cellSize;
-      // Export-space coords: margin + integer block position (scale=1.0 for 500×500 blocks)
-      const bx = exportMX + block.gridCol * EXPORT_UNIT;
-      const by = exportMY + block.gridRow * EXPORT_UNIT;
-      const bw = block.cols * EXPORT_UNIT;
-      const bh = block.rows * EXPORT_UNIT;
-
-      const blockPalette = (randomReverseEnabled && block.reverseColor) ? [...palette].reverse() : palette;
-      let svgText;
-      if (colorMode === 'image') {
-        svgText = colorizeSvgByImage(block.svgContent, imgBx, imgBy, imgBw, imgBh, imagePixels);
-      } else if (colorMode !== 'none') {
-        svgText = colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
-          colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null);
-      } else {
-        svgText = block.svgContent;
-      }
-
-      const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
-      if (blockDoc.querySelector('parsererror')) return;
-      flattenStyles(blockDoc);
-      const blockRoot = blockDoc.documentElement;
-
-      let vbX = 0, vbY = 0, vbW, vbH;
-      const vbStr = blockRoot.getAttribute('viewBox');
-      if (vbStr) {
-        const p = vbStr.trim().split(/[\s,]+/).map(Number);
-        [vbX, vbY, vbW, vbH] = p;
-      } else {
-        vbW = parseFloat(blockRoot.getAttribute('width')  || String(bw));
-        vbH = parseFloat(blockRoot.getAttribute('height') || String(bh));
-      }
-
-
-      const scale = Math.min(bw / vbW, bh / vbH);
-      const tx = bx + (bw - vbW * scale) / 2 - vbX * scale;
-      const ty = by + (bh - vbH * scale) / 2 - vbY * scale;
-
-      const g = document.createElementNS(svgNS, 'g');
-      g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
-      for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
-      out.appendChild(g);
+    const { svgEl } = buildFlatSvgElement({
+      placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
+      canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled,
+      colourRemap: imageColourRemap,
     });
+    const svgString = new XMLSerializer().serializeToString(svgEl);
+    const filename = `grid-layout-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.svg`;
 
-    const blob = new Blob(
-      [new XMLSerializer().serializeToString(out)],
-      { type: 'image/svg+xml' }
-    );
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'grid-layout.svg';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled]);
-
-
-  const handleExportSeparated = useCallback(() => {
-    if (!placedBlocks.length || !gridComputed) return;
-
-    const { width, height } = workArea;
-    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
-    const EXPORT_UNIT = 500;
-    const unitPerPx = EXPORT_UNIT / cellSize;
-    const exportW = Math.round(width  * unitPerPx);
-    const exportH = Math.round(height * unitPerPx);
-    const exportMX = Math.round(gridOriginX * unitPerPx);
-    const exportMY = Math.round(gridOriginY * unitPerPx);
-    const palette = activePalette;
-    const svgNS = 'http://www.w3.org/2000/svg';
-    const parser = new DOMParser();
-
-    const flattenStyles = (doc) => {
-      const root = doc.documentElement;
-      const map = {};
-      root.querySelectorAll('style').forEach(s => {
-        for (const [, cls, fill] of (s.textContent || '').matchAll(
-          /\.([^{,\s]+)[^{]*\{[^}]*\bfill\s*:\s*([^;}\s]+)/gs
-        )) map[cls] = fill.trim();
-      });
-      root.querySelectorAll('rect,circle,ellipse,path,polygon,polyline,line').forEach(el => {
-        const cls = (el.getAttribute('class') || '').trim().split(/\s+/);
-        const cssFill = cls.map(c => map[c]).find(v => v !== undefined);
-        if (cssFill === undefined) return;
-        const style = el.getAttribute('style') || '';
-        if (!/\bfill\s*:/.test(style))
-          el.setAttribute('style', `${style}${style ? ';' : ''}fill:${cssFill}`);
-      });
-      root.querySelectorAll('style').forEach(s => s.remove());
-    };
-
-    // Per-block shape extraction — each block is divided independently
-    const blockShapesList = [];
-
-    placedBlocks.forEach(block => {
-      const imgBx = gridOriginX + block.gridCol * cellSize;
-      const imgBy = gridOriginY + block.gridRow * cellSize;
-      const imgBw = block.cols * cellSize;
-      const imgBh = block.rows * cellSize;
-      const bx = exportMX + block.gridCol * EXPORT_UNIT;
-      const by = exportMY + block.gridRow * EXPORT_UNIT;
-      const bw = block.cols * EXPORT_UNIT;
-      const bh = block.rows * EXPORT_UNIT;
-
-      const blockPalette = (randomReverseEnabled && block.reverseColor) ? [...palette].reverse() : palette;
-      let svgText;
-      if (colorMode === 'image') {
-        svgText = colorizeSvgByImage(block.svgContent, imgBx, imgBy, imgBw, imgBh, imagePixels);
-      } else if (colorMode !== 'none') {
-        svgText = colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
-          colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null);
-      } else {
-        svgText = block.svgContent;
+    if (isTauri) {
+      try {
+        const path = await tauriSaveDialog({
+          title: 'Export SVG',
+          defaultPath: filename,
+          filters: [{ name: 'SVG Files', extensions: ['svg'] }],
+        });
+        if (!path) return;
+        await writeTextFile(path, svgString);
+      } catch (err) {
+        alert('Export failed: ' + err.message);
       }
-
-      const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
-      if (blockDoc.querySelector('parsererror')) return;
-      flattenStyles(blockDoc);
-      const blockRoot = blockDoc.documentElement;
-
-      let vbX = 0, vbY = 0, vbW, vbH;
-      const vbStr = blockRoot.getAttribute('viewBox');
-      if (vbStr) {
-        const p = vbStr.trim().split(/[\s,]+/).map(Number);
-        [vbX, vbY, vbW, vbH] = p;
-      } else {
-        vbW = parseFloat(blockRoot.getAttribute('width') || String(bw));
-        vbH = parseFloat(blockRoot.getAttribute('height') || String(bh));
-      }
-
-
-      const scale = Math.min(bw / vbW, bh / vbH);
-      const tx = bx + (bw - vbW * scale) / 2 - vbX * scale;
-      const ty = by + (bh - vbH * scale) / 2 - vbY * scale;
-
-      // translate(tx,ty) scale(scale) as a matrix [a,b,c,d,e,f]
-      const placementMatrix = [scale, 0, 0, scale, tx, ty];
-      const blockShapes = extractShapesAsPaths(blockRoot, placementMatrix);
-      if (blockShapes.length) blockShapesList.push(blockShapes);
-    });
-
-    // Global colour aggregation across all blocks — must be cross-block so that
-    // near-identical colours from different blocks collapse to the same layer
-    if (colorMode === 'image' && imageColourTolerance > 0) {
-      const allFills = blockShapesList.flatMap(bs => bs.map(s => s.fill));
-      const remap = buildColourRemap(allFills, imageColourTolerance);
-      if (remap) {
-        for (const bs of blockShapesList)
-          for (const s of bs)
-            s.fill = remap[s.fill] ?? s.fill;
-      }
-    }
-
-    if (separationWorkerRef.current) separationWorkerRef.current.terminate();
-    const worker = new Worker(new URL('./workers/separationWorker.js', import.meta.url), { type: 'module' });
-    separationWorkerRef.current = worker;
-    setSeparationProgress(0);
-
-    worker.onmessage = ({ data }) => {
-      if (data.type === 'progress') {
-        setSeparationProgress(data.value);
-        return;
-      }
-      if (data.type === 'error') {
-        setSeparationProgress(null);
-        separationWorkerRef.current = null;
-        alert('Separation failed: ' + data.message);
-        return;
-      }
-      if (data.type !== 'done') return;
-
-      setSeparationProgress(null);
-      separationWorkerRef.current = null;
-
-      const { order, united } = data.result;
-
-      const out = document.createElementNS(svgNS, 'svg');
-      out.setAttribute('xmlns', svgNS);
-      out.setAttribute('width', String(width));
-      out.setAttribute('height', String(height));
-      out.setAttribute('viewBox', `0 0 ${exportW} ${exportH}`);
-
-      const bgRect = document.createElementNS(svgNS, 'rect');
-      bgRect.setAttribute('width', String(exportW));
-      bgRect.setAttribute('height', String(exportH));
-      bgRect.setAttribute('fill', canvasBg);
-      out.appendChild(bgRect);
-
-      for (const fill of order) {
-        const d = united[fill];
-        if (!d) continue;
-        const layerG = document.createElementNS(svgNS, 'g');
-        layerG.setAttribute('id', `layer_${fill.replace(/[^a-zA-Z0-9]/g, '_')}`);
-        layerG.setAttribute('data-colour', fill);
-        const p = document.createElementNS(svgNS, 'path');
-        p.setAttribute('d', d);
-        p.setAttribute('fill', fill);
-        p.setAttribute('fill-rule', 'nonzero');
-        layerG.appendChild(p);
-        out.appendChild(layerG);
-      }
-
-      const blob = new Blob([new XMLSerializer().serializeToString(out)], { type: 'image/svg+xml' });
+    } else {
+      const blob = new Blob([svgString], { type: 'image/svg+xml' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = 'grid-layout-separated.svg';
-      document.body.appendChild(a);
-      a.click();
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    };
-
-    worker.postMessage({ type: 'separate', blockShapesList });
-  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, imageColourTolerance, activeGradientSettings, randomReverseEnabled]);
-
-  const handleReprocessSvg = useCallback((file) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const parser = new DOMParser();
-        const svgDoc = parser.parseFromString(e.target.result, 'image/svg+xml');
-        if (svgDoc.querySelector('parsererror')) { alert('Could not parse SVG file.'); return; }
-
-        const svgEl = svgDoc.documentElement;
-        const vbStr = svgEl.getAttribute('viewBox');
-        let width, height;
-        if (vbStr) {
-          const p = vbStr.trim().split(/[\s,]+/).map(Number);
-          width = p[2]; height = p[3];
-        } else {
-          width  = parseFloat(svgEl.getAttribute('width')  || '800');
-          height = parseFloat(svgEl.getAttribute('height') || '600');
-        }
-        const bgFill = svgEl.querySelector('rect')?.getAttribute('fill') ?? '#ffffff';
-
-        // Flatten CSS class fills to inline style attributes
-        const map = {};
-        svgEl.querySelectorAll('style').forEach(s => {
-          for (const [, cls, fill] of (s.textContent || '').matchAll(
-            /\.([^{,\s]+)[^{]*\{[^}]*\bfill\s*:\s*([^;}\s]+)/gs
-          )) map[cls] = fill.trim();
-        });
-        if (Object.keys(map).length) {
-          svgEl.querySelectorAll('rect,circle,ellipse,path,polygon,polyline,line').forEach(el => {
-            const cls = (el.getAttribute('class') || '').trim().split(/\s+/);
-            const cssFill = cls.map(c => map[c]).find(v => v !== undefined);
-            if (cssFill === undefined) return;
-            const style = el.getAttribute('style') || '';
-            if (!/\bfill\s*:/.test(style))
-              el.setAttribute('style', `${style}${style ? ';' : ''}fill:${cssFill}`);
-          });
-        }
-
-        const out = separateByColourSVG(svgEl, width, height, bgFill);
-        const baseName = file.name.replace(/\.svg$/i, '');
-        const blob = new Blob([new XMLSerializer().serializeToString(out)], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${baseName}-separated.svg`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        alert('Error reading SVG: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
-  }, []);
-
-  const handleExportDispatch = useCallback(() => {
-    try {
-      if (exportMode === 'separated') handleExportSeparated();
-      else handleExport();
-    } catch (err) {
-      alert('Export failed: ' + err.message);
     }
-  }, [exportMode, handleExport, handleExportSeparated]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled, imageColourRemap]);
 
   return (
     <div className={styles.app}>
@@ -1013,11 +830,7 @@ selectedIds={selectedIds}
           onDisableAssets={handleDisableAssets}
           onFillGrid={handleFillGrid}
           onFillGaps={handleFillGaps}
-          onExport={handleExportDispatch}
-          exportMode={exportMode}
-          onExportModeChange={setExportMode}
-          separationProgress={separationProgress}
-          onReprocessSvg={handleReprocessSvg}
+          onExport={handleExport}
           onSaveProject={handleSaveProject}
           onLoadProject={handleLoadProject}
           onUndo={handleUndo}

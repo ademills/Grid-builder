@@ -19,9 +19,22 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, exis
   // 2-D occupancy map
   const occupied = Array.from({ length: rows }, () => new Array(cols).fill(false));
 
-  // Shuffle once then cycle
   const pool = [...assets].sort(() => Math.random() - 0.5);
   let poolIdx = 0;
+
+  const reshufflePool = () => {
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+  };
+
+  // Advance the pool index by `steps`; re-shuffle whenever a full cycle completes.
+  const advancePool = (steps) => {
+    const newRaw = poolIdx + steps;
+    poolIdx = newRaw % pool.length;
+    if (newRaw >= pool.length) reshufflePool();
+  };
 
   const canPlace = (c, r, bw, bh) => {
     if (c + bw > cols || r + bh > rows) return false;
@@ -73,7 +86,7 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, exis
           if (canPlace(c, r, sc, sr)) {
             markOccupied(c, r, sc, sr);
             placed.push(makeBlock(asset, c, r, sc, sr));
-            poolIdx = (poolIdx + i + 1) % pool.length;
+            advancePool(i + 1);
             found = true;
             break;
           }
@@ -87,7 +100,7 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, exis
           if (canPlace(c, r, asset.cols, asset.rows)) {
             markOccupied(c, r, asset.cols, asset.rows);
             placed.push(makeBlock(asset, c, r, asset.cols, asset.rows));
-            poolIdx = (poolIdx + i + 1) % pool.length;
+            advancePool(i + 1);
             found = true;
             break;
           }
