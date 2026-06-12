@@ -8,10 +8,12 @@
  *
  * maxScale    – maximum integer scale multiplier (1 = no scaling, 2 = up to 2×, …)
  * scaleFreq   – 0-100: probability (%) that an anchor cell attempts a scaled placement first
+ * allowedCells – optional Set of "col,row" strings; when given, only cells in
+ *                the set may be used as anchors or covered by a block's footprint
  *
  * Returns an array of placed-block descriptors ready for the canvas renderer.
  */
-export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlocks = []) {
+function packGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlocks = [], allowedCells = null) {
   if (!gridComputed || !assets || assets.length === 0) return [];
 
   const { cols, rows } = gridComputed;
@@ -39,8 +41,10 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, exis
   const canPlace = (c, r, bw, bh) => {
     if (c + bw > cols || r + bh > rows) return false;
     for (let dr = 0; dr < bh; dr++)
-      for (let dc = 0; dc < bw; dc++)
+      for (let dc = 0; dc < bw; dc++) {
         if (occupied[r + dr][c + dc]) return false;
+        if (allowedCells && !allowedCells.has(`${c + dc},${r + dr}`)) return false;
+      }
     return true;
   };
 
@@ -72,6 +76,7 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, exis
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (occupied[r][c]) continue;
+      if (allowedCells && !allowedCells.has(`${c},${r}`)) continue;
 
       let found = false;
 
@@ -112,4 +117,17 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, exis
   }
 
   return placed;
+}
+
+export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlocks = []) {
+  return packGrid(assets, gridComputed, maxScale, scaleFreq, existingBlocks, null);
+}
+
+/**
+ * Same as fillGrid, but restricted to an allow-list of "col,row" cells —
+ * used by mask-driven fills (Glitch, Strip, ...) so blocks only appear (and
+ * only grow) inside the active region.
+ */
+export function fillMasked(assets, gridComputed, activeCells, maxScale = 1, scaleFreq = 0) {
+  return packGrid(assets, gridComputed, maxScale, scaleFreq, [], activeCells);
 }

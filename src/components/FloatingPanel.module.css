@@ -164,6 +164,37 @@
   padding: 4px 14px 14px;
 }
 
+.subHeading {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #999;
+  margin-bottom: 8px;
+}
+
+/* ── Static (non-collapsible) section header ───────────── */
+
+.staticHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 0;
+}
+
+/* ── Always-visible toolbar (Tool + View) ──────────────── */
+
+.toolbarSection {
+  padding: 10px 14px;
+}
+
+.toolbarContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* ── Tool toggle ───────────────────────────────────────── */
 
 .toolToggle {
@@ -220,11 +251,22 @@
 .colorInput::-webkit-color-swatch-wrapper {
   padding: 0;
   border-radius: 5px;
+  width: 100%;
+  height: 100%;
 }
 
 .colorInput::-webkit-color-swatch {
   border: none;
   border-radius: 5px;
+  width: 100%;
+  height: 100%;
+}
+
+.colorInput::-moz-color-swatch {
+  border: none;
+  border-radius: 5px;
+  width: 100%;
+  height: 100%;
 }
 
 .colorLabel {
@@ -286,6 +328,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
+  flex-wrap: wrap;
 }
 
 .zoomBtn {
@@ -435,6 +478,34 @@
   margin-bottom: 0;
 }
 
+.formRowPair {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.formRowPair > .formRow {
+  flex: 1;
+  margin-bottom: 0;
+  gap: 6px;
+}
+
+.formRowPair > .formRow > .label {
+  min-width: 0;
+}
+
+.stackedField {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stackedField > .label {
+  min-width: 0;
+}
+
 .label {
   font-size: 11px;
   color: #555;
@@ -498,35 +569,39 @@
   font-size: 10px;
 }
 
-/* Stepper control */
+/* Stepper control — styled to match the zoom row (.zoomBtn/.zoomLabel) */
 .stepper {
   display: flex;
   align-items: center;
-  border-radius: 7px;
-  overflow: hidden;
-  box-shadow: inset -1px -1px 3px rgba(255,255,255,0.8), inset 2px 2px 4px rgba(0,0,0,0.1);
+  gap: 5px;
+  width: 100%;
 }
 
 .stepBtn {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   background: #efefef;
   border: none;
-  color: #888;
+  border-radius: 7px;
+  color: #555;
   font-size: 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.12s, background 0.12s;
+  transition: color 0.15s, box-shadow 0.15s;
   flex-shrink: 0;
   padding: 0;
   line-height: 1;
+  box-shadow: -2px -2px 5px rgba(255,255,255,0.85), 3px 3px 6px rgba(0,0,0,0.13);
 }
 
 .stepBtn:hover:not(:disabled) {
-  color: #4d34d3;
-  background: rgba(77,52,211,0.06);
+  color: #2a2a2a;
+}
+
+.stepBtn:active:not(:disabled) {
+  box-shadow: inset -1px -1px 3px rgba(255,255,255,0.8), inset 2px 2px 4px rgba(0,0,0,0.11);
 }
 
 .stepBtn:disabled {
@@ -535,17 +610,11 @@
 }
 
 .stepVal {
-  min-width: 38px;
+  flex: 1;
   text-align: center;
   font-family: ui-monospace, monospace;
   font-size: 11px;
-  color: #2a2a2a;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-left: 1px solid rgba(0,0,0,0.07);
-  border-right: 1px solid rgba(0,0,0,0.07);
+  color: #666;
 }
 
 /* ── Colour palette controls ───────────────────────────── */
@@ -555,6 +624,12 @@
   flex-wrap: wrap;
   gap: 4px;
   flex: 1;
+}
+
+.modeGrid2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
 }
 
 .modeBtn {
@@ -921,6 +996,90 @@
   line-height: 1;
 }
 
+/* ── Main menu rows ─────────────────────────────────────── */
+
+.menuList {
+  display: flex;
+  flex-direction: column;
+}
+
+.menuRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+  color: inherit;
+}
+
+.menuRow:hover {
+  background: rgba(77,52,211,0.04);
+}
+
+.menuRow:last-child {
+  border-bottom: none;
+}
+
+.menuRowLabel {
+  font-size: 12px;
+  color: #444;
+  flex-shrink: 0;
+}
+
+.menuRow:hover .menuRowLabel {
+  color: #1a1a1a;
+}
+
+.menuRowPreview {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  color: #999;
+  white-space: nowrap;
+}
+
+.menuRowSwatch {
+  flex-shrink: 0;
+  width: 10px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+.menuRowDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4d34d3;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(77,52,211,0.7);
+  animation: animPulse 1.4s ease-in-out infinite;
+}
+
+.menuRowArrow {
+  font-size: 14px;
+  color: #ccc;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* ── Unified Fill button ────────────────────────────────── */
+
+.fillBtnRow {
+  padding: 4px 14px 12px;
+}
+
 /* ── Sub-view back bar ─────────────────────────────────── */
 
 .subViewBack {
@@ -1257,6 +1416,7 @@
 .addColourRow {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
   margin-top: 6px;
 }
@@ -1503,6 +1663,58 @@
 
 /* ── Gradient controls ─────────────────────────────────── */
 
+.meshPointCard {
+  margin-top: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.meshPointCard:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.meshPointRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meshPointSliders {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.meshRemoveBtn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px 0;
+  background: #efefef;
+  border: none;
+  border-radius: 6px;
+  color: #888;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  box-shadow: -1px -1px 2px rgba(255,255,255,0.8), 1px 1px 2px rgba(0,0,0,0.08);
+  transition: background 0.12s, color 0.12s;
+}
+
+.meshRemoveBtn:hover:not(:disabled) {
+  background: #ef4444;
+  color: #fff;
+}
+
+.meshRemoveBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .gradientControls {
   margin-top: 8px;
 }
@@ -1628,6 +1840,14 @@
   border-radius: 14px;
   box-shadow: -6px -6px 14px rgba(255,255,255,0.9), 8px 8px 20px rgba(0,0,0,0.18);
   width: 340px;
+  overflow: hidden;
+}
+
+.exportPanel {
+  background: #efefef;
+  border-radius: 14px;
+  box-shadow: -6px -6px 14px rgba(255,255,255,0.9), 8px 8px 20px rgba(0,0,0,0.18);
+  width: 320px;
   overflow: hidden;
 }
 

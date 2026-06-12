@@ -276,6 +276,40 @@ export const PALETTES = {
   Suffragette:         ['#4A1A6B', '#8B4A8B', '#FFFFFF', '#2D7A2D', '#C8C0D8', '#6B9A6B'],
   Renaissance:         ['#8B4513', '#C8A84B', '#2B5FA0', '#B5451B', '#F5F0E0', '#4A7A2A'],
 
+  // ── Nations (flag colours) ────────────────────────────────
+  // Top 10 most-populated countries + 2026 World Cup nations
+  // Palette order: dominant flag colour(s) first, then shades/accents
+  India:         ['#FF9933', '#138808', '#FFFFFF', '#000080', '#FF6600', '#004D1A'],
+  China:         ['#DE2910', '#FFDE00', '#B01F0C', '#FFAA00', '#8A0808', '#FFE566'],
+  USA:           ['#B22234', '#3C3B6E', '#FFFFFF', '#8B1520', '#1A1A5E', '#F0F0F0'],
+  Indonesia:     ['#CE1126', '#FFFFFF', '#A50E1E', '#F5F5F5', '#FF2040', '#D8D8D8'],
+  Pakistan:      ['#01411C', '#FFFFFF', '#007A3D', '#F5F5F5', '#004D20', '#00A048'],
+  Brazil:        ['#009C3B', '#FEDF00', '#002776', '#FFFFFF', '#007A2F', '#C8A800'],
+  Nigeria:       ['#008751', '#FFFFFF', '#005A38', '#F5F5F5', '#00A060', '#E0E0E0'],
+  Bangladesh:    ['#006A4E', '#F42A41', '#004D39', '#D01A2E', '#00865A', '#FF4757'],
+  Russia:        ['#FFFFFF', '#0039A6', '#D52B1E', '#F0F0F0', '#002B80', '#AA1A10'],
+  Ethiopia:      ['#078930', '#FCDD09', '#DA121A', '#055A20', '#C8AA00', '#AA0010'],
+  Argentina:     ['#74ACDF', '#FFFFFF', '#F8C843', '#4B8AC0', '#F0F0F0', '#2A6AA8'],
+  France:        ['#002395', '#ED2939', '#FFFFFF', '#001A70', '#C01A2A', '#F0F0F0'],
+  England:       ['#CF142B', '#FFFFFF', '#AA0018', '#F5F5F5', '#FF1A35', '#E0E0E0'],
+  Germany:       ['#000000', '#DD0000', '#FFCE00', '#1A1A1A', '#AA0000', '#C8A800'],
+  Spain:         ['#AA151B', '#F1BF00', '#8B0010', '#D4A000', '#CC1A22', '#5A3A00'],
+  Portugal:      ['#006600', '#FF0000', '#FFD700', '#004400', '#CC0000', '#C8A800'],
+  Netherlands:   ['#AE1C28', '#21468B', '#FFFFFF', '#FF6611', '#1A1A8A', '#8B0010'],
+  Mexico:        ['#006847', '#CE1126', '#FFFFFF', '#004D35', '#AA0E1E', '#D4D4D4'],
+  Canada:        ['#FF0000', '#FFFFFF', '#CC0000', '#F0F0F0', '#AA0000', '#E0E0E0'],
+  Japan:         ['#FFFFFF', '#BC002D', '#F5F5F5', '#9A0022', '#E8E8E8', '#FF003A'],
+  'South Korea': ['#FFFFFF', '#CD2E3A', '#003478', '#000000', '#F0F0F0', '#0029A6'],
+  Morocco:       ['#C1272D', '#006233', '#9A0E1E', '#004D28', '#E03040', '#007A3D'],
+  Senegal:       ['#00853F', '#FDEF42', '#E31B23', '#006430', '#D4CC00', '#B81020'],
+  Colombia:      ['#FCD116', '#003087', '#CE1126', '#C8A800', '#001A6B', '#AA0E1E'],
+  Belgium:       ['#000000', '#FAE042', '#EF3340', '#1A1A1A', '#C8C000', '#CC2030'],
+  Croatia:       ['#FF0000', '#FFFFFF', '#0033A0', '#CC0000', '#F0F0F0', '#0022A0'],
+  Uruguay:       ['#FFFFFF', '#5AABD7', '#F8C843', '#3A8AC0', '#F0F0F0', '#1A72B0'],
+  Australia:     ['#00008B', '#CC0001', '#FFFFFF', '#000066', '#AA0001', '#F0F0F0'],
+  'Saudi Arabia':['#006C35', '#FFFFFF', '#004D25', '#F5F5F5', '#00963A', '#D0D0D0'],
+  Iran:          ['#239F40', '#FFFFFF', '#DA0000', '#007A28', '#F5F5F5', '#AA0000'],
+
   // ── Pop Culture ───────────────────────────────────────────
   'Star Wars':       ['#0A0A0A', '#FF6B00', '#C8906A', '#E8F0F8', '#CC2200', '#C8A84B'],
   'Dark Side Moon':  ['#000000', '#CC00CC', '#0055EE', '#00AA44', '#FFDD00', '#FF2200'],
@@ -351,10 +385,47 @@ export const PALETTE_GROUPS = [
     keys: ['Moon Landing', 'French Revolution', 'Berlin Wall', 'Woodstock', 'D-Day', 'Titanic', 'Gold Rush', 'Civil Rights', 'Industrial Age', 'American Revolution', 'Great Fire 1666', 'Cold War', 'Space Race', 'Prohibition', 'Suffragette', 'Renaissance'],
   },
   {
+    name: 'Nations',
+    keys: ['India', 'China', 'USA', 'Indonesia', 'Pakistan', 'Brazil', 'Nigeria', 'Bangladesh', 'Russia', 'Ethiopia', 'Argentina', 'France', 'England', 'Germany', 'Spain', 'Portugal', 'Netherlands', 'Mexico', 'Canada', 'Japan', 'South Korea', 'Morocco', 'Senegal', 'Colombia', 'Belgium', 'Croatia', 'Uruguay', 'Australia', 'Saudi Arabia', 'Iran'],
+  },
+  {
     name: 'Pop Culture',
     keys: ['Star Wars', 'Dark Side Moon', 'Abbey Road', 'Pulp Fiction', 'The Matrix', 'Blade Runner', 'Warhol Marilyn', 'Jaws', 'Superman', 'Batman', 'Nevermind', 'Aladdin Sane', 'Wizard of Oz', 'Stranger Things', 'Breaking Bad', '2001 Odyssey'],
   },
 ];
+
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+function rgbToHex(r, g, b) {
+  const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+
+const TEMP_WARM_TARGET = [255, 149, 0]; // #FF9500
+const TEMP_COOL_TARGET = [0, 153, 255]; // #0099FF
+
+// Blends each palette colour toward a warm or cool target by an amount
+// proportional to |shift|. shift: -100 (cool) .. 0 (off) .. 100 (warm).
+export function applyColorTemperatureShift(palette, shift) {
+  if (!shift) return palette;
+  const target = shift > 0 ? TEMP_WARM_TARGET : TEMP_COOL_TARGET;
+  const amount = Math.min(1, Math.abs(shift) / 100) * 0.5;
+  return palette.map(hex => {
+    const [r, g, b] = hexToRgb(hex);
+    return rgbToHex(
+      r + (target[0] - r) * amount,
+      g + (target[1] - g) * amount,
+      b + (target[2] - b) * amount,
+    );
+  });
+}
 
 // Mulberry32 seeded PRNG — gives consistent colours per block across re-renders
 function mulberry32(seed) {
@@ -497,7 +568,7 @@ function buildColorTemplate(svgContent) {
 // Pure re-derivation of colorizeSvg's per-mode colour assignment as a flat
 // colours[] array indexed by slot id — or null if this mode/state combination
 // applies no fill changes (caller falls back to the original markup).
-function computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos) {
+function computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos, meshPos) {
   const { slotMeta, hasLayers } = template;
   if (!slotMeta.length) return [];
 
@@ -582,16 +653,41 @@ function computeSlotColours(template, mode, palette, seed, colorOffset, bgOption
     return slotMeta.map(({ group }) => (hasLayers && group === 'bg') ? bgColorForGrad : blockColor);
   }
 
+  if (mode === 'mesh' && meshPos && meshPos.points?.length) {
+    const { gridCol, gridRow, gridCols, gridRows, points, weightPower = 2, bgPoints } = meshPos;
+    const nx = gridCols > 1 ? gridCol / (gridCols - 1) : 0.5;
+    const ny = gridRows > 1 ? gridRow / (gridRows - 1) : 0.5;
+
+    const blend = (pts) => {
+      let r = 0, g = 0, b = 0, wsum = 0;
+      for (const p of pts) {
+        const dist = Math.hypot(nx - p.x, ny - p.y);
+        if (dist < 1e-6) return p.hex;
+        const w = 1 / Math.pow(dist, weightPower);
+        const [pr, pg, pb] = hexToRgb(p.hex);
+        r += pr * w; g += pg * w; b += pb * w; wsum += w;
+      }
+      return rgbToHex(r / wsum, g / wsum, b / wsum);
+    };
+
+    const blockColor = blend(points);
+    const rand = mulberry32(seed);
+    const bgPool = bgOptions.length ? bgOptions : [palette[0]];
+    const bgColorForMesh = (bgPoints && bgPoints.length) ? blend(bgPoints) : bgPool[Math.floor(rand() * bgPool.length)];
+
+    return slotMeta.map(({ group }) => (hasLayers && group === 'bg') ? bgColorForMesh : blockColor);
+  }
+
   return null;
 }
 
-export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgOptions = [], gradientPos = null) {
+export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgOptions = [], gradientPos = null, meshPos = null) {
   if (mode === 'none') return svgContent;
 
   const template = buildColorTemplate(svgContent);
   if (!template) return svgContent;
 
-  const colours = computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos);
+  const colours = computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos, meshPos);
   if (!colours) return svgContent;
 
   const { parts } = template;

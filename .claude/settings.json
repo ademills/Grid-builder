@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node tmp_mesh_check.mjs)",
+      "Bash(find / -maxdepth 8 -iname \"playwright\" -type d 2>/dev/null | grep -v \"Cache\" | head -10)",
+      "Read(//c//**)",
+      "Bash(npm ls *)",
+      "Bash(npx -y -p playwright node tmp_mesh_check.mjs)",
+      "Bash(cp tmp_mesh_check.mjs /c/Users/Ade/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/check.mjs)",
+      "Bash(node /c/Users/Ade/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/check.mjs)",
+      "Bash(cd \"/c/Users/Ade/Documents/Grid builder/Grid-builder\" && cp tmp_mesh_check.mjs /c/Users/Ade/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/check.mjs && node /c/Users/Ade/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/check.mjs 2>&1 | tail -60 && cp /c/Users/Ade/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/tmp_mesh.png . 2>/dev/null; ls tmp_mesh.png)",
+      "Bash(find /c/Users/Ade/AppData/Local/npm-cache/_npx/e41f203b7505f1fb -iname \"*.png\" 2>/dev/null; find / -maxdepth 6 -newer \"/c/Users/Ade/Documents/Grid builder/Grid-builder/tmp_mesh_check.mjs\" -iname \"tmp_mesh.png\" 2>/dev/null)",
+      "Bash(sed -i \"s#tmp_mesh.png#/c/Users/Ade/Documents/Grid builder/Grid-builder/tmp_mesh.png#\" tmp_mesh_check.mjs)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(npm run *)",
+      "Read(//tmp/**)",
+      "Bash(which chromium-cli *)",
+      "Bash(curl -s http://localhost:5180/ -o /dev/null -w \"%{http_code}\\\\n\")",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe\" --headless=new --disable-gpu --screenshot=\"C:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\tmp_load.png\" --window-size=1400,900 --virtual-time-budget=4000 \"http://localhost:5180/\")",
+      "Bash(xargs grep -l \"fillGrid\\\\|placedBlocks\")",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe\" --headless=new --disable-gpu --dump-dom --window-size=1400,900 --virtual-time-budget=4000 \"http://localhost:5180/\" 2>$null > \"C:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\tmp_dom.html\"; \\(Get-Content \"C:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\tmp_dom.html\" | Measure-Object -Line\\).Lines)",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe\" --headless=new --disable-gpu --dump-dom --window-size=1400,900 --virtual-time-budget=4000 \"http://localhost:5180/\" > \"C:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\tmp_dom.html\" 2> \"C:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\tmp_dom.err\"; \\(Get-Content \"C:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\tmp_dom.html\" | Select-String -Pattern \"title\"\\))",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe\" --headless=new --disable-gpu --screenshot=\"C:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\tmp_load.png\" --window-size=1600,1200 --virtual-time-budget=4000 \"http://localhost:5180/\")",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe\" --headless=new --disable-gpu --screenshot=\"C:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\tmp_load.png\" --window-size=1600,300 --virtual-time-budget=4000 \"http://localhost:5180/\")",
+      "Bash(curl -s \"http://localhost:5180/src/App.jsx\" -o /tmp/served_app.jsx)",
+      "Bash(grep -n \"multiStripSettings.seed\\\\|state.edgeSettings\\\\|edgeSettings,\\\\|^  }, \\\\[presetKey\\\\|onEdgeFill={handleEdgeFill}\\\\|canEdgeFill=\\\\|edgeSettings={edgeSettings}\\\\|onEdgeSettingsChange=\" \"c:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\src\\\\App.jsx\")",
+      "Bash(grep -n \"uniformReverse={uniformReverse}\\\\|onUniformReverseChange=\\\\|state.uniformReverse\\\\|uniformReverse,\\\\|setUniformReverse\" \"c:\\\\Users\\\\Ade\\\\Documents\\\\Grid builder\\\\Grid-builder\\\\src\\\\App.jsx\")",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5180 -State Listen | Select-Object -ExpandProperty OwningProcess\")",
+      "Bash(powershell -Command \"Stop-Process -Id 13288 -Force\")",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5180 -State Listen -ErrorAction SilentlyContinue\")",
+      "Bash(npx eslint *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Ade\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb"
+    ]
+  }
+}

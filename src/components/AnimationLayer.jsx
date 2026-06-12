@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import { simplex2 } from '../utils/noise';
 import { getShapeCache, buildUrlMulti } from '../utils/shapeLibraryRender';
+import { mapAmplitude, blendHexToward } from '../utils/audioAnalysis';
 
 // ── Colour helpers ─────────────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ function palettePick(pal, t) {
 // rather than data-URI rebuild + <image> redecode. `flicker` only repaints a
 // random fraction of cells per tick and must preserve the real static colour
 // at rest, so it stays on the <image>/href-swap path via imageRefsMap.
-const INLINE_ANIM_TYPES = new Set(['noise', 'gradientSweep', 'paletteWave']);
+const INLINE_ANIM_TYPES = new Set(['noise', 'gradientSweep', 'paletteWave', 'pixelSort', 'stripScan']);
 
 // ── Letterbox helper ───────────────────────────────────────────────────────────
 // Replicates the preserveAspectRatio="xMidYMid meet" geometry from renderImageFrame
@@ -42,6 +43,8 @@ export const ANIM_DEFAULTS = {
   hueDrift:      { range: 120, intensity: 0.65 },
   warp:          { scale: 18, frequency: 0.006 },
   flicker:       { density: 0.07 },
+  pixelSort:     { sortAxis: 'row', sortBy: 'brightness', sortDirection: 'ascending', sortWidth: 8 },
+  stripScan:     { sweepAxis: 'h', beamWidth: 4, motionMode: 'pingpong', dimStrength: 0.7 },
 };
 
 export const ANIM_FILTER_ID = {
@@ -60,6 +63,9 @@ export function AnimationLayer({
   shapeLibrary,
   imageRefsMap,
   slotRefsMap,
+  audioSettings,
+  audioDataRef,
+  canvasBg,
 }) {
   const { enabled, type } = animSettings;
   const shapeLib = shapeLibrary?.shapes;
@@ -69,11 +75,15 @@ export function AnimationLayer({
   const cellsRef    = useRef(gridCells);
   const gridRef     = useRef(gridComputed);
   const waRef       = useRef(workArea);
+  const audioSettingsRef = useRef(audioSettings);
+  const canvasBgRef = useRef(canvasBg);
   settingsRef.current = animSettings;
   paletteRef.current  = palette;
   cellsRef.current    = gridCells;
   gridRef.current     = gridComputed;
   waRef.current       = workArea;
+  audioSettingsRef.current = audioSettings;
+  canvasBgRef.current = canvasBg;
 
   const hueMatrixRef = useRef(null);
   const warpTurbRef  = useRef(null);
@@ -92,18 +102,40 @@ export function AnimationLayer({
 
     let rafId;
     let startTime     = null;
+    let lastTs        = null;
+    let phaseAccum    = 0;
     let lastFlicker   = -1;
     let prevFlickered = [];
 
     const tick = (ts) => {
       if (!startTime) startTime = ts;
+      if (lastTs == null) lastTs = ts;
+      const dt = (ts - lastTs) * 0.001;
+      lastTs = ts;
       const elapsed = (ts - startTime) * 0.001;
       const s     = settingsRef.current;
-      const pal   = paletteRef.current;
       const cells = cellsRef.current;
       const grid  = gridRef.current;
       const wa    = waRef.current;
-      const phase = elapsed * (s.speed * 2);
+      const audio = audioSettingsRef.current;
+
+      // Audio-reactive speed: amplitude scales how fast `phase` advances.
+      // Phase is accumulated frame-to-frame (rather than derived purely from
+      // elapsed time) so the speed multiplier can vary smoothly each frame.
+      const ampFactor = audio?.enabled
+        ? 1 + mapAmplitude(audioDataRef?.current?.amplitude ?? 0, audio.ampMapping) * 3
+        : 1;
+      phaseAccum += dt * (s.speed * 2) * ampFactor;
+      const phase = phaseAccum;
+
+      // Audio-reactive palette: bass energy warms the palette, a detected
+      // beat briefly reverses it for a flash effect.
+      let pal = paletteRef.current;
+      if (audio?.enabled && pal?.length) {
+        const bass = audioDataRef?.current?.bands?.[0] ?? 0;
+        if (bass > 0.01) pal = pal.map(hex => blendHexToward(hex, '#ff9500', bass * 0.5));
+        if (audioDataRef?.current?.beat) pal = [...pal].reverse();
+      }
 
       if (!pal?.length || !shapeLib) { rafId = requestAnimationFrame(tick); return; }
 
@@ -189,14 +221,110 @@ export function AnimationLayer({
             };
           }
 
+          case 'stripScan': {
+            const ss          = s.stripScan ?? {};
+            const sweepAxis   = ss.sweepAxis ?? 'h';
+            const beamWidth   = Math.max(1, ss.beamWidth ?? 4);
+            const motionMode  = ss.motionMode ?? 'pingpong';
+            const dimStrength = Math.min(1, Math.max(0, ss.dimStrength ?? 0.7));
+            const bg          = canvasBgRef.current || '#000000';
+            const axisLen     = sweepAxis === 'h' ? wa_w : wa_h;
+            const beamPx      = beamWidth * cellSize;
+
+            let center;
+            if (motionMode === 'scroll') {
+              center = ((phase * cellSize * 2) % (axisLen + beamPx)) - beamPx / 2;
+            } else {
+              // Ping-pong: triangle wave bouncing the beam between the two edges
+              const t   = (phase * 0.5) % 2;
+              const tri = t <= 1 ? t : 2 - t;
+              center = tri * axisLen;
+            }
+
+            return (canvasX, canvasY) => {
+              const pos  = sweepAxis === 'h' ? canvasX : canvasY;
+              const t    = sweepAxis === 'h' ? canvasY / wa_h : canvasX / wa_w;
+              const base = palettePick(pal, Math.max(0, Math.min(t, 1)));
+              const lit  = Math.abs(pos - center) <= beamPx / 2;
+              return lit ? base : blendHexToward(base, bg, dimStrength);
+            };
+          }
+
           default:
             return null;
         }
       })();
 
-      if (!colourAt && s.type !== 'flicker') { rafId = requestAnimationFrame(tick); return; }
+      if (!colourAt && s.type !== 'flicker' && s.type !== 'pixelSort') { rafId = requestAnimationFrame(tick); return; }
 
       // ── Per-block loop ────────────────────────────────────────────────────────
+      if (s.type === 'pixelSort') {
+        const ps            = s.pixelSort ?? {};
+        const sortAxis      = ps.sortAxis ?? 'row';
+        const sortBy        = ps.sortBy ?? 'brightness';
+        const sortDirection = ps.sortDirection ?? 'ascending';
+        const sortWidth     = Math.max(1, ps.sortWidth ?? 8);
+        const noiseOffset   = sortBy === 'hue' ? 100 : sortBy === 'saturation' ? 200 : 0;
+
+        // Group cells into lines (rows, columns, or diagonals) and assign each
+        // cell a static brightness/hue/saturation-style value from a noise field —
+        // this stands in for the cell's "pixel" colour so the sort has something
+        // stable to reorder regardless of the active colour mode.
+        const lines = new Map();
+        for (const cell of cells) {
+          const col = Math.round((cell.cellX - grid.gridOriginX) / cellSize);
+          const row = Math.round((cell.cellY - grid.gridOriginY) / cellSize);
+          let key, pos;
+          if (sortAxis === 'column')      { key = col;     pos = row; }
+          else if (sortAxis === 'diagonal') { key = col - row; pos = col; }
+          else                             { key = row;     pos = col; }
+          const value = (simplex2((col + noiseOffset) * 0.3, (row + noiseOffset) * 0.3) + 1) / 2;
+          if (!lines.has(key)) lines.set(key, []);
+          lines.get(key).push({ cell, pos, value });
+        }
+
+        const oscillateFlip = sortDirection === 'oscillate' && Math.floor(phase) % 2 === 1;
+        const descending    = sortDirection === 'descending' || oscillateFlip;
+
+        const paintCell = (cell, value) => {
+          const entry = shapeLib[cell.libKey];
+          if (!entry) return;
+          const { slotCenters } = getShapeCache(entry, cell.libKey);
+          const slotEls = slotRefs[cell.id];
+          if (!slotEls) return;
+          const colour = palettePick(pal, value);
+          slotCenters.forEach((_, i) => {
+            const el = slotEls[i];
+            if (el) el.style.fill = colour;
+          });
+        };
+
+        for (const line of lines.values()) {
+          line.sort((a, b) => a.pos - b.pos);
+          const len = line.length;
+          if (len < 2) continue;
+
+          const winLen = Math.min(sortWidth, len);
+          const shift  = Math.floor(phase * 4) % len;
+          const windowIdx = new Set();
+          for (let i = 0; i < winLen; i++) windowIdx.add((shift + i) % len);
+
+          const sortedValues = [...windowIdx]
+            .map(i => line[i].value)
+            .sort((a, b) => descending ? b - a : a - b);
+
+          let vi = 0;
+          for (let i = 0; i < len; i++) {
+            const item = line[i];
+            const value = windowIdx.has(i) ? sortedValues[vi++] : item.value;
+            paintCell(item.cell, value);
+          }
+        }
+
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+
       if (s.type === 'flicker') {
         const density = s.flicker?.density ?? 0.07;
         if (elapsed - lastFlicker >= 1 / 8) {

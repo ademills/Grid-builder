@@ -3,14 +3,22 @@ import { Canvas } from './components/Canvas';
 import { ContextMenu } from './components/ContextMenu';
 import { FloatingPanel } from './components/FloatingPanel';
 import { AnimationLayer, ANIM_DEFAULTS, ANIM_FILTER_ID } from './components/AnimationLayer';
+import { createAudioAnalyser } from './utils/audioAnalysis';
 import { Grid } from './components/Grid';
 import { PlacedBlocks } from './components/PlacedBlocks';
 import { SelectionToolbar } from './components/SelectionToolbar';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
-import { fillGrid } from './utils/binPack';
-import { colorizeSvg, colorizeSvgByImage, buildColourRemap } from './utils/colorize';
+import { fillGrid, fillMasked } from './utils/binPack';
+import { computeGlitchMask } from './utils/glitchFill';
+import { computeStripMask, computeMultiStripMask } from './utils/stripFill';
+import { extractPalette } from './utils/kmeans';
+import { computeEdgeMask } from './utils/edgeFill';
+import { computeBrightnessMask } from './utils/brightnessFill';
+import { computeNoiseMask } from './utils/noiseFill';
+import { computeGeometricMask } from './utils/geometricFill';
+import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift } from './utils/colorize';
 import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
-import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
 import { buildGridCells, renderImageFrame, sampleFrameColours, loadShapeLibrary, warmShapeCache } from './utils/shapeLibraryRender';
 import { ALL_BUILTIN_ASSETS, DEFAULT_ENABLED_IDS } from './builtinAssets';
 import { check as checkForUpdate } from '@tauri-apps/plugin-updater';
@@ -37,14 +45,43 @@ function applyFillRemap(svgStr, remap) {
     });
 }
 
+// Loads an image src (data URL or file URL) into a downsized pixel buffer,
+// used for palette extraction from the background image layer.
+function loadImagePixels(src, maxSample = 512) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const ratio = Math.min(1, maxSample / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * ratio));
+      const h = Math.max(1, Math.round(img.naturalHeight * ratio));
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const { data } = ctx.getImageData(0, 0, w, h);
+      resolve({ data, width: w, height: h });
+    };
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
 const FLAT_SVG_NS = 'http://www.w3.org/2000/svg';
 const FLAT_SVG_EXPORT_UNIT = 500;
 
 // Builds the assembled flat SVG element from placed blocks. Returns { svgEl, exportW, exportH }.
 // Called from both handleExport (download) and handleExportSeparated (send to worker).
+// `layer` selects which part of the composition to build:
+//  - 'all'        — background + backdrop + blocks, with mix-blend-mode applied (default, used for SVG export)
+//  - 'background' — background + backdrop only, no blocks
+//  - 'shapes'     — blocks only, no background/backdrop, no blend-mode styling
+// Splitting into layers lets raster export composite them with canvas
+// globalCompositeOperation instead of relying on in-SVG mix-blend-mode,
+// which avoids antialiasing seam artefacts at shape boundaries.
 function buildFlatSvgElement({
   placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
-  canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled, colourRemap,
+  canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, colourRemap,
+  backdropSrc, backdropSettings, blendMode, layer = 'all',
 }) {
   const { width, height } = workArea;
   const { cellSize, gridOriginX, gridOriginY } = gridComputed;
@@ -81,12 +118,55 @@ function buildFlatSvgElement({
   out.setAttribute('width', String(width));
   out.setAttribute('height', String(height));
   out.setAttribute('viewBox', `0 0 ${exportW} ${exportH}`);
+  if (layer === 'all' && blendMode && blendMode !== 'normal') {
+    out.style.isolation = 'isolate';
+  }
 
+  if (layer !== 'shapes') {
   const bgRect = document.createElementNS(FLAT_SVG_NS, 'rect');
   bgRect.setAttribute('width', String(exportW));
   bgRect.setAttribute('height', String(exportH));
   bgRect.setAttribute('fill', canvasBg);
   out.appendChild(bgRect);
+
+  if (backdropSrc && backdropSettings?.mode === 'backdrop') {
+    const bdImg = document.createElementNS(FLAT_SVG_NS, 'image');
+    bdImg.setAttributeNS('http://www.w3.org/1999/xlink', 'href', backdropSrc);
+    bdImg.setAttribute('href', backdropSrc);
+    bdImg.setAttribute('x', '0');
+    bdImg.setAttribute('y', '0');
+    bdImg.setAttribute('width', String(exportW));
+    bdImg.setAttribute('height', String(exportH));
+    bdImg.setAttribute('preserveAspectRatio',
+      backdropSettings.fit === 'cover' ? 'xMidYMid slice'
+      : backdropSettings.fit === 'stretch' ? 'none'
+      : 'xMidYMid meet');
+    bdImg.setAttribute('opacity', String(backdropSettings.opacity));
+    out.appendChild(bdImg);
+
+    if (backdropSettings.tintOpacity > 0) {
+      const tintRect = document.createElementNS(FLAT_SVG_NS, 'rect');
+      tintRect.setAttribute('x', '0');
+      tintRect.setAttribute('y', '0');
+      tintRect.setAttribute('width', String(exportW));
+      tintRect.setAttribute('height', String(exportH));
+      tintRect.setAttribute('fill', backdropSettings.tintColour);
+      tintRect.setAttribute('opacity', String(backdropSettings.tintOpacity));
+      out.appendChild(tintRect);
+    }
+  }
+  }
+
+  if (layer === 'background') {
+    return { svgEl: out, exportW, exportH };
+  }
+
+  const blocksGroup = document.createElementNS(FLAT_SVG_NS, 'g');
+  if (layer === 'all' && blendMode && blendMode !== 'normal') {
+    blocksGroup.style.mixBlendMode = blendMode;
+    blocksGroup.style.isolation = 'isolate';
+  }
+  out.appendChild(blocksGroup);
 
   placedBlocks.forEach(block => {
     const imgBx = gridOriginX + block.gridCol * cellSize;
@@ -105,7 +185,8 @@ function buildFlatSvgElement({
       if (colourRemap) svgText = applyFillRemap(svgText, colourRemap);
     } else if (colorMode !== 'none') {
       svgText = colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, activeBgColors,
-        colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null);
+        colorMode === 'gradient' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...activeGradientSettings } : null,
+        colorMode === 'mesh' ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols: gridComputed.cols, gridRows: gridComputed.rows, ...meshSettings } : null);
     } else {
       svgText = block.svgContent;
     }
@@ -132,11 +213,66 @@ function buildFlatSvgElement({
     const g = document.createElementNS(FLAT_SVG_NS, 'g');
     g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
     for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
-    out.appendChild(g);
+    blocksGroup.appendChild(g);
   });
 
   return { svgEl: out, exportW, exportH };
 }
+
+// Rasterizes a serialized SVG string to a canvas at the given output pixel size.
+// Renders at `supersample`x the output size first, then downscales with high-quality
+// smoothing — this averages out the hairline antialiasing seams that appear between
+// adjacent shapes when rasterizing directly at 1x.
+function rasterizeSvgToCanvas(svgString, outWidth, outHeight, supersample = 1) {
+  return new Promise((resolve, reject) => {
+    const renderWidth = outWidth * supersample;
+    const renderHeight = outHeight * supersample;
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      const renderCanvas = document.createElement('canvas');
+      renderCanvas.width = renderWidth;
+      renderCanvas.height = renderHeight;
+      const rctx = renderCanvas.getContext('2d');
+      rctx.drawImage(img, 0, 0, renderWidth, renderHeight);
+      URL.revokeObjectURL(url);
+
+      if (renderWidth === outWidth && renderHeight === outHeight) {
+        resolve(renderCanvas);
+        return;
+      }
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = outWidth;
+      finalCanvas.height = outHeight;
+      const fctx = finalCanvas.getContext('2d');
+      fctx.imageSmoothingEnabled = true;
+      fctx.imageSmoothingQuality = 'high';
+      fctx.drawImage(renderCanvas, 0, 0, outWidth, outHeight);
+      resolve(finalCanvas);
+    };
+    img.onerror = (err) => { URL.revokeObjectURL(url); reject(err); };
+    img.src = url;
+  });
+}
+
+function canvasToBlob(canvas, mimeType, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Failed to encode image')), mimeType, quality);
+  });
+}
+
+// Triggers a browser download for a blob (non-Tauri environments).
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+const MAX_CANVAS_DIMENSION = 16384;
 
 function App() {
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -233,10 +369,16 @@ function App() {
   const [randomReverseEnabled, setRandomReverseEnabled] = useState(false);
   const [randomReversePct, setRandomReversePct] = useState(50);
 
-  const activePalette = useMemo(
-    () => uniformReverse && colorMode === 'uniform' ? [...effectivePalette].reverse() : effectivePalette,
-    [uniformReverse, colorMode, effectivePalette],
-  );
+  // Colour temperature shift: -100 (cool) .. 0 (off) .. 100 (warm)
+  const [colorTempShift, setColorTempShift] = useState(0);
+
+  // Global block blend mode (CSS/SVG mix-blend-mode on the placed-blocks layer)
+  const [blendMode, setBlendMode] = useState('normal');
+
+  const activePalette = useMemo(() => {
+    const base = uniformReverse && colorMode === 'uniform' ? [...effectivePalette].reverse() : effectivePalette;
+    return applyColorTemperatureShift(base, colorTempShift);
+  }, [uniformReverse, colorMode, effectivePalette, colorTempShift]);
 
   const handleRandomReverse = useCallback(() => {
     setPlacedBlocks(prev => prev.map(b => ({
@@ -271,6 +413,103 @@ function App() {
     gradBgColors: (gradientSettings.gradBgColors ?? []).filter(c => c.enabled).map(c => c.hex),
   }), [gradientSettings]);
 
+  // Gradient mesh
+  const [meshSettings, setMeshSettings] = useState({
+    points: [
+      { id: 'mesh-1', x: 0.15, y: 0.15, hex: '#ff5e5e' },
+      { id: 'mesh-2', x: 0.85, y: 0.25, hex: '#5ee0ff' },
+      { id: 'mesh-3', x: 0.5,  y: 0.9,  hex: '#ffe35e' },
+    ],
+    weightPower: 2,
+  });
+
+  // Glitch fill
+  const [glitchSettings, setGlitchSettings] = useState({
+    hBars: 12,
+    vBars: 0,
+    force: 0.35,
+    activeRatio: 0.4,
+    barSizeVariance: 0.5,
+    direction: 'h',
+    bidirectional: true,
+    seed: Math.floor(Math.random() * 0x80000000),
+    minDisplacement: 1,
+    maxScale: 1,
+    scaleFreq: 0,
+  });
+  const handleGlitchSettingsChange = useCallback((changes) => {
+    setGlitchSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  // Strip fill
+  const [stripSettings, setStripSettings] = useState({
+    axis: 'h',
+    angle: 0,
+    position: 0.5,
+    width: 4,
+    feather: 0,
+    seed: Math.floor(Math.random() * 0x80000000),
+  });
+  const handleStripSettingsChange = useCallback((changes) => {
+    setStripSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  // Multi-strip / slash fill
+  const [multiStripSettings, setMultiStripSettings] = useState({
+    axis: 'angle',
+    angle: 45,
+    numStrips: 4,
+    stripWidth: 3,
+    spacing: 'even',
+    positions: [],
+    stagger: false,
+    feather: 0,
+    seed: Math.floor(Math.random() * 0x80000000),
+  });
+  const handleMultiStripSettingsChange = useCallback((changes) => {
+    setMultiStripSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  // Edge Trace fill
+  const [edgeSettings, setEdgeSettings] = useState({
+    edgeThreshold: 0.2, traceWidth: 1, minEdgeLength: 1, direction: 'all',
+  });
+  const handleEdgeSettingsChange = useCallback((changes) => {
+    setEdgeSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  // Brightness fill
+  const [brightnessSettings, setBrightnessSettings] = useState({
+    targetZone: 'lights', lowPoint: 0.33, highPoint: 0.66, invert: false, softEdge: 0,
+    seed: Math.floor(Math.random() * 0x80000000),
+  });
+  const handleBrightnessSettingsChange = useCallback((changes) => {
+    setBrightnessSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  // Noise Field fill
+  const [noiseSettings, setNoiseSettings] = useState({
+    scale: 0.2, threshold: 0.5, octaves: 1, invert: false,
+    seed: Math.floor(Math.random() * 0x80000000),
+  });
+  const handleNoiseSettingsChange = useCallback((changes) => {
+    setNoiseSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  // Geometric Pattern fill
+  const [geometricSettings, setGeometricSettings] = useState({
+    patternType: 'stripes', phase: 0,
+    angle: 45, stripeWidth: 2, gapWidth: 2,
+    centerX: 0.5, centerY: 0.5, ringWidth: 2, gap: 2, innerRadius: 0,
+    tileSize: 2, offsetX: 0, offsetY: 0,
+    numSpokes: 8, spokeWidth: 15,
+    dotRadius: 1, spacingX: 3, spacingY: 3,
+    cellRadius: 2, rowOffset: 0.5,
+  });
+  const handleGeometricSettingsChange = useCallback((changes) => {
+    setGeometricSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
   // Built-in asset enable/disable
   const [enabledAssetIds, setEnabledAssetIds] = useState(DEFAULT_ENABLED_IDS);
 
@@ -295,12 +534,51 @@ function App() {
 const [autoFill, setAutoFill] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
+  // Background image layer (reference / backdrop)
+  const [backdropSrc, setBackdropSrc] = useState(null);
+  const [backdropSettings, setBackdropSettings] = useState({
+    mode: 'reference', opacity: 0.5, fit: 'contain', tintColour: '#000000', tintOpacity: 0,
+  });
+  const handleBackdropSettingsChange = useCallback((changes) => {
+    setBackdropSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  // Pixel buffer for the backdrop image, used by the Palette Extractor.
+  const [backdropPixels, setBackdropPixels] = useState(null);
+  useEffect(() => {
+    if (!backdropSrc) { setBackdropPixels(null); return; }
+    let cancelled = false;
+    loadImagePixels(backdropSrc).then(px => { if (!cancelled) setBackdropPixels(px); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [backdropSrc]);
+
   // Image colour mode
   const [imageSrc, setImageSrc] = useState(null);
   const [imagePixels, setImagePixels] = useState(null);
   const [imageDataUrls, setImageDataUrls] = useState({});
   const [imageProgress, setImageProgress] = useState(null);
   const [imageColourTolerance, setImageColourTolerance] = useState(0);
+
+  // Palette Extractor
+  const [paletteExtractSettings, setPaletteExtractSettings] = useState({
+    numColours: 6, extractFrom: 'image',
+  });
+  const handlePaletteExtractSettingsChange = useCallback((changes) => {
+    setPaletteExtractSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+  const extractedPalette = useMemo(() => {
+    const px = paletteExtractSettings.extractFrom === 'backdrop' ? backdropPixels : imagePixels;
+    if (!px) return [];
+    return extractPalette(px, paletteExtractSettings.numColours);
+  }, [paletteExtractSettings.extractFrom, paletteExtractSettings.numColours, backdropPixels, imagePixels]);
+  const handleApplyExtractedToShapes = useCallback(() => {
+    if (!extractedPalette.length) return;
+    setShapeColors(extractedPalette.map((hex, i) => ({ id: `extract-${i}`, hex, enabled: true, source: 'custom' })));
+  }, [extractedPalette, setShapeColors]);
+  const handleApplyExtractedToBg = useCallback(() => {
+    if (!extractedPalette.length) return;
+    setBgColors(extractedPalette.map((hex, i) => ({ id: `extract-bg-${i}`, hex, enabled: true })));
+  }, [extractedPalette, setBgColors]);
 
   // Animation
   const [animSettings, setAnimSettings] = useState(ANIM_DEFAULTS);
@@ -310,6 +588,67 @@ const [autoFill, setAutoFill] = useState(false);
   );
   const imageRefsMap = useRef({});
   const slotRefsMap = useRef({});
+
+  // Audio Reactive Mode
+  const [audioSettings, setAudioSettings] = useState({
+    enabled: false,
+    inputSource: 'mic',
+    ampMapping: 'linear',
+    beatSensitivity: 0.5,
+  });
+  const [audioFileSrc, setAudioFileSrc] = useState(null);
+  const handleAudioSettingsChange = useCallback(
+    updates => setAudioSettings(prev => ({ ...prev, ...updates })),
+    []
+  );
+  const audioDataRef = useRef({ amplitude: 0, bands: [0, 0, 0, 0], beat: false });
+  const audioFileElRef = useRef(null);
+
+  // Manage the audio analyser lifecycle: start it (mic or file) when audio
+  // reactive mode is enabled, tear it down when disabled or the source changes.
+  useEffect(() => {
+    if (!audioSettings.enabled) return;
+
+    let analyserCtl = null;
+    let rafId = null;
+    let cancelled = false;
+
+    const loop = () => {
+      if (!analyserCtl) return;
+      const state = analyserCtl.update(audioSettings.beatSensitivity);
+      audioDataRef.current = { amplitude: state.amplitude, bands: state.bands, beat: state.beat };
+      rafId = requestAnimationFrame(loop);
+    };
+
+    if (audioSettings.inputSource === 'mic') {
+      navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
+        if (cancelled) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+        analyserCtl = createAudioAnalyser(stream);
+        analyserCtl._stream = stream;
+        loop();
+      }).catch(err => {
+        console.error('Microphone access denied:', err);
+      });
+    } else if (audioSettings.inputSource === 'file' && audioFileElRef.current) {
+      const el = audioFileElRef.current;
+      analyserCtl = createAudioAnalyser(el);
+      el.play().catch(() => {});
+      loop();
+    }
+
+    return () => {
+      cancelled = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (analyserCtl) {
+        analyserCtl._stream?.getTracks().forEach(t => t.stop());
+        analyserCtl.stop();
+      }
+      audioDataRef.current = { amplitude: 0, bands: [0, 0, 0, 0], beat: false };
+    };
+  }, [audioSettings.enabled, audioSettings.inputSource, audioSettings.beatSensitivity, audioFileSrc]);
 
   // shapeLibrary.json (~200KB) is only needed for image-mode colorization and
   // shape-based animation, never for normal block placement/colouring — load
@@ -633,6 +972,151 @@ const [autoFill, setAutoFill] = useState(false);
     syncHistorySize();
   }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
 
+  const handleGlitchFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeGlitchMask(gridComputed, glitchSettings);
+    if (activeCells.size === 0) {
+      alert('No glitch cells generated — try increasing Force or Active Ratio.');
+      return;
+    }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, glitchSettings.maxScale, glitchSettings.scaleFreq).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, glitchSettings, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleStripFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeStripMask(gridComputed, stripSettings);
+    if (activeCells.size === 0) {
+      alert('No strip cells generated — try increasing Width.');
+      return;
+    }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, stripSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleMultiStripFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeMultiStripMask(gridComputed, multiStripSettings);
+    if (activeCells.size === 0) {
+      alert('No strip cells generated — try increasing Width or Strip count.');
+      return;
+    }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, multiStripSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  // Re-run the active fill whenever its seed changes (e.g. via the
+  // randomise-seed button or manual entry), but not on initial mount.
+  // Tracks the previous seed value (rather than a "have we run yet" flag) so
+  // StrictMode's mount→cleanup→remount in dev doesn't mistake the second
+  // mount for a real seed change and trigger an unwanted fill.
+  const glitchSeedRef = useRef(glitchSettings.seed);
+  useEffect(() => {
+    if (glitchSeedRef.current === glitchSettings.seed) return;
+    glitchSeedRef.current = glitchSettings.seed;
+    if (activeAssets.length > 0 && gridComputed) handleGlitchFill();
+  }, [glitchSettings.seed]);
+
+  const stripSeedRef = useRef(stripSettings.seed);
+  useEffect(() => {
+    if (stripSeedRef.current === stripSettings.seed) return;
+    stripSeedRef.current = stripSettings.seed;
+    if (activeAssets.length > 0 && gridComputed) handleStripFill();
+  }, [stripSettings.seed]);
+
+  const multiStripSeedRef = useRef(multiStripSettings.seed);
+  useEffect(() => {
+    if (multiStripSeedRef.current === multiStripSettings.seed) return;
+    multiStripSeedRef.current = multiStripSettings.seed;
+    if (activeAssets.length > 0 && gridComputed) handleMultiStripFill();
+  }, [multiStripSettings.seed]);
+
+  const handleEdgeFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed || !imagePixels) return;
+    const activeCells = computeEdgeMask(gridComputed, imagePixels, edgeSettings);
+    if (activeCells.size === 0) {
+      alert('No edge cells detected — try lowering Edge Threshold.');
+      return;
+    }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, imagePixels, edgeSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleBrightnessFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed || !imagePixels) return;
+    const activeCells = computeBrightnessMask(gridComputed, imagePixels, brightnessSettings);
+    if (activeCells.size === 0) {
+      alert('No cells matched this brightness zone — try adjusting the range.');
+      return;
+    }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, imagePixels, brightnessSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleNoiseFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeNoiseMask(gridComputed, noiseSettings);
+    if (activeCells.size === 0) {
+      alert('No cells matched this noise field — try raising the threshold.');
+      return;
+    }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, noiseSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleGeometricFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeGeometricMask(gridComputed, geometricSettings);
+    if (activeCells.size === 0) {
+      alert('No cells matched this pattern — try adjusting its settings.');
+      return;
+    }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b,
+      colorSeed: Math.floor(Math.random() * 0x80000000),
+      colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, geometricSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
   // ── Save / Load / Export ───────────────────────────────────────────────────
   const handleLoadProject = useCallback((e) => {
     const file = e.target.files?.[0];
@@ -641,7 +1125,7 @@ const [autoFill, setAutoFill] = useState(false);
     reader.onload = (evt) => {
       try {
         const state = JSON.parse(evt.target.result);
-        if (state.version !== 1) return;
+        if (state.version !== 1 && state.version !== 2) return;
         skipNextClear.current = true;
         if (state.presetKey)    setPresetKey(state.presetKey);
         if (state.customSize)   setCustomSize(state.customSize);
@@ -655,6 +1139,17 @@ const [autoFill, setAutoFill] = useState(false);
         if (state.shapeColors) setShapeColors(state.shapeColors);
         if (state.bgColors)    setBgColors(state.bgColors);
         if (state.gradientSettings) setGradientSettings(prev => ({ ...prev, ...state.gradientSettings }));
+        if (state.meshSettings) setMeshSettings(prev => ({ ...prev, ...state.meshSettings }));
+        if (state.glitchSettings) setGlitchSettings(prev => ({ ...prev, ...state.glitchSettings }));
+        if (state.stripSettings) setStripSettings(prev => ({ ...prev, ...state.stripSettings }));
+        if (state.multiStripSettings) setMultiStripSettings(prev => ({ ...prev, ...state.multiStripSettings }));
+        if (state.audioSettings) setAudioSettings(prev => ({ ...prev, ...state.audioSettings, enabled: false }));
+        if (state.backdropSrc !== undefined) setBackdropSrc(state.backdropSrc);
+        if (state.backdropSettings) setBackdropSettings(prev => ({ ...prev, ...state.backdropSettings }));
+        if (state.edgeSettings) setEdgeSettings(prev => ({ ...prev, ...state.edgeSettings }));
+        if (state.brightnessSettings) setBrightnessSettings(prev => ({ ...prev, ...state.brightnessSettings }));
+        if (state.noiseSettings) setNoiseSettings(prev => ({ ...prev, ...state.noiseSettings }));
+        if (state.geometricSettings) setGeometricSettings(prev => ({ ...prev, ...state.geometricSettings }));
         if (state.enabledAssetIds) setEnabledAssetIds(new Set(state.enabledAssetIds));
         if (state.placedBlocks)  setPlacedBlocks(state.placedBlocks);
         setSelectedIds(new Set());
@@ -668,7 +1163,7 @@ const [autoFill, setAutoFill] = useState(false);
 
   const handleSaveProject = useCallback(() => {
     const state = {
-      version: 1,
+      version: 2,
       presetKey,
       customSize,
       gridSettings,
@@ -681,6 +1176,17 @@ const [autoFill, setAutoFill] = useState(false);
       shapeColors,
       bgColors,
       gradientSettings,
+      meshSettings,
+      glitchSettings,
+      stripSettings,
+      multiStripSettings,
+      audioSettings,
+      backdropSrc,
+      backdropSettings,
+      edgeSettings,
+      brightnessSettings,
+      noiseSettings,
+      geometricSettings,
       enabledAssetIds: [...enabledAssetIds],
       placedBlocks,
     };
@@ -693,40 +1199,90 @@ const [autoFill, setAutoFill] = useState(false);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, enabledAssetIds, placedBlocks]);
+  }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, meshSettings, glitchSettings, stripSettings, multiStripSettings, audioSettings, backdropSrc, backdropSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, enabledAssetIds, placedBlocks]);
 
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(async (options = {}) => {
+    const {
+      format = 'svg',
+      scale = 1,
+      transparentBackground = false,
+      jpegQuality = 0.92,
+      photoComposite = false,
+    } = options;
     if (!placedBlocks.length || !gridComputed) return;
-    const { svgEl } = buildFlatSvgElement({
-      placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
-      canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled,
-      colourRemap: imageColourRemap,
-    });
-    const svgString = new XMLSerializer().serializeToString(svgEl);
-    const filename = `grid-layout-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.svg`;
 
-    if (isTauri) {
-      try {
+    const effectiveBackdropSettings = (photoComposite && backdropSrc)
+      ? { ...backdropSettings, mode: 'backdrop' }
+      : backdropSettings;
+
+    const commonBuildArgs = {
+      placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
+      canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled,
+      colourRemap: imageColourRemap,
+      backdropSrc, backdropSettings: effectiveBackdropSettings, blendMode,
+    };
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+    if (format === 'svg') {
+      const { svgEl } = buildFlatSvgElement(commonBuildArgs);
+      const svgString = new XMLSerializer().serializeToString(svgEl);
+      const filename = `grid-layout-${timestamp}.svg`;
+      if (isTauri) {
+        try {
+          const path = await tauriSaveDialog({
+            title: 'Export SVG',
+            defaultPath: filename,
+            filters: [{ name: 'SVG Files', extensions: ['svg'] }],
+          });
+          if (!path) return;
+          await writeTextFile(path, svgString);
+        } catch (err) {
+          alert('Export failed: ' + err.message);
+        }
+      } else {
+        downloadBlob(new Blob([svgString], { type: 'image/svg+xml' }), filename);
+      }
+      return;
+    }
+
+    // Raster export (PNG / JPEG)
+    const targetW = Math.round(workArea.width * scale);
+    const targetH = Math.round(workArea.height * scale);
+    if (targetW > MAX_CANVAS_DIMENSION || targetH > MAX_CANVAS_DIMENSION) {
+      alert(`Export dimensions (${targetW}×${targetH}px) exceed the ${MAX_CANVAS_DIMENSION}px canvas limit. Reduce the export scale.`);
+      return;
+    }
+
+    const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const extension = format === 'jpeg' ? 'jpg' : 'png';
+    const filename = `grid-layout-${timestamp}.${extension}`;
+    const transparentBg = format === 'png' && transparentBackground;
+
+    // Render at up to 3x the output resolution and downscale, to smooth away
+    // hairline antialiasing seams between adjacent shapes/paths.
+    const supersample = Math.max(1, Math.min(3, Math.floor(MAX_CANVAS_DIMENSION / Math.max(targetW, targetH))));
+
+    try {
+      const { svgEl } = buildFlatSvgElement({ ...commonBuildArgs, layer: transparentBg ? 'shapes' : 'all' });
+      const svgString = new XMLSerializer().serializeToString(svgEl);
+      const finalCanvas = await rasterizeSvgToCanvas(svgString, targetW, targetH, supersample);
+      const blob = await canvasToBlob(finalCanvas, mimeType, format === 'jpeg' ? jpegQuality : undefined);
+      if (isTauri) {
         const path = await tauriSaveDialog({
-          title: 'Export SVG',
+          title: 'Export Image',
           defaultPath: filename,
-          filters: [{ name: 'SVG Files', extensions: ['svg'] }],
+          filters: [{ name: format.toUpperCase(), extensions: [extension] }],
         });
         if (!path) return;
-        await writeTextFile(path, svgString);
-      } catch (err) {
-        alert('Export failed: ' + err.message);
+        await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
+      } else {
+        downloadBlob(blob, filename);
       }
-    } else {
-      const blob = new Blob([svgString], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Export failed: ' + err.message);
     }
-  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, randomReverseEnabled, imageColourRemap]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode]);
 
   return (
     <div className={styles.app}>
@@ -756,6 +1312,31 @@ const [autoFill, setAutoFill] = useState(false);
             />
           }
         >
+          {backdropSrc && (
+            <>
+              <image
+                href={backdropSrc}
+                x={0} y={0}
+                width={workArea.width}
+                height={workArea.height}
+                preserveAspectRatio={
+                  backdropSettings.fit === 'cover' ? 'xMidYMid slice'
+                  : backdropSettings.fit === 'stretch' ? 'none'
+                  : 'xMidYMid meet'
+                }
+                opacity={backdropSettings.opacity}
+              />
+              {backdropSettings.tintOpacity > 0 && (
+                <rect
+                  x={0} y={0}
+                  width={workArea.width}
+                  height={workArea.height}
+                  fill={backdropSettings.tintColour}
+                  opacity={backdropSettings.tintOpacity}
+                />
+              )}
+            </>
+          )}
           <Grid workArea={workArea} gridSettings={gridSettings} />
           <PlacedBlocks
             placedBlocks={placedBlocks}
@@ -770,6 +1351,7 @@ selectedIds={selectedIds}
             effectivePalette={activePalette}
             bgOptions={activeBgColors}
             gradientSettings={activeGradientSettings}
+            meshSettings={meshSettings}
             imageDataUrls={imageDataUrls}
             randomReverseEnabled={randomReverseEnabled}
             filterUrl={
@@ -780,6 +1362,7 @@ selectedIds={selectedIds}
             imageRefsMap={imageRefsMap}
             animSettings={animSettings}
             slotRefsMap={slotRefsMap}
+            blendMode={blendMode}
           />
           <AnimationLayer
             animSettings={animSettings}
@@ -790,8 +1373,20 @@ selectedIds={selectedIds}
             shapeLibrary={shapeLibrary}
             imageRefsMap={imageRefsMap}
             slotRefsMap={slotRefsMap}
+            audioSettings={audioSettings}
+            audioDataRef={audioDataRef}
+            canvasBg={canvasBg}
           />
         </Canvas>
+
+        {audioSettings.enabled && audioSettings.inputSource === 'file' && (
+          <audio
+            ref={audioFileElRef}
+            src={audioFileSrc || undefined}
+            loop
+            style={{ display: 'none' }}
+          />
+        )}
 
         {contextMenu && (
           <ContextMenu
@@ -830,7 +1425,52 @@ selectedIds={selectedIds}
           onDisableAssets={handleDisableAssets}
           onFillGrid={handleFillGrid}
           onFillGaps={handleFillGaps}
+          onGlitchFill={handleGlitchFill}
+          canGlitchFill={activeAssets.length > 0 && gridComputed !== null}
+          glitchSettings={glitchSettings}
+          onGlitchSettingsChange={handleGlitchSettingsChange}
+          hasImage={!!imagePixels}
+          onStripFill={handleStripFill}
+          canStripFill={activeAssets.length > 0 && gridComputed !== null}
+          stripSettings={stripSettings}
+          onStripSettingsChange={handleStripSettingsChange}
+          onMultiStripFill={handleMultiStripFill}
+          canMultiStripFill={activeAssets.length > 0 && gridComputed !== null}
+          multiStripSettings={multiStripSettings}
+          onMultiStripSettingsChange={handleMultiStripSettingsChange}
+          audioSettings={audioSettings}
+          onAudioSettingsChange={handleAudioSettingsChange}
+          audioFileSrc={audioFileSrc}
+          onAudioFileChange={setAudioFileSrc}
+          backdropSrc={backdropSrc}
+          onBackdropSrcChange={setBackdropSrc}
+          backdropSettings={backdropSettings}
+          onBackdropSettingsChange={handleBackdropSettingsChange}
+          paletteExtractSettings={paletteExtractSettings}
+          onPaletteExtractSettingsChange={handlePaletteExtractSettingsChange}
+          extractedPalette={extractedPalette}
+          onApplyExtractedToShapes={handleApplyExtractedToShapes}
+          onApplyExtractedToBg={handleApplyExtractedToBg}
+          canExtractFromBackdrop={!!backdropPixels}
+          canExtractFromImage={!!imagePixels}
+          onEdgeFill={handleEdgeFill}
+          canEdgeFill={activeAssets.length > 0 && gridComputed !== null && !!imagePixels}
+          edgeSettings={edgeSettings}
+          onEdgeSettingsChange={handleEdgeSettingsChange}
+          onBrightnessFill={handleBrightnessFill}
+          canBrightnessFill={activeAssets.length > 0 && gridComputed !== null && !!imagePixels}
+          brightnessSettings={brightnessSettings}
+          onBrightnessSettingsChange={handleBrightnessSettingsChange}
+          onNoiseFill={handleNoiseFill}
+          canNoiseFill={activeAssets.length > 0 && gridComputed !== null}
+          noiseSettings={noiseSettings}
+          onNoiseSettingsChange={handleNoiseSettingsChange}
+          onGeometricFill={handleGeometricFill}
+          canGeometricFill={activeAssets.length > 0 && gridComputed !== null}
+          geometricSettings={geometricSettings}
+          onGeometricSettingsChange={handleGeometricSettingsChange}
           onExport={handleExport}
+          workArea={workArea}
           onSaveProject={handleSaveProject}
           onLoadProject={handleLoadProject}
           onUndo={handleUndo}
@@ -860,6 +1500,10 @@ selectedIds={selectedIds}
           onAutoFillChange={setAutoFill}
           uniformReverse={uniformReverse}
           onUniformReverseChange={setUniformReverse}
+          colorTempShift={colorTempShift}
+          onColorTempShiftChange={setColorTempShift}
+          blendMode={blendMode}
+          onBlendModeChange={setBlendMode}
           randomReverseEnabled={randomReverseEnabled}
           onRandomReverseEnabledChange={setRandomReverseEnabled}
           randomReversePct={randomReversePct}
@@ -868,6 +1512,8 @@ selectedIds={selectedIds}
           onRandomRerun={handleRandomRerun}
           gradientSettings={gradientSettings}
           onGradientSettingsChange={setGradientSettings}
+          meshSettings={meshSettings}
+          onMeshSettingsChange={setMeshSettings}
           imageSrc={imageSrc}
           onImageSrcChange={setImageSrc}
           imageProgress={imageProgress}

@@ -6,7 +6,7 @@ import { assetIdToLibKey, getShapeCache } from '../utils/shapeLibraryRender';
 // rendered as inline SVG (below) so AnimationLayer can recolour them via plain
 // `element.style.fill` writes instead of rebuilding+redecoding <image> hrefs.
 // See AnimationLayer.jsx's matching INLINE_ANIM_TYPES for the full rationale.
-const CONTINUOUS_COLOUR_ANIM_TYPES = new Set(['noise', 'gradientSweep', 'paletteWave']);
+const CONTINUOUS_COLOUR_ANIM_TYPES = new Set(['noise', 'gradientSweep', 'paletteWave', 'pixelSort', 'stripScan']);
 
 // Renders a shape inline (nested <svg> with real DOM elements carrying
 // style="fill:...") instead of as a rasterised <image href="data:...">.
@@ -47,7 +47,7 @@ const GridBlock = memo(function GridBlock({
   activeTool,
   isSelected, onSelect, onContextMenu,
   colorMode, effectivePalette, bgOptions,
-  gridCols, gridRows, gradientSettings, imageDataUrls,
+  gridCols, gridRows, gradientSettings, meshSettings, imageDataUrls,
   randomReverseEnabled,
   imageRefsMap,
   animSettings,
@@ -78,14 +78,17 @@ const GridBlock = memo(function GridBlock({
     const gradPos = colorMode === 'gradient'
       ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols, gridRows, ...(gradientSettings ?? {}) }
       : null;
+    const meshPos = colorMode === 'mesh'
+      ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols, gridRows, ...(meshSettings ?? {}) }
+      : null;
     const svg = colorMode !== 'none'
-      ? colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, bgOptions, gradPos)
+      ? colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, bgOptions, gradPos, meshPos)
       : block.svgContent;
     const clean = svg.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
   }, [block.svgContent, block.id, block.colorSeed, block.colorOffset, block.reverseColor,
       block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions,
-      gridCols, gridRows, gradientSettings, randomReverseEnabled]);
+      gridCols, gridRows, gradientSettings, meshSettings, randomReverseEnabled]);
 
   const dataUrl = colorMode === 'image' ? imageDataUrl : colorDataUrl;
 
@@ -188,13 +191,14 @@ const GridBlock = memo(function GridBlock({
 export const PlacedBlocks = memo(function PlacedBlocks({
   placedBlocks, visibleRect, gridComputed, activeTool,
   selectedIds, onSelect, onContextMenu,
-  colorMode, effectivePalette, bgOptions, gradientSettings, imageDataUrls,
+  colorMode, effectivePalette, bgOptions, gradientSettings, meshSettings, imageDataUrls,
   randomReverseEnabled,
   filterUrl,
   imageRefsMap,
   animSettings,
   slotRefsMap,
   shapeLibrary,
+  blendMode,
 }) {
   // Bounding boxes only change with block/grid geometry, not on every pan/zoom
   // frame — precomputing them here means the (per-frame) visibility filter below
@@ -234,7 +238,11 @@ export const PlacedBlocks = memo(function PlacedBlocks({
   return (
     <g
       id="placed-blocks"
-      style={{ pointerEvents: activeTool === 'hand' ? 'none' : 'auto' }}
+      style={{
+        pointerEvents: activeTool === 'hand' ? 'none' : 'auto',
+        mixBlendMode: blendMode && blendMode !== 'normal' ? blendMode : undefined,
+        isolation: blendMode && blendMode !== 'normal' ? 'isolate' : undefined,
+      }}
       filter={filterUrl || undefined}
     >
       {visibleBlocks.map(block => (
@@ -254,6 +262,7 @@ export const PlacedBlocks = memo(function PlacedBlocks({
           gridCols={gridComputed.cols}
           gridRows={gridComputed.rows}
           gradientSettings={gradientSettings}
+          meshSettings={meshSettings}
           imageDataUrls={imageDataUrls}
           randomReverseEnabled={randomReverseEnabled}
           imageRefsMap={imageRefsMap}

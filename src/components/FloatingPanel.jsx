@@ -4,6 +4,52 @@ import { PALETTES, PALETTE_GROUPS, colorizeSvg } from '../utils/colorize';
 import { ASSET_FOLDER_TREE } from '../builtinAssets';
 import styles from './FloatingPanel.module.css';
 
+const FILL_MODE_LABELS = {
+  standard:   'Standard',
+  glitch:     'Glitch',
+  strip:      'Strip',
+  multiStrip: 'Multi-Strip',
+  edge:       'Edge Trace',
+  brightness: 'Brightness',
+  noise:      'Noise Field',
+  geometric:  'Geometric Pattern',
+};
+
+const FILL_MODES = Object.keys(FILL_MODE_LABELS);
+
+// A single row in the main menu — shows a label, an optional live-state
+// preview (swatches, current mode name, status dot), and a '›' arrow.
+function MenuRow({ label, preview, onClick, className = '' }) {
+  return (
+    <button className={`${styles.menuRow} ${className}`} onClick={onClick}>
+      <span className={styles.menuRowLabel}>{label}</span>
+      {preview && <span className={styles.menuRowPreview}>{preview}</span>}
+      <span className={styles.menuRowArrow}>›</span>
+    </button>
+  );
+}
+
+// Sticky back bar shown at the top of every drilled-in sub-view.
+function SubViewHeader({ title, onBack }) {
+  return (
+    <div className={styles.subViewBack}>
+      <button className={styles.subViewBackBtn} onClick={onBack}>← Back</button>
+      <span className={styles.subViewBackLabel}>{title}</span>
+    </div>
+  );
+}
+
+// Generates a vivid hex colour from a hue (0-360), used to seed new mesh points
+// with a colour distinct from white (so the colour swatch isn't blank-looking).
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const c = v => Math.round(v * 255).toString(16).padStart(2, '0');
+  return `#${c(f(0))}${c(f(8))}${c(f(4))}`;
+}
+
 function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues }) {
   let prevVal, nextVal;
   if (validValues) {
@@ -55,7 +101,18 @@ export function FloatingPanel({
   customSize, onCustomSizeChange,
   gridSettings, onGridSettingsChange, gridComputed, validCols,
   enabledAssetIds, onEnableAssets, onDisableAssets,
-  onFillGrid, onFillGaps, onExport, onSaveProject, onLoadProject, canFill, canFillGaps, canExport,
+  onFillGrid, onFillGaps, onExport, workArea, onSaveProject, onLoadProject, canFill, canFillGaps, canExport,
+  onGlitchFill, canGlitchFill, glitchSettings, onGlitchSettingsChange, hasImage,
+  onStripFill, canStripFill, stripSettings, onStripSettingsChange,
+  onMultiStripFill, canMultiStripFill, multiStripSettings, onMultiStripSettingsChange,
+  audioSettings, onAudioSettingsChange, audioFileSrc, onAudioFileChange,
+  backdropSrc, onBackdropSrcChange, backdropSettings, onBackdropSettingsChange,
+  paletteExtractSettings, onPaletteExtractSettingsChange, extractedPalette,
+  onApplyExtractedToShapes, onApplyExtractedToBg, canExtractFromBackdrop, canExtractFromImage,
+  onEdgeFill, canEdgeFill, edgeSettings, onEdgeSettingsChange,
+  onBrightnessFill, canBrightnessFill, brightnessSettings, onBrightnessSettingsChange,
+  onNoiseFill, canNoiseFill, noiseSettings, onNoiseSettingsChange,
+  onGeometricFill, canGeometricFill, geometricSettings, onGeometricSettingsChange,
   onUndo, onRedo, canUndo, canRedo,
   maxScale, onMaxScaleChange,
   scaleFreq, onScaleFreqChange,
@@ -66,9 +123,12 @@ export function FloatingPanel({
   customPalettes, onSaveCustomPalette, onDeleteCustomPalette, onApplyCustomPalette,
   autoFill, onAutoFillChange,
   uniformReverse, onUniformReverseChange,
+  colorTempShift, onColorTempShiftChange,
+  blendMode, onBlendModeChange,
   randomReverseEnabled, onRandomReverseEnabledChange, randomReversePct, onRandomReversePctChange, onRandomReverse,
   onRandomRerun,
   gradientSettings, onGradientSettingsChange,
+  meshSettings, onMeshSettingsChange,
   imageSrc, onImageSrcChange, imageProgress, imageColourTolerance, onImageColourToleranceChange,
   animSettings, onAnimSettingsChange,
   showShortcuts, onToggleShortcuts,
@@ -76,22 +136,31 @@ export function FloatingPanel({
   onFlipH, onFlipV, canFlip,
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [view, setView] = useState('main');
+  const [fillMode, setFillMode] = useState('standard');
+  const [bgType, setBgType] = useState(() => backdropSrc ? 'image' : 'solid');
   const [assetBrowserView, setAssetBrowserView] = useState('grid');
+
+  // Export As dialog state
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportFormat, setExportFormat] = useState('svg');
+  const [exportScale, setExportScale] = useState(1);
+  const [exportTransparent, setExportTransparent] = useState(true);
+  const [exportPhotoComposite, setExportPhotoComposite] = useState(false);
+  const [exportJpegQuality, setExportJpegQuality] = useState(0.92);
+
+  // Navigation stack — [] means the main menu; pushing a view name drills in,
+  // popView() goes back one level, resetView() returns straight to the main menu.
+  const [viewStack, setViewStack] = useState([]);
+  const view = viewStack[viewStack.length - 1] ?? 'main';
+  const pushView = (name) => setViewStack(prev => [...prev, name]);
+  const popView = () => setViewStack(prev => prev.slice(0, -1));
+  const resetView = () => setViewStack([]);
 
   const THUMB_PALETTE = ['#e4e4e7', '#d4d4d8', '#a1a1aa', '#71717a', '#52525b', '#3f3f46'];
   const THUMB_BG = ['#27272a'];
 
   const [openGroups, setOpenGroups] = useState(new Set());
   const toggleGroup = name => setOpenGroups(prev => {
-    const next = new Set(prev);
-    next.has(name) ? next.delete(name) : next.add(name);
-    return next;
-  });
-
-  // Sections — Actions open by default, all others closed
-  const [openSections, setOpenSections] = useState(new Set(['Actions']));
-  const toggleSection = name => setOpenSections(prev => {
     const next = new Set(prev);
     next.has(name) ? next.delete(name) : next.add(name);
     return next;
@@ -127,9 +196,73 @@ export function FloatingPanel({
     e.target.value = '';
   };
 
+  const backdropInputRef = useRef(null);
+
+  const handleBackdropUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => onBackdropSrcChange(evt.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   const [rawCustomHex, setRawCustomHex] = useState('');
   const [rawBgHex,     setRawBgHex]     = useState('');
   const [rawGradBgHex, setRawGradBgHex] = useState('');
+
+  // Mesh colour points: dragging a colour/position slider fires onChange
+  // continuously, and committing every tick to App state recolours every
+  // placed block — locally track a "draft" for instant UI feedback and
+  // debounce the expensive commit until the user pauses.
+  const [meshDraft, setMeshDraft] = useState(meshSettings);
+  const meshCommitTimer = useRef(null);
+  useEffect(() => {
+    setMeshDraft(meshSettings);
+  }, [meshSettings]);
+  useEffect(() => () => clearTimeout(meshCommitTimer.current), []);
+  const updateMesh = useCallback((next) => {
+    setMeshDraft(next);
+    clearTimeout(meshCommitTimer.current);
+    meshCommitTimer.current = setTimeout(() => onMeshSettingsChange(next), 80);
+  }, [onMeshSettingsChange]);
+  const applyMeshPalette = useCallback((colors) => {
+    updateMesh({
+      ...meshDraft,
+      points: colors.slice(0, 8).map(hex => ({
+        id: crypto.randomUUID(),
+        x: Math.random(),
+        y: Math.random(),
+        hex,
+      })),
+    });
+    resetView();
+  }, [meshDraft, updateMesh]);
+
+  // Native colour pickers fire onChange dozens of times per second while
+  // dragging — coalesce those into at most one state update per animation
+  // frame so the picker itself doesn't stutter fighting React re-renders.
+  const meshHexPending = useRef({});
+  const meshHexRaf = useRef(null);
+  useEffect(() => () => { if (meshHexRaf.current) cancelAnimationFrame(meshHexRaf.current); }, []);
+  const updateMeshHex = useCallback((pointId, hex) => {
+    meshHexPending.current[pointId] = hex;
+    if (meshHexRaf.current) return;
+    meshHexRaf.current = requestAnimationFrame(() => {
+      meshHexRaf.current = null;
+      const pending = meshHexPending.current;
+      meshHexPending.current = {};
+      setMeshDraft(prev => {
+        const next = {
+          ...prev,
+          points: prev.points.map(x => pending[x.id] !== undefined ? { ...x, hex: pending[x.id] } : x),
+        };
+        clearTimeout(meshCommitTimer.current);
+        meshCommitTimer.current = setTimeout(() => onMeshSettingsChange(next), 80);
+        return next;
+      });
+    });
+  }, [onMeshSettingsChange]);
   const [savePaletteName, setSavePaletteName] = useState('');
 
   const [shapeOrder, setShapeOrder] = useState(null);
@@ -141,8 +274,14 @@ export function FloatingPanel({
   const displayBgColors    = bgOrder    ?? bgColors    ?? [];
 
   useEffect(() => {
-    if (colorMode === 'none' && (view === 'colours' || view === 'palette')) {
-      setView('main');
+    if (colorMode === 'mesh' && (view === 'colours' || view === 'palette')) {
+      resetView();
+    }
+    if (colorMode !== 'mesh' && view === 'meshPalette') {
+      resetView();
+    }
+    if (colorMode === 'none' && (view === 'colours' || view === 'palette' || view === 'meshPalette')) {
+      resetView();
     }
   }, [colorMode, view]);
 
@@ -235,6 +374,20 @@ export function FloatingPanel({
   const zoomPct  = Math.round((viewTransform?.scale ?? 1) * 100);
   const isCustom = presetKey === 'custom';
 
+  // Maps the active fill mode to its fill handler/availability — used by the
+  // single, always-present Fill button.
+  const FILL_ACTIONS = {
+    standard:   { onFill: onFillGrid,       canFill: canFill },
+    glitch:     { onFill: onGlitchFill,     canFill: canGlitchFill },
+    strip:      { onFill: onStripFill,      canFill: canStripFill },
+    multiStrip: { onFill: onMultiStripFill, canFill: canMultiStripFill },
+    edge:       { onFill: onEdgeFill,       canFill: canEdgeFill },
+    brightness: { onFill: onBrightnessFill, canFill: canBrightnessFill },
+    noise:      { onFill: onNoiseFill,      canFill: canNoiseFill },
+    geometric:  { onFill: onGeometricFill,  canFill: canGeometricFill },
+  };
+  const activeFillAction = FILL_ACTIONS[fillMode];
+
   const [rawWidth,  setRawWidth]  = useState(String(customSize?.width  ?? ''));
   const [rawHeight, setRawHeight] = useState(String(customSize?.height ?? ''));
 
@@ -268,6 +421,87 @@ export function FloatingPanel({
 
   return (
     <>
+      {showExportDialog && (
+        <div className={styles.shortcutsOverlay} onClick={() => setShowExportDialog(false)}>
+          <div className={styles.exportPanel} onClick={e => e.stopPropagation()}>
+            <div className={styles.shortcutsHeader}>
+              <span>Export As</span>
+              <button className={styles.shortcutsClose} onClick={() => setShowExportDialog(false)}>×</button>
+            </div>
+            <div className={styles.sectionContent}>
+              <div className={styles.formRow}>
+                <span className={styles.label}>Format</span>
+                <div className={styles.modeToggle}>
+                  {['svg', 'png', 'jpeg'].map(f => (
+                    <button key={f}
+                      className={`${styles.modeBtn} ${exportFormat === f ? styles.modeBtnActive : ''}`}
+                      onClick={() => setExportFormat(f)}
+                    >{f.toUpperCase()}</button>
+                  ))}
+                </div>
+              </div>
+
+              {exportFormat !== 'svg' && (
+                <div className={styles.formRow}>
+                  <span className={styles.label}>Scale</span>
+                  <div className={styles.modeToggle}>
+                    {[1, 2, 4].map(s => (
+                      <button key={s}
+                        className={`${styles.modeBtn} ${exportScale === s ? styles.modeBtnActive : ''}`}
+                        onClick={() => setExportScale(s)}
+                      >{s}×</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {workArea && (
+                <div className={styles.gridNote}>
+                  Output size: {Math.round(workArea.width * (exportFormat === 'svg' ? 1 : exportScale))} × {Math.round(workArea.height * (exportFormat === 'svg' ? 1 : exportScale))} px
+                </div>
+              )}
+
+              {exportFormat === 'png' && (
+                <label className={styles.formRow} style={{ cursor: 'pointer' }}>
+                  <span className={styles.label}>Transparent Background</span>
+                  <input type="checkbox" checked={exportTransparent} onChange={e => setExportTransparent(e.target.checked)} />
+                </label>
+              )}
+
+              {exportFormat === 'jpeg' && (
+                <div className={styles.sliderRow}>
+                  <span className={styles.label}>Quality</span>
+                  <input type="range" className={styles.slider} min="0.5" max="1" step="0.01"
+                    value={exportJpegQuality}
+                    onChange={e => setExportJpegQuality(+e.target.value)} />
+                  <span className={styles.sliderVal}>{Math.round(exportJpegQuality * 100)}%</span>
+                </div>
+              )}
+
+              {!!backdropSrc && (
+                <label className={styles.formRow} style={{ cursor: 'pointer' }}>
+                  <span className={styles.label}>Composite Over Photo</span>
+                  <input type="checkbox" checked={exportPhotoComposite} onChange={e => setExportPhotoComposite(e.target.checked)} />
+                </label>
+              )}
+
+              <div className={styles.actionBtns} style={{ marginTop: 12 }}>
+                <button className={styles.actionBtn} onClick={() => {
+                  onExport({
+                    format: exportFormat,
+                    scale: exportScale,
+                    transparentBackground: exportFormat === 'png' && exportTransparent,
+                    jpegQuality: exportJpegQuality,
+                    photoComposite: exportPhotoComposite,
+                  });
+                  setShowExportDialog(false);
+                }}>↓ Export</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showShortcuts && (
         <div className={styles.shortcutsOverlay} onClick={onToggleShortcuts}>
           <div className={styles.shortcutsPanel} onClick={e => e.stopPropagation()}>
@@ -309,7 +543,7 @@ export function FloatingPanel({
             {view === 'assets' && (
               <>
                 <div className={styles.subViewBack}>
-                  <button className={styles.subViewBackBtn} onClick={() => setView('main')}>← Back</button>
+                  <button className={styles.subViewBackBtn} onClick={popView}>← Back</button>
                   <span className={styles.subViewBackLabel}>Assets</span>
                   <button
                     className={styles.assetViewToggleBtn}
@@ -439,7 +673,7 @@ export function FloatingPanel({
             {view === 'palette' && (
               <>
                 <div className={styles.subViewBack}>
-                  <button className={styles.subViewBackBtn} onClick={() => setView('colours')}>← Back</button>
+                  <button className={styles.subViewBackBtn} onClick={popView}>← Back</button>
                   <span className={styles.subViewBackLabel}>Choose palette</span>
                 </div>
 
@@ -504,18 +738,78 @@ export function FloatingPanel({
               </>
             )}
 
+            {/* ── Mesh: generate from palette picker view ───── */}
+            {view === 'meshPalette' && (
+              <>
+                <div className={styles.subViewBack}>
+                  <button className={styles.subViewBackBtn} onClick={popView}>← Back</button>
+                  <span className={styles.subViewBackLabel}>Choose palette</span>
+                </div>
+
+                {(customPalettes ?? []).length > 0 && (
+                  <div>
+                    <button className={styles.paletteGroupHeader} onClick={() => toggleGroup('__custom__')}>
+                      <span className={styles.paletteGroupArrow}>{openGroups.has('__custom__') ? '▼' : '▶'}</span>
+                      <span className={styles.paletteGroupName}>My Palettes</span>
+                      <span className={styles.paletteGroupCount}>{customPalettes.length}</span>
+                    </button>
+
+                    {openGroups.has('__custom__') && (customPalettes ?? []).map(p => (
+                      <button
+                        key={p.name}
+                        className={styles.palettePickerItem}
+                        onClick={() => applyMeshPalette(p.colors)}
+                      >
+                        <span className={styles.palettePickerName}>{p.name}</span>
+                        <span className={styles.palettePickerSwatches}>
+                          {p.colors.map((c, i) => (
+                            <span key={i} className={styles.palettePickerSwatch} style={{ background: c }} />
+                          ))}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {PALETTE_GROUPS.map(group => (
+                  <div key={group.name}>
+                    <button className={styles.paletteGroupHeader} onClick={() => toggleGroup(group.name)}>
+                      <span className={styles.paletteGroupArrow}>{openGroups.has(group.name) ? '▼' : '▶'}</span>
+                      <span className={styles.paletteGroupName}>{group.name}</span>
+                      <span className={styles.paletteGroupCount}>{group.keys.length}</span>
+                    </button>
+
+                    {openGroups.has(group.name) && group.keys.map(k => (
+                      <button
+                        key={k}
+                        className={styles.palettePickerItem}
+                        onClick={() => applyMeshPalette(PALETTES[k])}
+                      >
+                        <span className={styles.palettePickerName}>{k}</span>
+                        <span className={styles.palettePickerSwatches}>
+                          {PALETTES[k]?.map((c, i) => (
+                            <span key={i} className={styles.palettePickerSwatch} style={{ background: c }} />
+                          ))}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </>
+            )}
+
             {/* ── Colour editor view ──────────────────────── */}
             {view === 'colours' && (
               <>
                 <div className={styles.subViewBack}>
-                  <button className={styles.subViewBackBtn} onClick={() => setView('main')}>← Back</button>
+                  <button className={styles.subViewBackBtn} onClick={popView}>← Back</button>
                   <span className={styles.subViewBackLabel}>Colours</span>
                 </div>
 
                 <div className={styles.colourEditorSection}>
                   <div className={styles.colourEditorLabel}>Shape colours</div>
 
-                  <button className={styles.paletteChooserBtn} onClick={() => setView('palette')} style={{ width: '100%' }}>
+                  <button className={styles.paletteChooserBtn} onClick={() => pushView('palette')} style={{ width: '100%' }}>
                     <span className={styles.paletteChooserName}>{paletteKey}</span>
                     <span className={styles.paletteChooserSwatches}>
                       {PALETTES[paletteKey]?.map((c, i) => (
@@ -667,179 +961,373 @@ export function FloatingPanel({
               </>
             )}
 
-            {/* ── Main view ───────────────────────────────── */}
+            {/* ── Pinned header — always visible, every view ─── */}
+            {/* Tool + View — always-visible toolbar */}
+            <div className={`${styles.section} ${styles.toolbarSection}`}>
+              <div className={styles.toolbarContent}>
+                <div className={styles.toolToggle}>
+                  <button
+                    className={`${styles.toolBtn} ${activeTool === 'select' ? styles.active : ''}`}
+                    onClick={() => onToolChange('select')}
+                    title="Select tool"
+                  >↖ Select</button>
+                  <button
+                    className={`${styles.toolBtn} ${activeTool === 'hand' ? styles.active : ''}`}
+                    onClick={() => onToolChange('hand')}
+                    title="Hand tool"
+                  >✋ Hand</button>
+                </div>
+                <div className={styles.zoomRow}>
+                  <button className={styles.zoomBtn} onClick={() => onZoom(-1)} title="Zoom out">−</button>
+                  <span className={styles.zoomLabel}>{zoomPct}%</span>
+                  <button className={styles.zoomBtn} onClick={() => onZoom(1)} title="Zoom in">+</button>
+                  <button className={`${styles.zoomBtn} ${styles.resetBtn}`} onClick={onResetView} title="Fit to view">Fit</button>
+                  <button className={styles.zoomBtn} onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)">↩</button>
+                  <button className={styles.zoomBtn} onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Y)">↪</button>
+                  <button className={`${styles.zoomBtn} ${showShortcuts ? styles.active : ''}`} onClick={onToggleShortcuts} title="Keyboard shortcuts (?)">?</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Grid Settings — core, always expanded */}
+            <div className={styles.section}>
+              <div className={styles.staticHeader}>
+                <span className={styles.sectionTitle}>Grid Settings</span>
+              </div>
+              <div className={styles.sectionContent}>
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Area</span>
+                    <select className={styles.select} value={presetKey} onChange={e => onPresetChange(e.target.value)}>
+                      {PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                    </select>
+                  </div>
+
+                  {isCustom && (
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Size</span>
+                      <div className={styles.dimRow}>
+                        <input type="number" className={styles.dimInput} value={rawWidth}
+                          onChange={e => setRawWidth(e.target.value)}
+                          onBlur={() => commitDim('width', rawWidth)} />
+                        <span className={styles.dimX}>×</span>
+                        <input type="number" className={styles.dimInput} value={rawHeight}
+                          onChange={e => setRawHeight(e.target.value)}
+                          onBlur={() => commitDim('height', rawHeight)} />
+                        <span className={styles.dimUnit}>px</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={styles.formRowPair}>
+                    <div className={styles.stackedField}>
+                      <span className={styles.label}>Columns</span>
+                      <Stepper value={gridSettings.cols} onChange={v => onGridSettingsChange({ cols: v })} min={1} max={80} validValues={validCols} />
+                    </div>
+                    <div className={styles.stackedField}>
+                      <span className={styles.label}>Border</span>
+                      <Stepper value={gridSettings.borderPct} onChange={v => onGridSettingsChange({ borderPct: v })} min={0} max={40} format={v => `${v}%`} />
+                    </div>
+                  </div>
+
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Max scale</span>
+                    <div className={styles.sliderRow}>
+                      <input type="range" className={styles.slider} min={1} max={4} step={1}
+                        value={maxScale} onChange={e => onMaxScaleChange(+e.target.value)} />
+                      <span className={styles.sliderVal}>{maxScale}×</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Scale freq</span>
+                    <div className={styles.sliderRow}>
+                      <input
+                        type="range"
+                        className={`${styles.slider} ${maxScale === 1 ? styles.sliderDisabled : ''}`}
+                        min={0} max={100} step={5}
+                        value={scaleFreq}
+                        disabled={maxScale === 1}
+                        onChange={e => onScaleFreqChange(+e.target.value)}
+                      />
+                      <input
+                        type="number"
+                        className={`${styles.sliderNumInput} ${maxScale === 1 ? styles.sliderDisabled : ''}`}
+                        min={0} max={100}
+                        value={scaleFreq}
+                        disabled={maxScale === 1}
+                        onChange={e => handleScaleFreqInput(e.target.value)}
+                      />
+                      <span className={styles.sliderUnit}>%</span>
+                    </div>
+                  </div>
+
+                  {gridComputed && (
+                    <div className={styles.gridInfo}>
+                      {gridComputed.rows} rows · {gridComputed.totalCells} cells · {gridComputed.cellSize.toFixed(1)}px
+                      {validCols && !validCols.includes(gridSettings.cols) && <span className={styles.snapNote}> (snapped)</span>}
+                    </div>
+                  )}
+                  {validCols === null && <div className={styles.gridNote}>Any column count is valid for this layout</div>}
+
+                  <div className={styles.formRow} style={{ marginTop: 8 }}>
+                    <span className={styles.label}>Auto-fill</span>
+                    <button
+                      className={`${styles.modeBtn} ${autoFill ? styles.modeBtnActive : ''}`}
+                      onClick={() => onAutoFillChange(!autoFill)}
+                      title="Re-fill grid automatically whenever settings change"
+                    >{autoFill ? 'On' : 'Off'}</button>
+                  </div>
+              </div>
+            </div>
+
+            {/* Unified Fill button — always triggers whichever fill mode is active */}
+            <div className={styles.fillBtnRow}>
+              <button
+                className={`${styles.actionBtn} ${styles.actionBtnPrimary}`}
+                style={{ width: '100%' }}
+                onClick={activeFillAction.onFill}
+                disabled={!activeFillAction.canFill}
+              >▶ Fill — {FILL_MODE_LABELS[fillMode]}</button>
+            </div>
+
+            {/* ── Main menu ──────────────────────────────────── */}
             {view === 'main' && (
+              <div className={styles.menuList}>
+                <MenuRow
+                  label="Fill"
+                  preview={<span>{FILL_MODE_LABELS[fillMode]}</span>}
+                  onClick={() => pushView('fill')}
+                />
+                <MenuRow
+                  label="Background"
+                  preview={bgType === 'solid' ? (
+                    <>
+                      <span className={styles.menuRowSwatch} style={{ background: canvasBg }} />
+                      <span className={styles.menuRowSwatch} style={{ background: bgColor }} />
+                      <span>Solid</span>
+                    </>
+                  ) : <span>Image</span>}
+                  onClick={() => pushView('background')}
+                />
+                <MenuRow
+                  label="Colour"
+                  preview={colourPreview.length ? (
+                    <>{colourPreview.slice(0, 6).map((c, i) => (
+                      <span key={i} className={styles.menuRowSwatch} style={{ background: c }} />
+                    ))}</>
+                  ) : <span>{colorMode === 'none' ? 'None' : colorMode}</span>}
+                  onClick={() => pushView('colour')}
+                />
+                <MenuRow label="Palette Extractor" onClick={() => pushView('paletteExtractor')} />
+                <MenuRow label="Assets" onClick={() => pushView('assets')} />
+                {animSettings && onAnimSettingsChange && (
+                  <MenuRow
+                    label="Animation"
+                    preview={<>
+                      {animSettings.enabled && <span className={styles.menuRowDot} />}
+                      <span>{animSettings.enabled ? 'Playing' : 'Paused'}</span>
+                    </>}
+                    onClick={() => pushView('animation')}
+                  />
+                )}
+                <MenuRow
+                  label="Audio Reactive"
+                  preview={<span>{audioSettings?.enabled ? 'On' : 'Off'}</span>}
+                  onClick={() => pushView('audio')}
+                />
+                <MenuRow label="Actions" onClick={() => pushView('actions')} />
+              </div>
+            )}
+
+            {/* Background */}
+            {view === 'background' && (
               <>
-                {/* Tool */}
-                <div className={styles.section}>
-                  <button className={styles.sectionHeader} onClick={() => toggleSection('Tool')}>
-                    <span className={styles.sectionTitle}>Tool</span>
-                    <span className={styles.sectionArrow}>{openSections.has('Tool') ? '▼' : '▶'}</span>
-                  </button>
-                  {openSections.has('Tool') && (
-                    <div className={styles.sectionContent}>
-                      <div className={styles.toolToggle}>
-                        <button
-                          className={`${styles.toolBtn} ${activeTool === 'select' ? styles.active : ''}`}
-                          onClick={() => onToolChange('select')}
-                        >↖ Select</button>
-                        <button
-                          className={`${styles.toolBtn} ${activeTool === 'hand' ? styles.active : ''}`}
-                          onClick={() => onToolChange('hand')}
-                        >✋ Hand</button>
+                <SubViewHeader title="Background" onBack={popView} />
+                <div className={styles.sectionContent}>
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Type</span>
+                    <div className={styles.modeToggle}>
+                      {[
+                        { key: 'solid', label: 'Solid' },
+                        { key: 'image', label: 'Image' },
+                      ].map(({ key, label }) => (
+                        <button key={key}
+                          className={`${styles.modeBtn} ${bgType === key ? styles.modeBtnActive : ''}`}
+                          onClick={() => setBgType(key)}
+                        >{label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {bgType === 'solid' && (
+                  <div className={styles.formRowPair}>
+                    <div className={styles.stackedField}>
+                      <span className={styles.label}>Canvas</span>
+                      <div className={styles.colorRow}>
+                        <input type="color" value={canvasBg} onChange={e => onCanvasBgChange(e.target.value)} className={styles.colorInput} />
+                        <span className={styles.colorLabel}>{canvasBg}</span>
                       </div>
                     </div>
-                  )}
-                </div>
-
-                {/* View */}
-                <div className={styles.section}>
-                  <button className={styles.sectionHeader} onClick={() => toggleSection('View')}>
-                    <span className={styles.sectionTitle}>View</span>
-                    <span className={styles.sectionArrow}>{openSections.has('View') ? '▼' : '▶'}</span>
-                  </button>
-                  {openSections.has('View') && (
-                    <div className={styles.sectionContent}>
-                      <div className={styles.zoomRow}>
-                        <button className={styles.zoomBtn} onClick={() => onZoom(-1)} title="Zoom out">−</button>
-                        <span className={styles.zoomLabel}>{zoomPct}%</span>
-                        <button className={styles.zoomBtn} onClick={() => onZoom(1)} title="Zoom in">+</button>
-                        <button className={`${styles.zoomBtn} ${styles.resetBtn}`} onClick={onResetView}>Fit</button>
-                        <button className={styles.zoomBtn} onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)">↩</button>
-                        <button className={styles.zoomBtn} onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Y)">↪</button>
-                        <button className={`${styles.zoomBtn} ${showShortcuts ? styles.active : ''}`} onClick={onToggleShortcuts} title="Keyboard shortcuts (?)">?</button>
+                    <div className={styles.stackedField}>
+                      <span className={styles.label}>Outer</span>
+                      <div className={styles.colorRow}>
+                        <input type="color" value={bgColor} onChange={e => onBgColorChange(e.target.value)} className={styles.colorInput} />
+                        <span className={styles.colorLabel}>{bgColor}</span>
                       </div>
                     </div>
+                  </div>
                   )}
-                </div>
 
-                {/* Grid Settings */}
-                <div className={styles.section}>
-                  <button className={styles.sectionHeader} onClick={() => toggleSection('Grid Settings')}>
-                    <span className={styles.sectionTitle}>Grid Settings</span>
-                    <span className={styles.sectionArrow}>{openSections.has('Grid Settings') ? '▼' : '▶'}</span>
-                  </button>
-                  {openSections.has('Grid Settings') && (
+                  {bgType === 'image' && backdropSettings && (<>
+                  <div className={styles.imageUploadArea}>
+                    <input
+                      ref={backdropInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={handleBackdropUpload}
+                    />
+                    {backdropSrc ? (
+                      <div className={styles.imageThumbnailWrapper}>
+                        <img src={backdropSrc} className={styles.imageThumbnail} alt="Backdrop" />
+                        <div className={styles.imageThumbnailActions}>
+                          <button className={styles.imageReplaceBtn} onClick={() => backdropInputRef.current?.click()}>
+                            Replace
+                          </button>
+                          <button className={styles.imageRemoveBtn} onClick={() => onBackdropSrcChange(null)}>
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button className={styles.ingestBtn} onClick={() => backdropInputRef.current?.click()}>
+                        Upload image…
+                      </button>
+                    )}
+                  </div>
+
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Mode</span>
+                    <div className={styles.modeToggle}>
+                      {[
+                        { key: 'reference', label: 'Reference' },
+                        { key: 'backdrop',  label: 'Backdrop' },
+                      ].map(({ key, label }) => (
+                        <button key={key}
+                          className={`${styles.modeBtn} ${backdropSettings.mode === key ? styles.modeBtnActive : ''}`}
+                          onClick={() => onBackdropSettingsChange({ mode: key })}
+                        >{label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Fit</span>
+                    <div className={styles.modeToggle}>
+                      {[
+                        { key: 'contain', label: 'Contain' },
+                        { key: 'cover',   label: 'Cover' },
+                        { key: 'stretch', label: 'Stretch' },
+                      ].map(({ key, label }) => (
+                        <button key={key}
+                          className={`${styles.modeBtn} ${backdropSettings.fit === key ? styles.modeBtnActive : ''}`}
+                          onClick={() => onBackdropSettingsChange({ fit: key })}
+                        >{label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Opacity</span>
+                    <div className={styles.sliderRow}>
+                      <input type="range" className={styles.slider} min="0" max="1" step="0.05"
+                        value={backdropSettings.opacity}
+                        onChange={e => onBackdropSettingsChange({ opacity: +e.target.value })} />
+                      <span className={styles.sliderVal}>{Math.round(backdropSettings.opacity * 100)}%</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Tint</span>
+                    <div className={styles.colorRow}>
+                      <input type="color" value={backdropSettings.tintColour} onChange={e => onBackdropSettingsChange({ tintColour: e.target.value })} className={styles.colorInput} />
+                      <span className={styles.colorLabel}>{backdropSettings.tintColour}</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.formRow}>
+                    <span className={styles.label}>Tint Opacity</span>
+                    <div className={styles.sliderRow}>
+                      <input type="range" className={styles.slider} min="0" max="1" step="0.05"
+                        value={backdropSettings.tintOpacity}
+                        onChange={e => onBackdropSettingsChange({ tintOpacity: +e.target.value })} />
+                      <span className={styles.sliderVal}>{Math.round(backdropSettings.tintOpacity * 100)}%</span>
+                    </div>
+                  </div>
+                  </>)}
+                </div>
+              </>
+            )}
+
+            {/* Palette Extractor */}
+            {view === 'paletteExtractor' && (
+              <>
+                <SubViewHeader title="Palette Extractor" onBack={popView} />
+                {paletteExtractSettings && (
                     <div className={styles.sectionContent}>
                       <div className={styles.formRow}>
-                        <span className={styles.label}>Area</span>
-                        <select className={styles.select} value={presetKey} onChange={e => onPresetChange(e.target.value)}>
-                          {PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-                        </select>
+                        <span className={styles.label}>Extract From</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'image',    label: 'Colour Image', enabled: canExtractFromImage },
+                            { key: 'backdrop', label: 'Background',   enabled: canExtractFromBackdrop },
+                          ].map(({ key, label, enabled }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${paletteExtractSettings.extractFrom === key ? styles.modeBtnActive : ''}`}
+                              disabled={!enabled}
+                              title={enabled ? '' : 'No image loaded for this source'}
+                              onClick={() => onPaletteExtractSettingsChange({ extractFrom: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
                       </div>
 
-                      {isCustom && (
-                        <div className={styles.formRow}>
-                          <span className={styles.label}>Size</span>
-                          <div className={styles.dimRow}>
-                            <input type="number" className={styles.dimInput} value={rawWidth}
-                              onChange={e => setRawWidth(e.target.value)}
-                              onBlur={() => commitDim('width', rawWidth)} />
-                            <span className={styles.dimX}>×</span>
-                            <input type="number" className={styles.dimInput} value={rawHeight}
-                              onChange={e => setRawHeight(e.target.value)}
-                              onBlur={() => commitDim('height', rawHeight)} />
-                            <span className={styles.dimUnit}>px</span>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Colours</span>
+                        <Stepper value={paletteExtractSettings.numColours} onChange={v => onPaletteExtractSettingsChange({ numColours: v })} min={4} max={16} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Extracted</span>
+                        {extractedPalette.length ? (
+                          <div className={styles.paletteChooserSwatches}>
+                            {extractedPalette.map((c, i) => (
+                              <span key={i} className={styles.paletteChooserSwatch} style={{ background: c }} title={c} />
+                            ))}
                           </div>
-                        </div>
-                      )}
-
-                      <div className={styles.formRow}>
-                        <span className={styles.label}>Columns</span>
-                        <Stepper value={gridSettings.cols} onChange={v => onGridSettingsChange({ cols: v })} min={1} max={80} validValues={validCols} />
+                        ) : (
+                          <span className={styles.gridNote}>No image available — load an image first.</span>
+                        )}
                       </div>
 
                       <div className={styles.formRow}>
-                        <span className={styles.label}>Border</span>
-                        <Stepper value={gridSettings.borderPct} onChange={v => onGridSettingsChange({ borderPct: v })} min={0} max={40} format={v => `${v}%`} />
-                      </div>
-
-                      <div className={styles.formRow}>
-                        <span className={styles.label}>Max scale</span>
-                        <div className={styles.sliderRow}>
-                          <input type="range" className={styles.slider} min={1} max={4} step={1}
-                            value={maxScale} onChange={e => onMaxScaleChange(+e.target.value)} />
-                          <span className={styles.sliderVal}>{maxScale}×</span>
-                        </div>
-                      </div>
-
-                      <div className={styles.formRow}>
-                        <span className={styles.label}>Scale freq</span>
-                        <div className={styles.sliderRow}>
-                          <input
-                            type="range"
-                            className={`${styles.slider} ${maxScale === 1 ? styles.sliderDisabled : ''}`}
-                            min={0} max={100} step={5}
-                            value={scaleFreq}
-                            disabled={maxScale === 1}
-                            onChange={e => onScaleFreqChange(+e.target.value)}
-                          />
-                          <input
-                            type="number"
-                            className={`${styles.sliderNumInput} ${maxScale === 1 ? styles.sliderDisabled : ''}`}
-                            min={0} max={100}
-                            value={scaleFreq}
-                            disabled={maxScale === 1}
-                            onChange={e => handleScaleFreqInput(e.target.value)}
-                          />
-                          <span className={styles.sliderUnit}>%</span>
-                        </div>
-                      </div>
-
-                      {gridComputed && (
-                        <div className={styles.gridInfo}>
-                          {gridComputed.rows} rows · {gridComputed.totalCells} cells · {gridComputed.cellSize.toFixed(1)}px
-                          {validCols && !validCols.includes(gridSettings.cols) && <span className={styles.snapNote}> (snapped)</span>}
-                        </div>
-                      )}
-                      {validCols === null && <div className={styles.gridNote}>Any column count is valid for this layout</div>}
-
-                      <div className={styles.formRow} style={{ marginTop: 8 }}>
-                        <span className={styles.label}>Auto-fill</span>
-                        <button
-                          className={`${styles.modeBtn} ${autoFill ? styles.modeBtnActive : ''}`}
-                          onClick={() => onAutoFillChange(!autoFill)}
-                          title="Re-fill grid automatically whenever settings change"
-                        >{autoFill ? 'On' : 'Off'}</button>
+                        <button className={styles.actionBtn} disabled={!extractedPalette.length} onClick={onApplyExtractedToShapes}>
+                          Apply to Shape Colours
+                        </button>
+                        <button className={styles.actionBtn} disabled={!extractedPalette.length} onClick={onApplyExtractedToBg}>
+                          Apply to Background Colours
+                        </button>
                       </div>
                     </div>
-                  )}
-                </div>
+                )}
+              </>
+            )}
 
-                {/* Background */}
-                <div className={styles.section}>
-                  <button className={styles.sectionHeader} onClick={() => toggleSection('Background')}>
-                    <span className={styles.sectionTitle}>Background</span>
-                    <span className={styles.sectionArrow}>{openSections.has('Background') ? '▼' : '▶'}</span>
-                  </button>
-                  {openSections.has('Background') && (
-                    <div className={styles.sectionContent}>
-                      <div className={styles.formRow}>
-                        <span className={styles.label}>Canvas</span>
-                        <div className={styles.colorRow}>
-                          <input type="color" value={canvasBg} onChange={e => onCanvasBgChange(e.target.value)} className={styles.colorInput} />
-                          <span className={styles.colorLabel}>{canvasBg}</span>
-                        </div>
-                      </div>
-                      <div className={styles.formRow}>
-                        <span className={styles.label}>Outer</span>
-                        <div className={styles.colorRow}>
-                          <input type="color" value={bgColor} onChange={e => onBgColorChange(e.target.value)} className={styles.colorInput} />
-                          <span className={styles.colorLabel}>{bgColor}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Colour Palette */}
-                <div className={styles.section}>
-                  <button className={styles.sectionHeader} onClick={() => toggleSection('Colour Palette')}>
-                    <span className={styles.sectionTitle}>Colour Palette</span>
-                    <span className={styles.sectionArrow}>{openSections.has('Colour Palette') ? '▼' : '▶'}</span>
-                  </button>
-                  {openSections.has('Colour Palette') && (
-                    <div className={styles.sectionContent}>
+            {/* Colour */}
+            {view === 'colour' && (
+              <>
+                <SubViewHeader title="Colour" onBack={popView} />
+                <div className={styles.sectionContent}>
                       <div className={styles.formRow}>
                         <span className={styles.label}>Mode</span>
                         <div className={styles.modeToggle}>
@@ -848,6 +1336,7 @@ export function FloatingPanel({
                             { key: 'uniform',  label: 'Uniform' },
                             { key: 'random',   label: 'Random' },
                             { key: 'gradient', label: 'Gradient' },
+                            { key: 'mesh',     label: 'Mesh' },
                             { key: 'image',    label: 'Image' },
                           ].map(({ key, label }) => (
                             <button key={key}
@@ -925,8 +1414,33 @@ export function FloatingPanel({
                         </div>
                       )}
 
-                      {colorMode !== 'none' && colorMode !== 'image' && (
-                        <button className={styles.assetsBrowserBtn} onClick={() => setView('colours')}>
+                      <div className={styles.formRow} style={{ marginTop: 6 }}>
+                        <span className={styles.label}>Temperature</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={-100} max={100} step={1}
+                            value={colorTempShift}
+                            onChange={e => onColorTempShiftChange(+e.target.value)} />
+                          <span className={styles.sliderVal}>{colorTempShift}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow} style={{ marginTop: 4 }}>
+                        <span className={styles.label}>Blend mode</span>
+                        <select
+                          className={styles.select}
+                          value={blendMode}
+                          onChange={e => onBlendModeChange(e.target.value)}
+                        >
+                          {['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
+                            'darken', 'lighten', 'color-dodge', 'color-burn', 'difference', 'exclusion',
+                          ].map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {colorMode !== 'none' && colorMode !== 'image' && colorMode !== 'mesh' && (
+                        <button className={styles.assetsBrowserBtn} onClick={() => pushView('colours')}>
                           <span className={styles.coloursBrowserContent}>
                             <span className={styles.coloursBrowserLabel}>Edit colours</span>
                             <span className={styles.coloursBrowserSwatches}>
@@ -1233,38 +1747,113 @@ export function FloatingPanel({
                           </div>
                         </div>
                       )}
-                    </div>
-                  )}
-                </div>
 
-                {/* Assets */}
-                <div className={styles.section}>
-                  <button className={styles.sectionHeader} onClick={() => toggleSection('Assets')}>
-                    <span className={styles.sectionTitle}>Assets</span>
-                    <span className={styles.sectionArrow}>{openSections.has('Assets') ? '▼' : '▶'}</span>
-                  </button>
-                  {openSections.has('Assets') && (
-                    <div className={styles.sectionContent}>
-                      <button className={styles.assetsBrowserBtn} onClick={() => setView('assets')}>
-                        <span>Browse &amp; toggle assets</span>
-                        <span className={styles.assetsBrowserArrow}>›</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
+                      {colorMode === 'mesh' && meshDraft && (
+                        <div className={styles.gradientControls}>
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Power</span>
+                            <div className={styles.sliderRow}>
+                              <input
+                                type="range" min={0.5} max={6} step={0.5}
+                                value={meshDraft.weightPower ?? 2}
+                                onChange={e => updateMesh({ ...meshDraft, weightPower: +e.target.value })}
+                                className={styles.slider}
+                              />
+                              <span className={styles.sliderVal}>×{(meshDraft.weightPower ?? 2).toFixed(1)}</span>
+                            </div>
+                          </div>
 
-                {/* Animation */}
-                {animSettings && onAnimSettingsChange && (
-                <div className={styles.section}>
-                  <button className={styles.sectionHeader} onClick={() => toggleSection('Animation')}>
-                    <span className={styles.sectionTitle}>
-                      Animation
-                      {animSettings.enabled && <span className={styles.animActiveDot} />}
-                    </span>
-                    <span className={styles.sectionArrow}>{openSections.has('Animation') ? '▼' : '▶'}</span>
-                  </button>
-                  {openSections.has('Animation') && (
-                    <div className={styles.sectionContent}>
+                          <div style={{ marginTop: 10 }}>
+                            <span className={styles.gradBgLabel}>Colour points</span>
+                            {(meshDraft.points ?? []).map(p => (
+                              <div key={p.id} className={styles.meshPointCard}>
+                                <div className={styles.meshPointRow}>
+                                  <input
+                                    type="color"
+                                    value={p.hex}
+                                    onChange={e => updateMeshHex(p.id, e.target.value)}
+                                    className={styles.colorInput}
+                                  />
+                                  <div className={styles.meshPointSliders}>
+                                    <div className={styles.sliderRow}>
+                                      <span className={styles.sliderVal} style={{ minWidth: 12, textAlign: 'left' }}>X</span>
+                                      <input
+                                        type="range" min={0} max={100} step={1}
+                                        value={Math.round(p.x * 100)}
+                                        onChange={e => updateMesh({
+                                          ...meshDraft,
+                                          points: meshDraft.points.map(x => x.id === p.id ? { ...x, x: +e.target.value / 100 } : x),
+                                        })}
+                                        className={styles.slider}
+                                      />
+                                      <span className={styles.sliderVal}>{Math.round(p.x * 100)}%</span>
+                                    </div>
+                                    <div className={styles.sliderRow}>
+                                      <span className={styles.sliderVal} style={{ minWidth: 12, textAlign: 'left' }}>Y</span>
+                                      <input
+                                        type="range" min={0} max={100} step={1}
+                                        value={Math.round(p.y * 100)}
+                                        onChange={e => updateMesh({
+                                          ...meshDraft,
+                                          points: meshDraft.points.map(x => x.id === p.id ? { ...x, y: +e.target.value / 100 } : x),
+                                        })}
+                                        className={styles.slider}
+                                      />
+                                      <span className={styles.sliderVal}>{Math.round(p.y * 100)}%</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <button
+                                  className={styles.meshRemoveBtn}
+                                  onClick={() => updateMesh({
+                                    ...meshDraft,
+                                    points: meshDraft.points.filter(x => x.id !== p.id),
+                                  })}
+                                  disabled={(meshDraft.points?.length ?? 0) <= 2}
+                                  title="Remove point"
+                                >Remove point</button>
+                              </div>
+                            ))}
+                            <div className={styles.addColourRow} style={{ marginTop: 6 }}>
+                              <button
+                                className={styles.modeBtn}
+                                style={{ flex: 'none', padding: '3px 10px', fontSize: 12 }}
+                                onClick={() => pushView('meshPalette')}
+                              >From palette</button>
+                              <button
+                                className={styles.modeBtn}
+                                style={{ flex: 'none', padding: '3px 10px', fontSize: 12 }}
+                                onClick={() => updateMesh({
+                                  ...meshDraft,
+                                  points: (meshDraft.points ?? []).map(p => ({ ...p, x: Math.random(), y: Math.random() })),
+                                })}
+                              >Randomise points</button>
+                              <button
+                                className={styles.modeBtn}
+                                style={{ flex: 'none', padding: '3px 10px', fontSize: 12 }}
+                                onClick={() => updateMesh({
+                                  ...meshDraft,
+                                  points: [...(meshDraft.points ?? []), {
+                                    id: crypto.randomUUID(),
+                                    x: 0.5, y: 0.5,
+                                    hex: hslToHex((meshDraft.points?.length ?? 0) * 137.5 % 360, 70, 60),
+                                  }],
+                                })}
+                                disabled={(meshDraft.points?.length ?? 0) >= 8}
+                              >+ Add point</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+              </>
+            )}
+
+            {/* Animation */}
+            {view === 'animation' && animSettings && onAnimSettingsChange && (
+              <>
+                <SubViewHeader title="Animation" onBack={popView} />
+                <div className={styles.sectionContent}>
 
                       {/* Play / Pause */}
                       <div className={styles.animPlayRow}>
@@ -1285,6 +1874,8 @@ export function FloatingPanel({
                           { key: 'hueDrift',      label: 'Hue'      },
                           { key: 'warp',          label: 'Warp'     },
                           { key: 'flicker',       label: 'Flicker'  },
+                          { key: 'pixelSort',     label: 'Pixel Sort' },
+                          { key: 'stripScan',     label: 'Strip Scan' },
                         ].map(({ key, label }) => (
                           <button
                             key={key}
@@ -1417,23 +2008,126 @@ export function FloatingPanel({
                         </div>
                       )}
 
-                    </div>
-                  )}
-                </div>
-                )}
+                      {animSettings.type === 'pixelSort' && (
+                        <>
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Sort Axis</span>
+                            <div className={styles.modeToggle}>
+                              {[
+                                { key: 'row',      label: 'Rows' },
+                                { key: 'column',   label: 'Columns' },
+                                { key: 'diagonal', label: 'Diagonal' },
+                              ].map(({ key, label }) => (
+                                <button key={key}
+                                  className={`${styles.modeBtn} ${(animSettings.pixelSort?.sortAxis ?? 'row') === key ? styles.modeBtnActive : ''}`}
+                                  onClick={() => onAnimSettingsChange({ pixelSort: { ...animSettings.pixelSort, sortAxis: key } })}
+                                >{label}</button>
+                              ))}
+                            </div>
+                          </div>
 
-                {/* Actions */}
-                <div className={styles.section}>
-                  <button className={styles.sectionHeader} onClick={() => toggleSection('Actions')}>
-                    <span className={styles.sectionTitle}>Actions</span>
-                    <span className={styles.sectionArrow}>{openSections.has('Actions') ? '▼' : '▶'}</span>
-                  </button>
-                  {openSections.has('Actions') && (
-                    <div className={styles.sectionContent}>
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Sort By</span>
+                            <div className={styles.modeToggle}>
+                              {[
+                                { key: 'brightness', label: 'Brightness' },
+                                { key: 'hue',        label: 'Hue' },
+                                { key: 'saturation', label: 'Saturation' },
+                              ].map(({ key, label }) => (
+                                <button key={key}
+                                  className={`${styles.modeBtn} ${(animSettings.pixelSort?.sortBy ?? 'brightness') === key ? styles.modeBtnActive : ''}`}
+                                  onClick={() => onAnimSettingsChange({ pixelSort: { ...animSettings.pixelSort, sortBy: key } })}
+                                >{label}</button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Direction</span>
+                            <div className={styles.modeToggle}>
+                              {[
+                                { key: 'ascending',  label: 'Ascending' },
+                                { key: 'descending', label: 'Descending' },
+                                { key: 'oscillate',  label: 'Oscillate' },
+                              ].map(({ key, label }) => (
+                                <button key={key}
+                                  className={`${styles.modeBtn} ${(animSettings.pixelSort?.sortDirection ?? 'ascending') === key ? styles.modeBtnActive : ''}`}
+                                  onClick={() => onAnimSettingsChange({ pixelSort: { ...animSettings.pixelSort, sortDirection: key } })}
+                                >{label}</button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Sort Width</span>
+                            <Stepper value={animSettings.pixelSort?.sortWidth ?? 8} onChange={v => onAnimSettingsChange({ pixelSort: { ...animSettings.pixelSort, sortWidth: v } })} min={1} max={40} format={v => `${v} cells`} />
+                          </div>
+                        </>
+                      )}
+
+                      {animSettings.type === 'stripScan' && (
+                        <>
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Sweep Axis</span>
+                            <div className={styles.modeToggle}>
+                              {[
+                                { key: 'h', label: 'Horizontal' },
+                                { key: 'v', label: 'Vertical' },
+                              ].map(({ key, label }) => (
+                                <button key={key}
+                                  className={`${styles.modeBtn} ${(animSettings.stripScan?.sweepAxis ?? 'h') === key ? styles.modeBtnActive : ''}`}
+                                  onClick={() => onAnimSettingsChange({ stripScan: { ...animSettings.stripScan, sweepAxis: key } })}
+                                >{label}</button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Beam Width</span>
+                            <Stepper value={animSettings.stripScan?.beamWidth ?? 4} onChange={v => onAnimSettingsChange({ stripScan: { ...animSettings.stripScan, beamWidth: v } })} min={1} max={20} format={v => `${v} cells`} />
+                          </div>
+
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Motion</span>
+                            <div className={styles.modeToggle}>
+                              {[
+                                { key: 'pingpong', label: 'Ping-pong' },
+                                { key: 'scroll',   label: 'Scroll' },
+                              ].map(({ key, label }) => (
+                                <button key={key}
+                                  className={`${styles.modeBtn} ${(animSettings.stripScan?.motionMode ?? 'pingpong') === key ? styles.modeBtnActive : ''}`}
+                                  onClick={() => onAnimSettingsChange({ stripScan: { ...animSettings.stripScan, motionMode: key } })}
+                                >{label}</button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className={styles.formRow}>
+                            <span className={styles.label}>Dim Strength</span>
+                            <div className={styles.sliderRow}>
+                              <input type="range" className={styles.slider}
+                                min={0} max={1} step={0.05}
+                                value={animSettings.stripScan?.dimStrength ?? 0.7}
+                                onChange={e => onAnimSettingsChange({ stripScan: { ...animSettings.stripScan, dimStrength: parseFloat(e.target.value) } })}
+                              />
+                              <span className={styles.sliderVal}>{Math.round((animSettings.stripScan?.dimStrength ?? 0.7) * 100)}%</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                    </div>
+              </>
+            )}
+
+            {/* Actions */}
+            {view === 'actions' && (
+              <>
+                <SubViewHeader title="Actions" onBack={popView} />
+                <div className={styles.sectionContent}>
                       <div className={styles.actionBtns}>
-                        <button className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} onClick={onFillGrid} disabled={!canFill}>▶ Fill Grid</button>
                         <button className={styles.actionBtn} onClick={onFillGaps} disabled={!canFillGaps}>⊞ Fill Gaps</button>
-                        <button className={styles.actionBtn} onClick={onExport} disabled={!canExport}>↓ Export SVG</button>
+                        <button className={styles.actionBtn} onClick={() => setShowExportDialog(true)} disabled={!canExport}>↓ Export As…</button>
                       </div>
                       <div className={styles.actionBtns} style={{ marginTop: 6 }}>
                         <button className={styles.actionBtn} onClick={onSaveProject} disabled={!canExport}>↓ Save Project</button>
@@ -1442,8 +2136,785 @@ export function FloatingPanel({
                         <button className={styles.actionBtn} onClick={onFlipH} disabled={!canFlip} title="Flip horizontally">⇔ Flip H</button>
                         <button className={styles.actionBtn} onClick={onFlipV} disabled={!canFlip} title="Flip vertically">⇕ Flip V</button>
                       </div>
-                    </div>
+                </div>
+              </>
+            )}
+
+            {/* Fill — mode picker + per-mode settings */}
+            {view === 'fill' && (
+              <>
+                <SubViewHeader title="Fill" onBack={popView} />
+                <div className={styles.sectionContent}>
+                  <div className={styles.modeGrid2col}>
+                    {FILL_MODES.map(key => (
+                      <button key={key}
+                        className={`${styles.modeBtn} ${fillMode === key ? styles.modeBtnActive : ''}`}
+                        onClick={() => setFillMode(key)}
+                      >{FILL_MODE_LABELS[key]}</button>
+                    ))}
+                  </div>
+                  {fillMode !== 'standard' && (
+                    <div className={styles.subHeading} style={{ marginTop: 12 }}>{FILL_MODE_LABELS[fillMode]} Settings</div>
                   )}
+                  <>
+                      {fillMode === 'glitch' && (<>
+                      {!hasImage && (
+                        <div className={styles.gridNote}>Works best with Image colour mode active.</div>
+                      )}
+                      {glitchSettings && (<>
+                      <div className={styles.formRow} style={{ marginTop: 8 }}>
+                        <span className={styles.label}>Direction</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'h', label: 'H' },
+                            { key: 'v', label: 'V' },
+                            { key: 'both', label: 'Both' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${glitchSettings.direction === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onGlitchSettingsChange({ direction: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>H Bars</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={60} step={1}
+                            value={glitchSettings.hBars}
+                            onChange={e => onGlitchSettingsChange({ hBars: +e.target.value })} />
+                          <span className={styles.sliderVal}>{glitchSettings.hBars}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>V Bars</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={60} step={1}
+                            value={glitchSettings.vBars}
+                            onChange={e => onGlitchSettingsChange({ vBars: +e.target.value })} />
+                          <span className={styles.sliderVal}>{glitchSettings.vBars}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Force</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={100} step={1}
+                            value={Math.round(glitchSettings.force * 100)}
+                            onChange={e => onGlitchSettingsChange({ force: +e.target.value / 100 })} />
+                          <span className={styles.sliderVal}>{Math.round(glitchSettings.force * 100)}%</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Active ratio</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={100} step={1}
+                            value={Math.round(glitchSettings.activeRatio * 100)}
+                            onChange={e => onGlitchSettingsChange({ activeRatio: +e.target.value / 100 })} />
+                          <span className={styles.sliderVal}>{Math.round(glitchSettings.activeRatio * 100)}%</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Bar variance</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={100} step={1}
+                            value={Math.round(glitchSettings.barSizeVariance * 100)}
+                            onChange={e => onGlitchSettingsChange({ barSizeVariance: +e.target.value / 100 })} />
+                          <span className={styles.sliderVal}>{Math.round(glitchSettings.barSizeVariance * 100)}%</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Min shift</span>
+                        <Stepper value={glitchSettings.minDisplacement} onChange={v => onGlitchSettingsChange({ minDisplacement: v })} min={1} max={10} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Bidirectional</span>
+                        <button
+                          className={`${styles.modeBtn} ${glitchSettings.bidirectional ? styles.modeBtnActive : ''}`}
+                          onClick={() => onGlitchSettingsChange({ bidirectional: !glitchSettings.bidirectional })}
+                        >{glitchSettings.bidirectional ? 'On' : 'Off'}</button>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Max scale</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={1} max={4} step={1}
+                            value={glitchSettings.maxScale}
+                            onChange={e => onGlitchSettingsChange({ maxScale: +e.target.value })} />
+                          <span className={styles.sliderVal}>{glitchSettings.maxScale}×</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Scale freq</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range"
+                            className={`${styles.slider} ${glitchSettings.maxScale === 1 ? styles.sliderDisabled : ''}`}
+                            min={0} max={100} step={5}
+                            value={glitchSettings.scaleFreq}
+                            disabled={glitchSettings.maxScale === 1}
+                            onChange={e => onGlitchSettingsChange({ scaleFreq: +e.target.value })} />
+                          <span className={styles.sliderVal}>{glitchSettings.scaleFreq}%</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Seed</span>
+                        <div className={styles.sliderRow}>
+                          <input type="number" className={styles.sliderNumInput} style={{ width: 110 }}
+                            value={glitchSettings.seed}
+                            onChange={e => onGlitchSettingsChange({ seed: +e.target.value || 0 })} />
+                          <button className={styles.actionBtn} title="Randomise seed and fill"
+                            onClick={() => onGlitchSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                          >⟳</button>
+                        </div>
+                      </div>
+                      </>)}
+                      </>)}
+
+                      {fillMode === 'strip' && (<>
+                      {!hasImage && (
+                        <div className={styles.gridNote}>Works best with Image colour mode active.</div>
+                      )}
+                      {stripSettings && (<>
+                      <div className={styles.formRow} style={{ marginTop: 8 }}>
+                        <span className={styles.label}>Axis</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'h', label: 'Horizontal' },
+                            { key: 'v', label: 'Vertical' },
+                            { key: 'angle', label: 'Angle' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${stripSettings.axis === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onStripSettingsChange({ axis: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {stripSettings.axis === 'angle' && (
+                        <div className={styles.formRow}>
+                          <span className={styles.label}>Angle</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider} min={0} max={180} step={1}
+                              value={stripSettings.angle}
+                              onChange={e => onStripSettingsChange({ angle: +e.target.value })} />
+                            <span className={styles.sliderVal}>{stripSettings.angle}°</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Position</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={100} step={1}
+                            value={Math.round(stripSettings.position * 100)}
+                            onChange={e => onStripSettingsChange({ position: +e.target.value / 100 })} />
+                          <span className={styles.sliderVal}>{Math.round(stripSettings.position * 100)}%</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Width</span>
+                        <Stepper value={stripSettings.width} onChange={v => onStripSettingsChange({ width: v })} min={1} max={20} format={v => `${v} cells`} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Feather</span>
+                        <Stepper value={stripSettings.feather} onChange={v => onStripSettingsChange({ feather: v })} min={0} max={5} format={v => `${v} cells`} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Seed</span>
+                        <div className={styles.sliderRow}>
+                          <input type="number" className={styles.sliderNumInput} style={{ width: 110 }}
+                            value={stripSettings.seed}
+                            onChange={e => onStripSettingsChange({ seed: +e.target.value || 0 })} />
+                          <button className={styles.actionBtn} title="Randomise seed"
+                            onClick={() => onStripSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                          >⟳</button>
+                        </div>
+                      </div>
+                      </>)}
+                      </>)}
+
+                      {fillMode === 'edge' && (<>
+                      {!hasImage && (
+                        <div className={styles.gridNote}>Requires Image colour mode with an image loaded.</div>
+                      )}
+                      {edgeSettings && (<>
+                      <div className={styles.formRow} style={{ marginTop: 8 }}>
+                        <span className={styles.label}>Edge Threshold</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={edgeSettings.edgeThreshold}
+                            onChange={e => onEdgeSettingsChange({ edgeThreshold: +e.target.value })} />
+                          <span className={styles.sliderVal}>{edgeSettings.edgeThreshold.toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Trace Width</span>
+                        <Stepper value={edgeSettings.traceWidth} onChange={v => onEdgeSettingsChange({ traceWidth: v })} min={1} max={4} format={v => `${v} cells`} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Min Edge Length</span>
+                        <Stepper value={edgeSettings.minEdgeLength} onChange={v => onEdgeSettingsChange({ minEdgeLength: v })} min={1} max={20} format={v => `${v} cells`} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Direction</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'all', label: 'All' },
+                            { key: 'h',   label: 'Horizontal' },
+                            { key: 'v',   label: 'Vertical' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${edgeSettings.direction === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onEdgeSettingsChange({ direction: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+                      </>)}
+                      </>)}
+
+                      {fillMode === 'multiStrip' && (<>
+                      {!hasImage && (
+                        <div className={styles.gridNote}>Works best with Image colour mode active.</div>
+                      )}
+                      {multiStripSettings && (<>
+                      <div className={styles.formRow} style={{ marginTop: 8 }}>
+                        <span className={styles.label}>Axis</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'h', label: 'Horizontal' },
+                            { key: 'v', label: 'Vertical' },
+                            { key: 'angle', label: 'Angle' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${multiStripSettings.axis === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onMultiStripSettingsChange({ axis: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {multiStripSettings.axis === 'angle' && (
+                        <div className={styles.formRow}>
+                          <span className={styles.label}>Angle</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider} min={0} max={180} step={1}
+                              value={multiStripSettings.angle}
+                              onChange={e => onMultiStripSettingsChange({ angle: +e.target.value })} />
+                            <span className={styles.sliderVal}>{multiStripSettings.angle}°</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Strip count</span>
+                        <Stepper value={multiStripSettings.numStrips} onChange={v => onMultiStripSettingsChange({ numStrips: v })} min={2} max={12} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Strip width</span>
+                        <Stepper value={multiStripSettings.stripWidth} onChange={v => onMultiStripSettingsChange({ stripWidth: v })} min={1} max={10} format={v => `${v} cells`} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Spacing</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'even', label: 'Even' },
+                            { key: 'manual', label: 'Manual' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${(multiStripSettings.spacing ?? 'even') === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onMultiStripSettingsChange({ spacing: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {multiStripSettings.spacing === 'manual' && (
+                        Array.from({ length: multiStripSettings.numStrips }, (_, i) => {
+                          const positions = multiStripSettings.positions ?? [];
+                          const value = positions[i] ?? (i + 1) / (multiStripSettings.numStrips + 1);
+                          return (
+                            <div className={styles.formRow} key={i}>
+                              <span className={styles.label}>Strip {i + 1}</span>
+                              <div className={styles.sliderRow}>
+                                <input type="range" className={styles.slider} min={0} max={100} step={1}
+                                  value={Math.round(value * 100)}
+                                  onChange={e => {
+                                    const next = [...positions];
+                                    next[i] = +e.target.value / 100;
+                                    onMultiStripSettingsChange({ positions: next });
+                                  }} />
+                                <span className={styles.sliderVal}>{Math.round(value * 100)}%</span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Stagger</span>
+                        <button
+                          className={`${styles.modeBtn} ${multiStripSettings.stagger ? styles.modeBtnActive : ''}`}
+                          onClick={() => onMultiStripSettingsChange({ stagger: !multiStripSettings.stagger })}
+                        >{multiStripSettings.stagger ? 'On' : 'Off'}</button>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Feather</span>
+                        <Stepper value={multiStripSettings.feather} onChange={v => onMultiStripSettingsChange({ feather: v })} min={0} max={5} format={v => `${v} cells`} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Seed</span>
+                        <div className={styles.sliderRow}>
+                          <input type="number" className={styles.sliderNumInput} style={{ width: 110 }}
+                            value={multiStripSettings.seed}
+                            onChange={e => onMultiStripSettingsChange({ seed: +e.target.value || 0 })} />
+                          <button className={styles.actionBtn} title="Randomise seed"
+                            onClick={() => onMultiStripSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                          >⟳</button>
+                        </div>
+                      </div>
+                      </>)}
+                      </>)}
+
+                      {fillMode === 'brightness' && (<>
+                      {!hasImage && (
+                        <div className={styles.gridNote}>Requires Image colour mode with an image loaded.</div>
+                      )}
+                      {brightnessSettings && (<>
+                      <div className={styles.formRow} style={{ marginTop: 8 }}>
+                        <span className={styles.label}>Target zone</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'darks', label: 'Darks' },
+                            { key: 'midtones', label: 'Mid' },
+                            { key: 'lights', label: 'Lights' },
+                            { key: 'custom', label: 'Custom' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${brightnessSettings.targetZone === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onBrightnessSettingsChange({ targetZone: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {(brightnessSettings.targetZone === 'custom') && (<>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Low point</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={brightnessSettings.lowPoint}
+                            onChange={e => onBrightnessSettingsChange({ lowPoint: +e.target.value })} />
+                          <span className={styles.sliderVal}>{brightnessSettings.lowPoint.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>High point</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={brightnessSettings.highPoint}
+                            onChange={e => onBrightnessSettingsChange({ highPoint: +e.target.value })} />
+                          <span className={styles.sliderVal}>{brightnessSettings.highPoint.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      </>)}
+
+                      {(brightnessSettings.targetZone === 'midtones') && (<>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Low point</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={brightnessSettings.lowPoint}
+                            onChange={e => onBrightnessSettingsChange({ lowPoint: +e.target.value })} />
+                          <span className={styles.sliderVal}>{brightnessSettings.lowPoint.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>High point</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={brightnessSettings.highPoint}
+                            onChange={e => onBrightnessSettingsChange({ highPoint: +e.target.value })} />
+                          <span className={styles.sliderVal}>{brightnessSettings.highPoint.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      </>)}
+
+                      {(brightnessSettings.targetZone === 'darks' || brightnessSettings.targetZone === 'lights') && (
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Boundary</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={brightnessSettings.targetZone === 'darks' ? brightnessSettings.lowPoint : brightnessSettings.highPoint}
+                            onChange={e => onBrightnessSettingsChange(
+                              brightnessSettings.targetZone === 'darks' ? { lowPoint: +e.target.value } : { highPoint: +e.target.value }
+                            )} />
+                          <span className={styles.sliderVal}>
+                            {(brightnessSettings.targetZone === 'darks' ? brightnessSettings.lowPoint : brightnessSettings.highPoint).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                      )}
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Soft edge</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={0.3} step={0.01}
+                            value={brightnessSettings.softEdge}
+                            onChange={e => onBrightnessSettingsChange({ softEdge: +e.target.value })} />
+                          <span className={styles.sliderVal}>{brightnessSettings.softEdge.toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Invert</span>
+                        <button
+                          className={`${styles.modeBtn} ${brightnessSettings.invert ? styles.modeBtnActive : ''}`}
+                          onClick={() => onBrightnessSettingsChange({ invert: !brightnessSettings.invert })}
+                        >{brightnessSettings.invert ? 'On' : 'Off'}</button>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Seed</span>
+                        <div className={styles.sliderRow}>
+                          <input type="number" className={styles.sliderNumInput} style={{ width: 110 }}
+                            value={brightnessSettings.seed}
+                            onChange={e => onBrightnessSettingsChange({ seed: +e.target.value || 0 })} />
+                          <button className={styles.actionBtn} title="Randomise seed"
+                            onClick={() => onBrightnessSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                          >⟳</button>
+                        </div>
+                      </div>
+                      </>)}
+                      </>)}
+
+                      {fillMode === 'noise' && (<>
+                      {noiseSettings && (<>
+                      <div className={styles.formRow} style={{ marginTop: 8 }}>
+                        <span className={styles.label}>Scale</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0.05} max={2} step={0.01}
+                            value={noiseSettings.scale}
+                            onChange={e => onNoiseSettingsChange({ scale: +e.target.value })} />
+                          <span className={styles.sliderVal}>{noiseSettings.scale.toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Threshold</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={noiseSettings.threshold}
+                            onChange={e => onNoiseSettingsChange({ threshold: +e.target.value })} />
+                          <span className={styles.sliderVal}>{Math.round(noiseSettings.threshold * 100)}%</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Octaves</span>
+                        <Stepper value={noiseSettings.octaves} onChange={v => onNoiseSettingsChange({ octaves: v })} min={1} max={4} />
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Invert</span>
+                        <button
+                          className={`${styles.modeBtn} ${noiseSettings.invert ? styles.modeBtnActive : ''}`}
+                          onClick={() => onNoiseSettingsChange({ invert: !noiseSettings.invert })}
+                        >{noiseSettings.invert ? 'On' : 'Off'}</button>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Seed</span>
+                        <div className={styles.sliderRow}>
+                          <input type="number" className={styles.sliderNumInput} style={{ width: 110 }}
+                            value={noiseSettings.seed}
+                            onChange={e => onNoiseSettingsChange({ seed: +e.target.value || 0 })} />
+                          <button className={styles.actionBtn} title="Randomise seed"
+                            onClick={() => onNoiseSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                          >⟳</button>
+                        </div>
+                      </div>
+                      </>)}
+                      </>)}
+
+                      {fillMode === 'geometric' && (<>
+                      {geometricSettings && (<>
+                      <div className={styles.formRow} style={{ marginTop: 8 }}>
+                        <span className={styles.label}>Pattern</span>
+                        <div className={styles.modeGrid2col}>
+                          {[
+                            { key: 'stripes', label: 'Stripes' },
+                            { key: 'rings', label: 'Rings' },
+                            { key: 'checkerboard', label: 'Checkerboard' },
+                            { key: 'sunburst', label: 'Sunburst' },
+                            { key: 'dots', label: 'Dot Grid' },
+                            { key: 'hex', label: 'Hex Grid' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${geometricSettings.patternType === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onGeometricSettingsChange({ patternType: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {geometricSettings.patternType === 'stripes' && (<>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Angle</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={180} step={1}
+                            value={geometricSettings.angle}
+                            onChange={e => onGeometricSettingsChange({ angle: +e.target.value })} />
+                          <span className={styles.sliderVal}>{geometricSettings.angle}°</span>
+                        </div>
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Stripe width</span>
+                        <Stepper value={geometricSettings.stripeWidth} onChange={v => onGeometricSettingsChange({ stripeWidth: v })} min={1} max={20} format={v => `${v} cells`} />
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Gap width</span>
+                        <Stepper value={geometricSettings.gapWidth} onChange={v => onGeometricSettingsChange({ gapWidth: v })} min={0} max={20} format={v => `${v} cells`} />
+                      </div>
+                      </>)}
+
+                      {geometricSettings.patternType === 'rings' && (<>
+                      <div className={styles.formRowPair}>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Centre X</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                              value={geometricSettings.centerX}
+                              onChange={e => onGeometricSettingsChange({ centerX: +e.target.value })} />
+                            <span className={styles.sliderVal}>{geometricSettings.centerX.toFixed(2)}</span>
+                          </div>
+                        </div>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Centre Y</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                              value={geometricSettings.centerY}
+                              onChange={e => onGeometricSettingsChange({ centerY: +e.target.value })} />
+                            <span className={styles.sliderVal}>{geometricSettings.centerY.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Ring width</span>
+                        <Stepper value={geometricSettings.ringWidth} onChange={v => onGeometricSettingsChange({ ringWidth: v })} min={1} max={20} format={v => `${v} cells`} />
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Gap</span>
+                        <Stepper value={geometricSettings.gap} onChange={v => onGeometricSettingsChange({ gap: v })} min={0} max={20} format={v => `${v} cells`} />
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Inner radius</span>
+                        <Stepper value={geometricSettings.innerRadius} onChange={v => onGeometricSettingsChange({ innerRadius: v })} min={0} max={40} format={v => `${v} cells`} />
+                      </div>
+                      </>)}
+
+                      {geometricSettings.patternType === 'checkerboard' && (<>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Tile size</span>
+                        <Stepper value={geometricSettings.tileSize} onChange={v => onGeometricSettingsChange({ tileSize: v })} min={1} max={20} format={v => `${v} cells`} />
+                      </div>
+                      <div className={styles.formRowPair}>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Offset X</span>
+                          <Stepper value={geometricSettings.offsetX} onChange={v => onGeometricSettingsChange({ offsetX: v })} min={0} max={20} />
+                        </div>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Offset Y</span>
+                          <Stepper value={geometricSettings.offsetY} onChange={v => onGeometricSettingsChange({ offsetY: v })} min={0} max={20} />
+                        </div>
+                      </div>
+                      </>)}
+
+                      {geometricSettings.patternType === 'sunburst' && (<>
+                      <div className={styles.formRowPair}>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Centre X</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                              value={geometricSettings.centerX}
+                              onChange={e => onGeometricSettingsChange({ centerX: +e.target.value })} />
+                            <span className={styles.sliderVal}>{geometricSettings.centerX.toFixed(2)}</span>
+                          </div>
+                        </div>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Centre Y</span>
+                          <div className={styles.sliderRow}>
+                            <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                              value={geometricSettings.centerY}
+                              onChange={e => onGeometricSettingsChange({ centerY: +e.target.value })} />
+                            <span className={styles.sliderVal}>{geometricSettings.centerY.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Spokes</span>
+                        <Stepper value={geometricSettings.numSpokes} onChange={v => onGeometricSettingsChange({ numSpokes: v })} min={2} max={48} />
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Spoke width</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={1} max={45} step={1}
+                            value={geometricSettings.spokeWidth}
+                            onChange={e => onGeometricSettingsChange({ spokeWidth: +e.target.value })} />
+                          <span className={styles.sliderVal}>{geometricSettings.spokeWidth}°</span>
+                        </div>
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Inner radius</span>
+                        <Stepper value={geometricSettings.innerRadius} onChange={v => onGeometricSettingsChange({ innerRadius: v })} min={0} max={40} format={v => `${v} cells`} />
+                      </div>
+                      </>)}
+
+                      {geometricSettings.patternType === 'dots' && (<>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Dot radius</span>
+                        <Stepper value={geometricSettings.dotRadius} onChange={v => onGeometricSettingsChange({ dotRadius: v })} min={0.5} max={5} format={v => `${v} cells`} />
+                      </div>
+                      <div className={styles.formRowPair}>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Spacing X</span>
+                          <Stepper value={geometricSettings.spacingX} onChange={v => onGeometricSettingsChange({ spacingX: v })} min={1} max={20} />
+                        </div>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Spacing Y</span>
+                          <Stepper value={geometricSettings.spacingY} onChange={v => onGeometricSettingsChange({ spacingY: v })} min={1} max={20} />
+                        </div>
+                      </div>
+                      <div className={styles.formRowPair}>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Offset X</span>
+                          <Stepper value={geometricSettings.offsetX} onChange={v => onGeometricSettingsChange({ offsetX: v })} min={0} max={20} />
+                        </div>
+                        <div className={styles.stackedField}>
+                          <span className={styles.label}>Offset Y</span>
+                          <Stepper value={geometricSettings.offsetY} onChange={v => onGeometricSettingsChange({ offsetY: v })} min={0} max={20} />
+                        </div>
+                      </div>
+                      </>)}
+
+                      {geometricSettings.patternType === 'hex' && (<>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Cell radius</span>
+                        <Stepper value={geometricSettings.cellRadius} onChange={v => onGeometricSettingsChange({ cellRadius: v })} min={1} max={10} format={v => `${v} cells`} />
+                      </div>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Row offset</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={geometricSettings.rowOffset}
+                            onChange={e => onGeometricSettingsChange({ rowOffset: +e.target.value })} />
+                          <span className={styles.sliderVal}>{geometricSettings.rowOffset.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      </>)}
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Phase</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={20} step={0.5}
+                            value={geometricSettings.phase}
+                            onChange={e => onGeometricSettingsChange({ phase: +e.target.value })} />
+                          <span className={styles.sliderVal}>{geometricSettings.phase}</span>
+                        </div>
+                      </div>
+                      </>)}
+                      </>)}
+                  </>
+                </div>
+              </>
+            )}
+
+            {/* Audio Reactive */}
+            {view === 'audio' && audioSettings && (
+              <>
+                <SubViewHeader title="Audio Reactive" onBack={popView} />
+                <div className={styles.sectionContent}>
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Enabled</span>
+                        <button
+                          className={`${styles.modeBtn} ${audioSettings.enabled ? styles.modeBtnActive : ''}`}
+                          onClick={() => onAudioSettingsChange({ enabled: !audioSettings.enabled })}
+                        >{audioSettings.enabled ? 'On' : 'Off'}</button>
+                      </div>
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Input Source</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'mic', label: 'Microphone' },
+                            { key: 'file', label: 'Audio File' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${audioSettings.inputSource === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onAudioSettingsChange({ inputSource: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {audioSettings.inputSource === 'file' && (
+                        <div className={styles.formRow}>
+                          <span className={styles.label}>File</span>
+                          <input
+                            type="file"
+                            accept="audio/*"
+                            onChange={e => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              if (audioFileSrc) URL.revokeObjectURL(audioFileSrc);
+                              onAudioFileChange(URL.createObjectURL(file));
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Amplitude Mapping</span>
+                        <div className={styles.modeToggle}>
+                          {[
+                            { key: 'linear', label: 'Linear' },
+                            { key: 'logarithmic', label: 'Log' },
+                            { key: 'exponential', label: 'Exp' },
+                          ].map(({ key, label }) => (
+                            <button key={key}
+                              className={`${styles.modeBtn} ${audioSettings.ampMapping === key ? styles.modeBtnActive : ''}`}
+                              onClick={() => onAudioSettingsChange({ ampMapping: key })}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className={styles.sliderRow}>
+                        <span className={styles.label}>Beat Sensitivity</span>
+                        <input type="range" className={styles.slider} min="0" max="1" step="0.01"
+                          value={audioSettings.beatSensitivity}
+                          onChange={e => onAudioSettingsChange({ beatSensitivity: +e.target.value })} />
+                        <span className={styles.sliderVal}>{audioSettings.beatSensitivity.toFixed(2)}</span>
+                      </div>
                 </div>
               </>
             )}
