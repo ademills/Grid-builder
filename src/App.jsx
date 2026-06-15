@@ -1049,6 +1049,20 @@ const [autoFill, setAutoFill] = useState(false);
     if (activeAssets.length > 0 && gridComputed) handleMultiStripFill();
   }, [multiStripSettings.seed]);
 
+  const brightnessSeedRef = useRef(brightnessSettings.seed);
+  useEffect(() => {
+    if (brightnessSeedRef.current === brightnessSettings.seed) return;
+    brightnessSeedRef.current = brightnessSettings.seed;
+    if (activeAssets.length > 0 && gridComputed && imagePixels) handleBrightnessFill();
+  }, [brightnessSettings.seed]);
+
+  const noiseSeedRef = useRef(noiseSettings.seed);
+  useEffect(() => {
+    if (noiseSeedRef.current === noiseSettings.seed) return;
+    noiseSeedRef.current = noiseSettings.seed;
+    if (activeAssets.length > 0 && gridComputed) handleNoiseFill();
+  }, [noiseSettings.seed]);
+
   const handleEdgeFill = useCallback(() => {
     if (!activeAssets.length || !gridComputed || !imagePixels) return;
     const activeCells = computeEdgeMask(gridComputed, imagePixels, edgeSettings);
@@ -1190,15 +1204,24 @@ const [autoFill, setAutoFill] = useState(false);
       enabledAssetIds: [...enabledAssetIds],
       placedBlocks,
     };
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'grid-project.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const json = JSON.stringify(state, null, 2);
+    if (isTauri) {
+      (async () => {
+        try {
+          const path = await tauriSaveDialog({
+            title: 'Save Project',
+            defaultPath: 'grid-project.json',
+            filters: [{ name: 'JSON Files', extensions: ['json'] }],
+          });
+          if (!path) return;
+          await writeTextFile(path, json);
+        } catch (err) {
+          alert('Save failed: ' + err.message);
+        }
+      })();
+      return;
+    }
+    downloadBlob(new Blob([json], { type: 'application/json' }), 'grid-project.json');
   }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, meshSettings, glitchSettings, stripSettings, multiStripSettings, audioSettings, backdropSrc, backdropSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, enabledAssetIds, placedBlocks]);
 
   const handleExport = useCallback(async (options = {}) => {
