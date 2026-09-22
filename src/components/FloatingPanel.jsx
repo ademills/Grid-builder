@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { PRESETS } from '../gridPresets';
 import { PALETTES, PALETTE_GROUPS, colorizeSvg } from '../utils/colorize';
 import { ASSET_FOLDER_TREE } from '../builtinAssets';
+import { LAYOUTS, LAYOUT_CATEGORIES, wireframeRects } from '../utils/layouts';
 import styles from './FloatingPanel.module.css';
 
 const FILL_MODE_LABELS = {
@@ -16,6 +17,52 @@ const FILL_MODE_LABELS = {
 };
 
 const FILL_MODES = Object.keys(FILL_MODE_LABELS);
+
+const EXPERIMENTAL_FILL_MODE_LABELS = {
+  halftone:  'Halftone',
+  voronoi:   'Voronoi',
+  spiral:    'Spiral',
+  flowField: 'Flow Field',
+  fractal:   'Fractal',
+  mondrian:  'Mondrian',
+  golden:    'Golden Ratio',
+};
+
+const EXPERIMENTAL_FILL_MODES = Object.keys(EXPERIMENTAL_FILL_MODE_LABELS);
+
+// Mini SVG preview of a layout: grid slots as hatched outlines, other slots as
+// their wireframe placeholder rects. Drawn in a 0–1 coordinate box scaled to
+// the work-area aspect ratio.
+function LayoutThumb({ layout, aspect = 0.75, size = 46 }) {
+  const w = size, h = size / aspect;
+  return (
+    <svg width={w} height={h} viewBox="0 0 1 1" preserveAspectRatio="none"
+      style={{ display: 'block', background: '#fff', border: '1px solid rgba(0,0,0,0.12)' }}>
+      {layout.slots.map((s, i) => {
+        if (s.role === 'grid') {
+          return (
+            <g key={i}>
+              <rect x={s.x} y={s.y} width={s.w} height={s.h} fill="rgba(77,52,211,0.10)" stroke="rgba(77,52,211,0.5)" strokeWidth={0.006} />
+              <line x1={s.x} y1={s.y} x2={s.x + s.w} y2={s.y + s.h} stroke="rgba(77,52,211,0.35)" strokeWidth={0.006} />
+              <line x1={s.x + s.w} y1={s.y} x2={s.x} y2={s.y + s.h} stroke="rgba(77,52,211,0.35)" strokeWidth={0.006} />
+            </g>
+          );
+        }
+        const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
+        return (
+          <g key={i} transform={s.rotation ? `rotate(${s.rotation} ${cx} ${cy})` : undefined}>
+            {wireframeRects(s.role, s.align).map((r, j) => (
+              <rect key={j}
+                x={s.x + r.x * s.w} y={s.y + r.y * s.h}
+                width={r.w * s.w} height={r.h * s.h}
+                fill={`rgba(0,0,0,${r.shade})`} />
+            ))}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
 
 // A single row in the main menu — shows a label, an optional live-state
 // preview (swatches, current mode name, status dot), and a '›' arrow.
@@ -113,6 +160,14 @@ export function FloatingPanel({
   onBrightnessFill, canBrightnessFill, brightnessSettings, onBrightnessSettingsChange,
   onNoiseFill, canNoiseFill, noiseSettings, onNoiseSettingsChange,
   onGeometricFill, canGeometricFill, geometricSettings, onGeometricSettingsChange,
+  onHalftoneFill, canHalftoneFill, halftoneSettings, onHalftoneSettingsChange,
+  onVoronoiFill, canVoronoiFill, voronoiSettings, onVoronoiSettingsChange,
+  onSpiralFill, canSpiralFill, spiralSettings, onSpiralSettingsChange,
+  onFlowFieldFill, canFlowFieldFill, flowFieldSettings, onFlowFieldSettingsChange,
+  onFractalFill, canFractalFill, fractalSettings, onFractalSettingsChange,
+  onMondrianFill, canMondrianFill, mondrianSettings, onMondrianSettingsChange,
+  onGoldenFill, canGoldenFill, goldenSettings, onGoldenSettingsChange,
+  activeLayoutId, onApplyLayout, onClearLayout,
   onUndo, onRedo, canUndo, canRedo,
   maxScale, onMaxScaleChange,
   scaleFreq, onScaleFreqChange,
@@ -132,11 +187,13 @@ export function FloatingPanel({
   imageSrc, onImageSrcChange, imageProgress, imageColourTolerance, onImageColourToleranceChange,
   animSettings, onAnimSettingsChange,
   showShortcuts, onToggleShortcuts,
+  appMode, onAppModeChange,
   assetUsageCounts,
   onFlipH, onFlipV, canFlip,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [fillMode, setFillMode] = useState('standard');
+  const [experimentalFillMode, setExperimentalFillMode] = useState('halftone');
   const [bgType, setBgType] = useState(() => backdropSrc ? 'image' : 'solid');
   const [assetBrowserView, setAssetBrowserView] = useState('grid');
 
@@ -147,6 +204,7 @@ export function FloatingPanel({
   const [exportTransparent, setExportTransparent] = useState(true);
   const [exportPhotoComposite, setExportPhotoComposite] = useState(false);
   const [exportJpegQuality, setExportJpegQuality] = useState(0.92);
+  const [exportWireframeLayer, setExportWireframeLayer] = useState(false);
 
   // Navigation stack — [] means the main menu; pushing a view name drills in,
   // popView() goes back one level, resetView() returns straight to the main menu.
@@ -386,7 +444,17 @@ export function FloatingPanel({
     noise:      { onFill: onNoiseFill,      canFill: canNoiseFill },
     geometric:  { onFill: onGeometricFill,  canFill: canGeometricFill },
   };
+  const EXPERIMENTAL_FILL_ACTIONS = {
+    halftone:  { onFill: onHalftoneFill,  canFill: canHalftoneFill },
+    voronoi:   { onFill: onVoronoiFill,   canFill: canVoronoiFill },
+    spiral:    { onFill: onSpiralFill,    canFill: canSpiralFill },
+    flowField: { onFill: onFlowFieldFill, canFill: canFlowFieldFill },
+    fractal:   { onFill: onFractalFill,   canFill: canFractalFill },
+    mondrian:  { onFill: onMondrianFill,  canFill: canMondrianFill },
+    golden:    { onFill: onGoldenFill,    canFill: canGoldenFill },
+  };
   const activeFillAction = FILL_ACTIONS[fillMode];
+  const activeExperimentalFillAction = EXPERIMENTAL_FILL_ACTIONS[experimentalFillMode];
 
   const [rawWidth,  setRawWidth]  = useState(String(customSize?.width  ?? ''));
   const [rawHeight, setRawHeight] = useState(String(customSize?.height ?? ''));
@@ -485,6 +553,13 @@ export function FloatingPanel({
                 </label>
               )}
 
+              {activeLayoutId && (
+                <label className={styles.formRow} style={{ cursor: 'pointer' }}>
+                  <span className={styles.label}>Include Layout Reference</span>
+                  <input type="checkbox" checked={exportWireframeLayer} onChange={e => setExportWireframeLayer(e.target.checked)} />
+                </label>
+              )}
+
               <div className={styles.actionBtns} style={{ marginTop: 12 }}>
                 <button className={styles.actionBtn} onClick={() => {
                   onExport({
@@ -493,6 +568,7 @@ export function FloatingPanel({
                     transparentBackground: exportFormat === 'png' && exportTransparent,
                     jpegQuality: exportJpegQuality,
                     photoComposite: exportPhotoComposite,
+                    includeWireframeLayer: exportWireframeLayer,
                   });
                   setShowExportDialog(false);
                 }}>↓ Export</button>
@@ -535,6 +611,19 @@ export function FloatingPanel({
             {collapsed ? '›' : '‹'}
           </button>
         </div>
+
+        {!collapsed && appMode && onAppModeChange && (
+          <div className={styles.appModeToggle} style={{ margin: '10px 12px 0' }}>
+            <button
+              className={`${styles.appModeBtn} ${appMode === 'gridBuilder' ? styles.appModeBtnActive : ''}`}
+              onClick={() => onAppModeChange('gridBuilder')}
+            >Grid Builder</button>
+            <button
+              className={`${styles.appModeBtn} ${appMode === 'knotwork' ? styles.appModeBtnActive : ''}`}
+              onClick={() => onAppModeChange('knotwork')}
+            >Knotwork</button>
+          </div>
+        )}
 
         {!collapsed && (
           <div className={styles.body}>
@@ -1136,6 +1225,12 @@ export function FloatingPanel({
                   onClick={() => pushView('audio')}
                 />
                 <MenuRow label="Actions" onClick={() => pushView('actions')} />
+                <MenuRow
+                  label="Experimental"
+                  preview={<span>{EXPERIMENTAL_FILL_MODE_LABELS[experimentalFillMode]}</span>}
+                  onClick={() => pushView('experimental')}
+                  className={styles.experimentalRow}
+                />
               </div>
             )}
 
@@ -2844,6 +2939,352 @@ export function FloatingPanel({
                       </>)}
                       </>)}
                   </>
+                </div>
+              </>
+            )}
+
+            {/* Experimental Fills */}
+            {view === 'experimental' && (
+              <>
+                <SubViewHeader title="Experimental" onBack={popView} />
+                <div className={styles.sectionContent}>
+                  <div className={styles.gridNote} style={{ marginBottom: 8 }}>Experimental fill masks — these may change or be removed.</div>
+                  <div className={styles.modeGrid2col}>
+                    {EXPERIMENTAL_FILL_MODES.map(key => (
+                      <button key={key}
+                        className={`${styles.modeBtn} ${experimentalFillMode === key ? styles.modeBtnActive : ''}`}
+                        onClick={() => setExperimentalFillMode(key)}
+                      >{EXPERIMENTAL_FILL_MODE_LABELS[key]}</button>
+                    ))}
+                  </div>
+
+                  <div className={styles.subHeading} style={{ marginTop: 12 }}>{EXPERIMENTAL_FILL_MODE_LABELS[experimentalFillMode]} Settings</div>
+
+                  {experimentalFillMode === 'halftone' && halftoneSettings && (<>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Dot spacing</span>
+                      <Stepper value={halftoneSettings.dotSpacing} onChange={v => onHalftoneSettingsChange({ dotSpacing: v })} min={2} max={20} format={v => `${v} cells`} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Max radius</span>
+                      <div className={styles.sliderRow}>
+                        <input type="range" className={styles.slider} min={0.5} max={10} step={0.5}
+                          value={halftoneSettings.maxRadius}
+                          onChange={e => onHalftoneSettingsChange({ maxRadius: +e.target.value })} />
+                        <span className={styles.sliderVal}>{halftoneSettings.maxRadius}</span>
+                      </div>
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Angle</span>
+                      <div className={styles.sliderRow}>
+                        <input type="range" className={styles.slider} min={0} max={180} step={1}
+                          value={halftoneSettings.angle}
+                          onChange={e => onHalftoneSettingsChange({ angle: +e.target.value })} />
+                        <span className={styles.sliderVal}>{halftoneSettings.angle}°</span>
+                      </div>
+                    </div>
+                    <div className={styles.formRowPair}>
+                      <div className={styles.stackedField}>
+                        <span className={styles.label}>Centre X</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={halftoneSettings.centerX}
+                            onChange={e => onHalftoneSettingsChange({ centerX: +e.target.value })} />
+                          <span className={styles.sliderVal}>{halftoneSettings.centerX.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className={styles.stackedField}>
+                        <span className={styles.label}>Centre Y</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={halftoneSettings.centerY}
+                            onChange={e => onHalftoneSettingsChange({ centerY: +e.target.value })} />
+                          <span className={styles.sliderVal}>{halftoneSettings.centerY.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Invert</span>
+                      <button
+                        className={`${styles.modeBtn} ${halftoneSettings.invert ? styles.modeBtnActive : ''}`}
+                        onClick={() => onHalftoneSettingsChange({ invert: !halftoneSettings.invert })}
+                      >{halftoneSettings.invert ? 'On' : 'Off'}</button>
+                    </div>
+                  </>)}
+
+                  {experimentalFillMode === 'voronoi' && voronoiSettings && (<>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Points</span>
+                      <Stepper value={voronoiSettings.numPoints} onChange={v => onVoronoiSettingsChange({ numPoints: v })} min={2} max={100} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Mode</span>
+                      <div className={styles.modeToggle}>
+                        <button
+                          className={`${styles.modeBtn} ${!voronoiSettings.borderOnly ? styles.modeBtnActive : ''}`}
+                          onClick={() => onVoronoiSettingsChange({ borderOnly: false })}
+                        >Regions</button>
+                        <button
+                          className={`${styles.modeBtn} ${voronoiSettings.borderOnly ? styles.modeBtnActive : ''}`}
+                          onClick={() => onVoronoiSettingsChange({ borderOnly: true })}
+                        >Borders</button>
+                      </div>
+                    </div>
+                    {!voronoiSettings.borderOnly && (
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Fill ratio</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0.1} max={1} step={0.05}
+                            value={voronoiSettings.fillRatio}
+                            onChange={e => onVoronoiSettingsChange({ fillRatio: +e.target.value })} />
+                          <span className={styles.sliderVal}>{Math.round(voronoiSettings.fillRatio * 100)}%</span>
+                        </div>
+                      </div>
+                    )}
+                    {voronoiSettings.borderOnly && (
+                      <div className={styles.formRow}>
+                        <span className={styles.label}>Border width</span>
+                        <Stepper value={voronoiSettings.borderWidth} onChange={v => onVoronoiSettingsChange({ borderWidth: v })} min={1} max={5} format={v => `${v} cells`} />
+                      </div>
+                    )}
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Seed</span>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <input type="number" className={styles.numberInput} style={{ width: 72 }}
+                          value={voronoiSettings.seed}
+                          onChange={e => onVoronoiSettingsChange({ seed: +e.target.value || 0 })} />
+                        <button className={styles.actionBtn} title="Randomise seed"
+                          onClick={() => onVoronoiSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                        >⟳</button>
+                      </div>
+                    </div>
+                  </>)}
+
+                  {experimentalFillMode === 'spiral' && spiralSettings && (<>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Arms</span>
+                      <Stepper value={spiralSettings.arms} onChange={v => onSpiralSettingsChange({ arms: v })} min={1} max={12} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Width</span>
+                      <div className={styles.sliderRow}>
+                        <input type="range" className={styles.slider} min={0.5} max={10} step={0.5}
+                          value={spiralSettings.width}
+                          onChange={e => onSpiralSettingsChange({ width: +e.target.value })} />
+                        <span className={styles.sliderVal}>{spiralSettings.width}</span>
+                      </div>
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Tightness</span>
+                      <div className={styles.sliderRow}>
+                        <input type="range" className={styles.slider} min={0.02} max={1} step={0.01}
+                          value={spiralSettings.tightness}
+                          onChange={e => onSpiralSettingsChange({ tightness: +e.target.value })} />
+                        <span className={styles.sliderVal}>{spiralSettings.tightness.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <div className={styles.formRowPair}>
+                      <div className={styles.stackedField}>
+                        <span className={styles.label}>Centre X</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={spiralSettings.centerX}
+                            onChange={e => onSpiralSettingsChange({ centerX: +e.target.value })} />
+                          <span className={styles.sliderVal}>{spiralSettings.centerX.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className={styles.stackedField}>
+                        <span className={styles.label}>Centre Y</span>
+                        <div className={styles.sliderRow}>
+                          <input type="range" className={styles.slider} min={0} max={1} step={0.01}
+                            value={spiralSettings.centerY}
+                            onChange={e => onSpiralSettingsChange({ centerY: +e.target.value })} />
+                          <span className={styles.sliderVal}>{spiralSettings.centerY.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Direction</span>
+                      <div className={styles.modeToggle}>
+                        <button
+                          className={`${styles.modeBtn} ${spiralSettings.direction === 1 ? styles.modeBtnActive : ''}`}
+                          onClick={() => onSpiralSettingsChange({ direction: 1 })}
+                        >CW</button>
+                        <button
+                          className={`${styles.modeBtn} ${spiralSettings.direction === -1 ? styles.modeBtnActive : ''}`}
+                          onClick={() => onSpiralSettingsChange({ direction: -1 })}
+                        >CCW</button>
+                      </div>
+                    </div>
+                  </>)}
+
+                  {experimentalFillMode === 'flowField' && flowFieldSettings && (<>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Scale</span>
+                      <div className={styles.sliderRow}>
+                        <input type="range" className={styles.slider} min={0.01} max={0.5} step={0.01}
+                          value={flowFieldSettings.scale}
+                          onChange={e => onFlowFieldSettingsChange({ scale: +e.target.value })} />
+                        <span className={styles.sliderVal}>{flowFieldSettings.scale.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Lines</span>
+                      <Stepper value={flowFieldSettings.numLines} onChange={v => onFlowFieldSettingsChange({ numLines: v })} min={1} max={200} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Line length</span>
+                      <Stepper value={flowFieldSettings.lineLength} onChange={v => onFlowFieldSettingsChange({ lineLength: v })} min={5} max={200} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Line width</span>
+                      <Stepper value={flowFieldSettings.lineWidth} onChange={v => onFlowFieldSettingsChange({ lineWidth: v })} min={1} max={5} format={v => `${v} cells`} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Seed</span>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <input type="number" className={styles.numberInput} style={{ width: 72 }}
+                          value={flowFieldSettings.seed}
+                          onChange={e => onFlowFieldSettingsChange({ seed: +e.target.value || 0 })} />
+                        <button className={styles.actionBtn} title="Randomise seed"
+                          onClick={() => onFlowFieldSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                        >⟳</button>
+                      </div>
+                    </div>
+                  </>)}
+
+                  {experimentalFillMode === 'fractal' && fractalSettings && (<>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Pattern</span>
+                      <div className={styles.modeGrid2col}>
+                        {[
+                          { key: 'sierpinski', label: 'Sierpinski' },
+                          { key: 'cantorDust', label: 'Cantor Dust' },
+                          { key: 'vicsek', label: 'Vicsek' },
+                        ].map(({ key, label }) => (
+                          <button key={key}
+                            className={`${styles.modeBtn} ${fractalSettings.patternType === key ? styles.modeBtnActive : ''}`}
+                            onClick={() => onFractalSettingsChange({ patternType: key })}
+                          >{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Depth</span>
+                      <Stepper value={fractalSettings.depth} onChange={v => onFractalSettingsChange({ depth: v })} min={1} max={6} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Invert</span>
+                      <button
+                        className={`${styles.modeBtn} ${fractalSettings.invert ? styles.modeBtnActive : ''}`}
+                        onClick={() => onFractalSettingsChange({ invert: !fractalSettings.invert })}
+                      >{fractalSettings.invert ? 'On' : 'Off'}</button>
+                    </div>
+                  </>)}
+
+                  {experimentalFillMode === 'mondrian' && mondrianSettings && (<>
+                    <div className={styles.gridNote}>Recursive rectangle subdivision — creates De Stijl / poster layouts.</div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Min region</span>
+                      <Stepper value={mondrianSettings.minSize} onChange={v => onMondrianSettingsChange({ minSize: v })} min={1} max={10} format={v => `${v} cells`} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Split variance</span>
+                      <div className={styles.sliderRow}>
+                        <input type="range" className={styles.slider} min={0} max={0.5} step={0.05}
+                          value={mondrianSettings.splitVariance}
+                          onChange={e => onMondrianSettingsChange({ splitVariance: +e.target.value })} />
+                        <span className={styles.sliderVal}>{mondrianSettings.splitVariance.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Seed</span>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <input type="number" className={styles.numberInput} style={{ width: 72 }}
+                          value={mondrianSettings.seed}
+                          onChange={e => onMondrianSettingsChange({ seed: +e.target.value || 0 })} />
+                        <button className={styles.actionBtn} title="Randomise seed"
+                          onClick={() => onMondrianSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                        >⟳</button>
+                      </div>
+                    </div>
+                  </>)}
+
+                  {experimentalFillMode === 'golden' && goldenSettings && (<>
+                    <div className={styles.gridNote}>Phi-ratio recursive subdivision — creates harmonious, balanced layouts.</div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Min region</span>
+                      <Stepper value={goldenSettings.minSize} onChange={v => onGoldenSettingsChange({ minSize: v })} min={1} max={10} format={v => `${v} cells`} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Max depth</span>
+                      <Stepper value={goldenSettings.maxDepth} onChange={v => onGoldenSettingsChange({ maxDepth: v })} min={1} max={12} />
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Alternate axes</span>
+                      <button
+                        className={`${styles.modeBtn} ${goldenSettings.alternate ? styles.modeBtnActive : ''}`}
+                        onClick={() => onGoldenSettingsChange({ alternate: !goldenSettings.alternate })}
+                      >{goldenSettings.alternate ? 'On' : 'Off'}</button>
+                    </div>
+                    <div className={styles.formRow}>
+                      <span className={styles.label}>Seed</span>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <input type="number" className={styles.numberInput} style={{ width: 72 }}
+                          value={goldenSettings.seed}
+                          onChange={e => onGoldenSettingsChange({ seed: +e.target.value || 0 })} />
+                        <button className={styles.actionBtn} title="Randomise seed"
+                          onClick={() => onGoldenSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                        >⟳</button>
+                      </div>
+                    </div>
+                  </>)}
+
+                  <button
+                    className={`${styles.actionBtn} ${styles.actionBtnPrimary}`}
+                    style={{ width: '100%', marginTop: 12 }}
+                    onClick={activeExperimentalFillAction.onFill}
+                    disabled={!activeExperimentalFillAction.canFill}
+                  >▶ Fill — {EXPERIMENTAL_FILL_MODE_LABELS[experimentalFillMode]}</button>
+
+                  {/* ── Layouts ─────────────────────────────────────── */}
+                  <div className={styles.subHeading} style={{ marginTop: 16, borderTop: '1px dashed rgba(77,52,211,0.2)', paddingTop: 12 }}>Layouts</div>
+                  <div className={styles.gridNote} style={{ marginBottom: 8 }}>
+                    Pick a layout — grey blocks are wireframe placeholders. The grid area fills with shapes via the main Fill button.
+                  </div>
+                  {activeLayoutId && (
+                    <button
+                      className={styles.actionBtn}
+                      style={{ width: '100%', marginBottom: 10, color: '#c44' }}
+                      onClick={onClearLayout}
+                    >Clear layout</button>
+                  )}
+                  {LAYOUT_CATEGORIES.map(cat => {
+                    const inCat = LAYOUTS.filter(l => l.category === cat);
+                    if (!inCat.length) return null;
+                    const aspect = (workArea?.width && workArea?.height) ? workArea.width / workArea.height : 0.75;
+                    return (
+                      <div key={cat} style={{ marginBottom: 10 }}>
+                        <div className={styles.label} style={{ marginBottom: 4, fontSize: 11, opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{cat}</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                          {inCat.map(layout => (
+                            <button key={layout.id}
+                              onClick={() => onApplyLayout(layout.id)}
+                              title={layout.name}
+                              style={{
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                                padding: 4, cursor: 'pointer', background: 'none',
+                                border: activeLayoutId === layout.id ? '2px solid #7c3aed' : '1px solid rgba(0,0,0,0.12)',
+                                borderRadius: 4,
+                              }}>
+                              <LayoutThumb layout={layout} aspect={aspect} />
+                              <span style={{ fontSize: 9, lineHeight: 1.1, textAlign: 'center', color: '#555' }}>{layout.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             )}

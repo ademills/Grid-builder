@@ -1,6 +1,7 @@
 import { useMemo, useRef, useCallback, useEffect, memo } from 'react';
 import { colorizeSvg } from '../utils/colorize';
 import { assetIdToLibKey, getShapeCache } from '../utils/shapeLibraryRender';
+import { wireframeRects } from '../utils/layouts';
 
 // Animation types that repaint every cell every frame — for these, blocks are
 // rendered as inline SVG (below) so AnimationLayer can recolour them via plain
@@ -62,7 +63,8 @@ const GridBlock = memo(function GridBlock({
   // While a continuous colour-replacement animation is running, every block is
   // repainted every frame regardless of colorMode — render inline so the
   // animation can mutate fills directly rather than rebuilding <image> hrefs.
-  const useAnimatedInline = animSettings?.enabled && CONTINUOUS_COLOUR_ANIM_TYPES.has(animSettings.type) && !!shapeLibrary;
+  const isSpecial = block.type === 'text' || block.type === 'image' || block.type === 'wireframe';
+  const useAnimatedInline = !isSpecial && animSettings?.enabled && CONTINUOUS_COLOUR_ANIM_TYPES.has(animSettings.type) && !!shapeLibrary;
   const libKey = useAnimatedInline ? assetIdToLibKey(block.assetId) : null;
   const shapeEntry = useAnimatedInline ? shapeLibrary.shapes[libKey] : null;
 
@@ -71,6 +73,7 @@ const GridBlock = memo(function GridBlock({
 
   // Expensive colour computation — imageDataUrls intentionally excluded from deps
   const colorDataUrl = useMemo(() => {
+    if (isSpecial) return null;
     if (colorMode === 'image') return null;
     const blockPalette = (randomReverseEnabled && block.reverseColor)
       ? [...effectivePalette].reverse()
@@ -140,7 +143,65 @@ const GridBlock = memo(function GridBlock({
       {/* Transparent hit-area */}
       <rect x={x} y={y} width={w} height={h} fill="transparent" style={{ pointerEvents: 'all' }} />
 
-      {useAnimatedInline && shapeEntry ? (
+      {block.type === 'wireframe' ? (
+        <g style={{ pointerEvents: 'none' }}
+          transform={block.rotation ? `rotate(${block.rotation} ${x + w / 2} ${y + h / 2})` : undefined}>
+          <rect x={x} y={y} width={w} height={h} fill="rgba(0,0,0,0.04)" />
+          {wireframeRects(block.slotRole, block.align).map((r, i) => (
+            <rect key={i}
+              x={x + r.x * w} y={y + r.y * h}
+              width={r.w * w} height={r.h * h}
+              rx={Math.min(w, h) * 0.015}
+              fill={`rgba(0,0,0,${r.shade})`}
+            />
+          ))}
+        </g>
+      ) : block.type === 'text' ? (
+        <foreignObject
+          x={x} y={y} width={w} height={h}
+          style={{ pointerEvents: 'none', overflow: 'visible' }}
+          transform={block.rotation ? `rotate(${block.rotation} ${x + w / 2} ${y + h / 2})` : undefined}
+        >
+          <div
+            xmlns="http://www.w3.org/1999/xhtml"
+            style={{
+              width: '100%', height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: block.textAlign === 'left' ? 'flex-start' : block.textAlign === 'right' ? 'flex-end' : 'center',
+              justifyContent: block.textVAlign === 'flex-start' ? 'flex-start' : block.textVAlign === 'flex-end' ? 'flex-end' : 'center',
+              fontFamily: block.fontFamily ?? 'sans-serif',
+              fontSize: block.fontSize === 'auto' || !block.fontSize ? Math.max(8, Math.min(w, h) * 0.35) : block.fontSize,
+              fontWeight: block.fontWeight ?? 700,
+              fontStyle: block.fontStyle ?? 'normal',
+              color: block.textColor ?? '#000000',
+              textAlign: block.textAlign ?? 'center',
+              lineHeight: block.lineHeight ?? 1.15,
+              padding: `${h * 0.06}px ${w * 0.06}px`,
+              boxSizing: 'border-box',
+              wordBreak: 'break-word',
+              letterSpacing: block.letterSpacing != null ? `${block.letterSpacing}em` : undefined,
+              textTransform: block.textTransform ?? 'none',
+            }}
+          >
+            {block.text}
+          </div>
+        </foreignObject>
+      ) : block.type === 'image' ? (
+        block.imageSrc && (
+          <image
+            href={block.imageSrc}
+            x={x} y={y}
+            width={w} height={h}
+            preserveAspectRatio={
+              block.imageFit === 'cover' ? 'xMidYMid slice'
+              : block.imageFit === 'stretch' ? 'none'
+              : 'xMidYMid meet'
+            }
+            style={{ pointerEvents: 'none' }}
+          />
+        )
+      ) : useAnimatedInline && shapeEntry ? (
         <AnimatedShapeImage
           entry={shapeEntry}
           libKey={libKey}
@@ -219,16 +280,22 @@ export const PlacedBlocks = memo(function PlacedBlocks({
   // `placedBlocks` data directly, not on mounted DOM, so culling off-screen
   // blocks here is purely a render-cost reduction with no behavioural effect.
   const visibleBlocks = useMemo(() => {
+    let list;
     if (!blockBounds) return null;
-    if (!visibleRect) return placedBlocks;
-    const result = [];
-    for (const { block, left, top, right, bottom } of blockBounds) {
-      if (right >= visibleRect.left && left <= visibleRect.right &&
-          bottom >= visibleRect.top && top <= visibleRect.bottom) {
-        result.push(block);
+    if (!visibleRect) {
+      list = placedBlocks;
+    } else {
+      list = [];
+      for (const { block, left, top, right, bottom } of blockBounds) {
+        if (right >= visibleRect.left && left <= visibleRect.right &&
+            bottom >= visibleRect.top && top <= visibleRect.bottom) {
+          list.push(block);
+        }
       }
     }
-    return result;
+    // Wireframe placeholders always paint last so they overlay the filled grid.
+    // Array.sort is stable, so relative order within each group is preserved.
+    return [...list].sort((a, b) => (a.type === 'wireframe' ? 1 : 0) - (b.type === 'wireframe' ? 1 : 0));
   }, [blockBounds, visibleRect, placedBlocks]);
 
   if (!gridComputed || !placedBlocks || placedBlocks.length === 0) return null;

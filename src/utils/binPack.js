@@ -128,6 +128,6 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, exis
  * used by mask-driven fills (Glitch, Strip, ...) so blocks only appear (and
  * only grow) inside the active region.
  */
-export function fillMasked(assets, gridComputed, activeCells, maxScale = 1, scaleFreq = 0) {
-  return packGrid(assets, gridComputed, maxScale, scaleFreq, [], activeCells);
+export function fillMasked(assets, gridComputed, activeCells, maxScale = 1, scaleFreq = 0, existingBlocks = []) {
+  return packGrid(assets, gridComputed, maxScale, scaleFreq, existingBlocks, activeCells);
 }

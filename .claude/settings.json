@@ -29,7 +29,13 @@
       "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5180 -State Listen | Select-Object -ExpandProperty OwningProcess\")",
       "Bash(powershell -Command \"Stop-Process -Id 13288 -Force\")",
       "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5180 -State Listen -ErrorAction SilentlyContinue\")",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "WebFetch(domain:localhost)",
+      "Bash(npx vite *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:4280/)",
+      "Bash(cp /tmp/test-comp.mjs ./_test-comp.mjs)",
+      "Bash(node ./_test-comp.mjs)",
+      "Bash(rm -f ./_test-comp.mjs)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Ade\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb"

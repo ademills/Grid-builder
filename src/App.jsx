@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Canvas } from './components/Canvas';
 import { ContextMenu } from './components/ContextMenu';
 import { FloatingPanel } from './components/FloatingPanel';
+import { KnotworkPanel } from './components/KnotworkPanel';
 import { AnimationLayer, ANIM_DEFAULTS, ANIM_FILTER_ID } from './components/AnimationLayer';
 import { createAudioAnalyser } from './utils/audioAnalysis';
 import { Grid } from './components/Grid';
@@ -16,7 +17,16 @@ import { computeEdgeMask } from './utils/edgeFill';
 import { computeBrightnessMask } from './utils/brightnessFill';
 import { computeNoiseMask } from './utils/noiseFill';
 import { computeGeometricMask } from './utils/geometricFill';
-import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift } from './utils/colorize';
+import { computeHalftoneMask } from './utils/halftoneFill';
+import { computeVoronoiMask } from './utils/voronoiFill';
+import { computeSpiralMask } from './utils/spiralFill';
+import { computeFlowFieldMask } from './utils/flowFieldFill';
+import { computeFractalMask } from './utils/fractalFill';
+import { generateMondrianLayout } from './utils/mondrianFill';
+import { generateGoldenLayout } from './utils/goldenFill';
+import { composeKnotworkSvg } from './utils/knotworkCompose';
+import { LAYOUTS, computeGridMask, buildWireframeBlocks, wireframeRects } from './utils/layouts';
+import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift, PALETTES } from './utils/colorize';
 import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
 import { buildGridCells, renderImageFrame, sampleFrameColours, loadShapeLibrary, warmShapeCache } from './utils/shapeLibraryRender';
@@ -81,7 +91,7 @@ const FLAT_SVG_EXPORT_UNIT = 500;
 function buildFlatSvgElement({
   placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
   canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, colourRemap,
-  backdropSrc, backdropSettings, blendMode, layer = 'all',
+  backdropSrc, backdropSettings, blendMode, layer = 'all', includeWireframes = false,
 }) {
   const { width, height } = workArea;
   const { cellSize, gridOriginX, gridOriginY } = gridComputed;
@@ -178,6 +188,94 @@ function buildFlatSvgElement({
     const bw = block.cols * FLAT_SVG_EXPORT_UNIT;
     const bh = block.rows * FLAT_SVG_EXPORT_UNIT;
 
+    // Wireframe placeholders are a reference overlay — never part of the normal
+    // export; handled separately below when includeWireframes is set.
+    if (block.type === 'wireframe') return;
+
+    // Image elements export as a native <image> (works in vector and raster).
+    if (block.type === 'image') {
+      if (!block.imageSrc) return;
+
+      // If the "image" is actually inline SVG markup encoded as a data URI
+      // (e.g. a generated vector design like a Knotwork fill, which reuses
+      // this same generic block-placement pipeline), export it as genuine
+      // inline SVG rather than a nested <image> reference. Browsers render
+      // a nested image/svg+xml data URI fine, but many vector tools --
+      // Illustrator in particular -- do not reliably rasterise it, and the
+      // export comes out blank there even though it looks correct here.
+      const isSvgDataUri = block.imageSrc.startsWith('data:image/svg+xml');
+      const commaIdx = isSvgDataUri ? block.imageSrc.indexOf(',') : -1;
+      if (commaIdx !== -1) {
+        const svgText = decodeURIComponent(block.imageSrc.slice(commaIdx + 1));
+        const blockDoc = parser.parseFromString(svgText, 'image/svg+xml');
+        if (!blockDoc.querySelector('parsererror')) {
+          const blockRoot = blockDoc.documentElement;
+          let vbX = 0, vbY = 0, vbW, vbH;
+          const vbStr = blockRoot.getAttribute('viewBox');
+          if (vbStr) {
+            const p = vbStr.trim().split(/[\s,]+/).map(Number);
+            [vbX, vbY, vbW, vbH] = p;
+          } else {
+            vbW = parseFloat(blockRoot.getAttribute('width') || String(bw));
+            vbH = parseFloat(blockRoot.getAttribute('height') || String(bh));
+          }
+          const scale = Math.min(bw / vbW, bh / vbH);
+          const tx = bx + (bw - vbW * scale) / 2 - vbX * scale;
+          const ty = by + (bh - vbH * scale) / 2 - vbY * scale;
+          const g = document.createElementNS(FLAT_SVG_NS, 'g');
+          g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+          for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
+          blocksGroup.appendChild(g);
+          return;
+        }
+        // Fall through to <image> below as a safety net if parsing failed.
+      }
+
+      const imgEl = document.createElementNS(FLAT_SVG_NS, 'image');
+      imgEl.setAttribute('href', block.imageSrc);
+      imgEl.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', block.imageSrc);
+      imgEl.setAttribute('x', String(bx));
+      imgEl.setAttribute('y', String(by));
+      imgEl.setAttribute('width', String(bw));
+      imgEl.setAttribute('height', String(bh));
+      imgEl.setAttribute('preserveAspectRatio',
+        block.imageFit === 'cover' ? 'xMidYMid slice'
+        : block.imageFit === 'stretch' ? 'none'
+        : 'xMidYMid meet');
+      blocksGroup.appendChild(imgEl);
+      return;
+    }
+
+    // Text elements export as a foreignObject (vector SVG; may not rasterise).
+    if (block.type === 'text') {
+      const fo = document.createElementNS(FLAT_SVG_NS, 'foreignObject');
+      fo.setAttribute('x', String(bx));
+      fo.setAttribute('y', String(by));
+      fo.setAttribute('width', String(bw));
+      fo.setAttribute('height', String(bh));
+      const div = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+      div.setAttribute('style', [
+        'width:100%', 'height:100%', 'display:flex', 'flex-direction:column',
+        `align-items:${block.textAlign === 'left' ? 'flex-start' : block.textAlign === 'right' ? 'flex-end' : 'center'}`,
+        `justify-content:${block.textVAlign === 'flex-start' ? 'flex-start' : block.textVAlign === 'flex-end' ? 'flex-end' : 'center'}`,
+        `font-family:${block.fontFamily ?? 'sans-serif'}`,
+        `font-size:${block.fontSize === 'auto' || !block.fontSize ? Math.max(8, Math.min(bw, bh) * 0.35) : block.fontSize}px`,
+        `font-weight:${block.fontWeight ?? 700}`,
+        `font-style:${block.fontStyle ?? 'normal'}`,
+        `color:${block.textColor ?? '#000000'}`,
+        `text-align:${block.textAlign ?? 'center'}`,
+        `line-height:${block.lineHeight ?? 1.15}`,
+        `letter-spacing:${block.letterSpacing != null ? block.letterSpacing + 'em' : 'normal'}`,
+        `text-transform:${block.textTransform ?? 'none'}`,
+        'word-break:break-word', 'box-sizing:border-box', `padding:${bh * 0.06}px ${bw * 0.06}px`,
+      ].join(';'));
+      div.textContent = block.text ?? '';
+      fo.appendChild(div);
+      if (block.rotation) fo.setAttribute('transform', `rotate(${block.rotation} ${bx + bw / 2} ${by + bh / 2})`);
+      blocksGroup.appendChild(fo);
+      return;
+    }
+
     const blockPalette = (randomReverseEnabled && block.reverseColor) ? [...palette].reverse() : palette;
     let svgText;
     if (colorMode === 'image') {
@@ -215,6 +313,40 @@ function buildFlatSvgElement({
     for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
     blocksGroup.appendChild(g);
   });
+
+  // Optional reference layer: the wireframe placeholders, drawn on top of
+  // everything else. Off by default so normal exports contain only artwork.
+  if (includeWireframes) {
+    const refGroup = document.createElementNS(FLAT_SVG_NS, 'g');
+    refGroup.setAttribute('data-reference-layer', 'true');
+    refGroup.setAttribute('id', 'layout-reference');
+    for (const block of placedBlocks) {
+      if (block.type !== 'wireframe') continue;
+      const bx = exportMX + block.gridCol * FLAT_SVG_EXPORT_UNIT;
+      const by = exportMY + block.gridRow * FLAT_SVG_EXPORT_UNIT;
+      const bw = block.cols * FLAT_SVG_EXPORT_UNIT;
+      const bh = block.rows * FLAT_SVG_EXPORT_UNIT;
+      const blockG = document.createElementNS(FLAT_SVG_NS, 'g');
+      if (block.rotation) blockG.setAttribute('transform', `rotate(${block.rotation} ${bx + bw / 2} ${by + bh / 2})`);
+      const bg = document.createElementNS(FLAT_SVG_NS, 'rect');
+      bg.setAttribute('x', String(bx)); bg.setAttribute('y', String(by));
+      bg.setAttribute('width', String(bw)); bg.setAttribute('height', String(bh));
+      bg.setAttribute('fill', 'rgba(0,0,0,0.04)');
+      blockG.appendChild(bg);
+      for (const r of wireframeRects(block.slotRole, block.align)) {
+        const rect = document.createElementNS(FLAT_SVG_NS, 'rect');
+        rect.setAttribute('x', String(bx + r.x * bw));
+        rect.setAttribute('y', String(by + r.y * bh));
+        rect.setAttribute('width', String(r.w * bw));
+        rect.setAttribute('height', String(r.h * bh));
+        rect.setAttribute('rx', String(Math.min(bw, bh) * 0.015));
+        rect.setAttribute('fill', `rgba(0,0,0,${r.shade})`);
+        blockG.appendChild(rect);
+      }
+      refGroup.appendChild(blockG);
+    }
+    out.appendChild(refGroup);
+  }
 
   return { svgEl: out, exportW, exportH };
 }
@@ -278,6 +410,7 @@ function App() {
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [viewportSize, setViewportSize] = useState(null);
   const [activeTool, setActiveTool] = useState('select');
+  const [appMode, setAppMode] = useState('gridBuilder');
   const [bgColor, setBgColor] = useState('#2d2d2d');
   const [canvasBg, setCanvasBg] = useState('#ffffff');
   const [maxScale, setMaxScale] = useState(1);
@@ -509,6 +642,83 @@ function App() {
   const handleGeometricSettingsChange = useCallback((changes) => {
     setGeometricSettings(prev => ({ ...prev, ...changes }));
   }, []);
+
+  // Experimental fills
+  const [halftoneSettings, setHalftoneSettings] = useState({
+    dotSpacing: 4, maxRadius: 2, angle: 45, centerX: 0.5, centerY: 0.5, invert: false,
+  });
+  const handleHalftoneSettingsChange = useCallback((changes) => {
+    setHalftoneSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  const [voronoiSettings, setVoronoiSettings] = useState({
+    numPoints: 12, fillRatio: 0.5, borderOnly: false, borderWidth: 1,
+    seed: Math.floor(Math.random() * 0x80000000),
+  });
+  const handleVoronoiSettingsChange = useCallback((changes) => {
+    setVoronoiSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  const [spiralSettings, setSpiralSettings] = useState({
+    arms: 1, width: 2, tightness: 0.15, centerX: 0.5, centerY: 0.5, direction: 1,
+  });
+  const handleSpiralSettingsChange = useCallback((changes) => {
+    setSpiralSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  const [flowFieldSettings, setFlowFieldSettings] = useState({
+    scale: 0.08, numLines: 30, lineLength: 40, lineWidth: 1,
+    seed: Math.floor(Math.random() * 0x80000000),
+  });
+  const handleFlowFieldSettingsChange = useCallback((changes) => {
+    setFlowFieldSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  const [fractalSettings, setFractalSettings] = useState({
+    patternType: 'sierpinski', depth: 3, invert: false,
+  });
+  const handleFractalSettingsChange = useCallback((changes) => {
+    setFractalSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  const [knotworkSettings, setKnotworkSettings] = useState({
+    density: 1, straightBias: 15, wallDensity: 0,
+    symmetryMode: 'none', kaleidoscopeFold: 4,
+    strandWidthRatio: 0.86,
+    showTerminalDots: false, roundness: 1,
+    seed: Math.floor(Math.random() * 0x80000000), colorSeed: 0,
+  });
+  const handleKnotworkSettingsChange = useCallback((changes) => {
+    setKnotworkSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  const [mondrianSettings, setMondrianSettings] = useState({
+    minSize: 2, splitVariance: 0.3,
+    seed: Math.floor(Math.random() * 0x80000000),
+  });
+  const handleMondrianSettingsChange = useCallback((changes) => {
+    setMondrianSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  const [goldenSettings, setGoldenSettings] = useState({
+    minSize: 2, maxDepth: 6, alternate: true,
+    seed: Math.floor(Math.random() * 0x80000000),
+  });
+  const handleGoldenSettingsChange = useCallback((changes) => {
+    setGoldenSettings(prev => ({ ...prev, ...changes }));
+  }, []);
+
+  // Predetermined wireframe layouts. The active layout's grid slot becomes a
+  // fill mask for the main Fill button; its other slots render as wireframes.
+  const [activeLayoutId, setActiveLayoutId] = useState(null);
+  const activeLayout = useMemo(
+    () => LAYOUTS.find(l => l.id === activeLayoutId) ?? null,
+    [activeLayoutId]
+  );
+  const layoutGridMask = useMemo(
+    () => (activeLayout && gridComputed) ? computeGridMask(activeLayout, gridComputed) : null,
+    [activeLayout, gridComputed]
+  );
 
   // Built-in asset enable/disable
   const [enabledAssetIds, setEnabledAssetIds] = useState(DEFAULT_ENABLED_IDS);
@@ -951,26 +1161,35 @@ const [autoFill, setAutoFill] = useState(false);
   const handleFillGrid = useCallback(() => {
     if (!activeAssets.length || !gridComputed) return;
     pushHistory(placedBlocks);
-    const blocks = fillGrid(activeAssets, gridComputed, maxScale, scaleFreq).map(b => ({
+    // With a layout active, fill only the grid-area mask and keep the wireframe
+    // placeholders; otherwise fill the whole grid as before.
+    const wireframes = layoutGridMask ? placedBlocks.filter(b => b.type === 'wireframe') : [];
+    const shapes = (layoutGridMask
+      ? fillMasked(activeAssets, gridComputed, layoutGridMask, maxScale, scaleFreq)
+      : fillGrid(activeAssets, gridComputed, maxScale, scaleFreq)
+    ).map(b => ({
       ...b,
       colorSeed: Math.floor(Math.random() * 0x80000000),
       colorOffset: 0,
     }));
-    setPlacedBlocks(blocks);
+    setPlacedBlocks([...wireframes, ...shapes]);
     syncHistorySize();
-  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, layoutGridMask, pushHistory, syncHistorySize]);
 
   const handleFillGaps = useCallback(() => {
     if (!activeAssets.length || !gridComputed) return;
     pushHistory(placedBlocks);
-    const newBlocks = fillGrid(activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks).map(b => ({
+    const newBlocks = (layoutGridMask
+      ? fillMasked(activeAssets, gridComputed, layoutGridMask, maxScale, scaleFreq, placedBlocks)
+      : fillGrid(activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks)
+    ).map(b => ({
       ...b,
       colorSeed: Math.floor(Math.random() * 0x80000000),
       colorOffset: 0,
     }));
     setPlacedBlocks(prev => [...prev, ...newBlocks]);
     syncHistorySize();
-  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, layoutGridMask, pushHistory, syncHistorySize]);
 
   const handleGlitchFill = useCallback(() => {
     if (!activeAssets.length || !gridComputed) return;
@@ -1131,6 +1350,214 @@ const [autoFill, setAutoFill] = useState(false);
     syncHistorySize();
   }, [activeAssets, gridComputed, geometricSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
 
+  const handleHalftoneFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeHalftoneMask(gridComputed, halftoneSettings);
+    if (activeCells.size === 0) { alert('No cells matched — try adjusting halftone settings.'); return; }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, halftoneSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleVoronoiFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeVoronoiMask(gridComputed, voronoiSettings);
+    if (activeCells.size === 0) { alert('No cells matched — try adjusting voronoi settings.'); return; }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, voronoiSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleSpiralFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeSpiralMask(gridComputed, spiralSettings);
+    if (activeCells.size === 0) { alert('No cells matched — try adjusting spiral settings.'); return; }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, spiralSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleFlowFieldFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeFlowFieldMask(gridComputed, flowFieldSettings);
+    if (activeCells.size === 0) { alert('No cells matched — try adjusting flow field settings.'); return; }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, flowFieldSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleFractalFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    const activeCells = computeFractalMask(gridComputed, fractalSettings);
+    if (activeCells.size === 0) { alert('No cells matched — try adjusting fractal settings.'); return; }
+    pushHistory(placedBlocks);
+    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
+      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
+    }));
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, fractalSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+
+  // Sourced from the app's active theme rather than its own colour pickers
+  // — changing the palette/background reshapes future knotwork fills too.
+  const knotworkThemeColors = useMemo(() => ({
+    fg: activePalette[0] ?? '#8a1f11',
+    bg: canvasBg,
+    palette: activePalette.length ? activePalette : ['#8a1f11'],
+  }), [activePalette, canvasBg]);
+
+  // Builds a placed image block for the given knotwork settings, confined
+  // to the grid's own inset footprint (same cols/rows/border the preview
+  // shows) so the generated pattern lines up with what was previewed
+  // before hitting Fill, rather than bleeding past the border to the page
+  // edges.
+  const buildKnotworkBlock = useCallback((fullSettings) => {
+    if (!gridComputed) return null;
+    const localGrid = { cols: gridComputed.cols, rows: gridComputed.rows, cellSize: 100, gridOriginX: 0, gridOriginY: 0 };
+    const svgMarkup = composeKnotworkSvg(localGrid, fullSettings);
+    const dataUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
+    return {
+      id: crypto.randomUUID(),
+      type: 'image',
+      gridCol: 0,
+      gridRow: 0,
+      cols: gridComputed.cols, rows: gridComputed.rows,
+      imageSrc: dataUri, imageFit: 'contain',
+    };
+  }, [gridComputed]);
+
+  // Randomises the seed on every press rather than reusing whatever was
+  // last set, so each click of Fill gives a fresh variation without
+  // needing to separately manage the seed field first.
+  const handleKnotworkFill = useCallback(() => {
+    if (!gridComputed) return;
+    const seed = Math.floor(Math.random() * 0x80000000);
+    const nextSettings = { ...knotworkSettings, seed };
+    setKnotworkSettings(nextSettings);
+    const block = buildKnotworkBlock({ ...nextSettings, ...knotworkThemeColors });
+    if (!block) return;
+    pushHistory(placedBlocks);
+    setPlacedBlocks([block]);
+    syncHistorySize();
+  }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
+
+  // Re-renders the current knotwork design in place with a newly picked
+  // palette -- same seed (same layout), just new colours -- so selecting a
+  // theme reads as an immediate preview rather than needing a separate Fill
+  // press. Only auto-regenerates when there is already something placed;
+  // picking a palette on an empty canvas should not spontaneously create a
+  // design on its own.
+  const handleKnotworkPaletteSelect = useCallback((key) => {
+    handlePaletteKeyChange(key);
+    if (!gridComputed || placedBlocks.length === 0) return;
+    const basePalette = PALETTES[key] ?? [];
+    const shifted = applyColorTemperatureShift(basePalette, colorTempShift);
+    const themeColors = { fg: shifted[0] ?? '#8a1f11', bg: canvasBg, palette: shifted.length ? shifted : ['#8a1f11'] };
+    const block = buildKnotworkBlock({ ...knotworkSettings, ...themeColors });
+    if (!block) return;
+    pushHistory(placedBlocks);
+    setPlacedBlocks([block]);
+    syncHistorySize();
+  }, [gridComputed, knotworkSettings, colorTempShift, canvasBg, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize, handlePaletteKeyChange]);
+  // Same immediate-preview behaviour as handleKnotworkPaletteSelect, for
+  // picking one of the user's own saved custom palettes instead of a
+  // built-in one.
+  const handleKnotworkCustomPaletteSelect = useCallback((customPalette) => {
+    handleApplyCustomPalette(customPalette);
+    if (!gridComputed || placedBlocks.length === 0) return;
+    const shifted = applyColorTemperatureShift(customPalette.colors ?? [], colorTempShift);
+    const themeColors = { fg: shifted[0] ?? '#8a1f11', bg: canvasBg, palette: shifted.length ? shifted : ['#8a1f11'] };
+    const block = buildKnotworkBlock({ ...knotworkSettings, ...themeColors });
+    if (!block) return;
+    pushHistory(placedBlocks);
+    setPlacedBlocks([block]);
+    syncHistorySize();
+  }, [gridComputed, knotworkSettings, colorTempShift, canvasBg, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize, handleApplyCustomPalette]);
+
+  // Same immediate-preview behaviour as handleKnotworkPaletteSelect, for the
+  // canvas background colour itself -- the knotwork block bakes bg into its
+  // own SVG (background rect, terminal dots) at generation time, so without
+  // this it stays stale until the next Fill even though the live page rect
+  // underneath (Canvas.jsx) already shows the new colour -- exactly the
+  // "why is there still a white shape on top" mismatch that motivated this.
+  // Takes the new colour as a param rather than reading canvasBg from the
+  // closure, since setCanvasBg's update isn't visible synchronously here.
+  const handleKnotworkCanvasBgChange = useCallback((color) => {
+    setCanvasBg(color);
+    if (!gridComputed || placedBlocks.length === 0) return;
+    const themeColors = { fg: activePalette[0] ?? '#8a1f11', bg: color, palette: activePalette.length ? activePalette : ['#8a1f11'] };
+    const block = buildKnotworkBlock({ ...knotworkSettings, ...themeColors });
+    if (!block) return;
+    pushHistory(placedBlocks);
+    setPlacedBlocks([block]);
+    syncHistorySize();
+  }, [gridComputed, knotworkSettings, activePalette, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
+
+  // Reassigns which strand gets which palette colour without touching the
+  // knot layout itself -- a fresh colorSeed reshuffles the strand-to-colour
+  // mapping (knotworkCompose.js), while knotworkSettings.seed (the actual
+  // geometry) is left untouched, so the shapes on screen stay exactly where
+  // they are and only their colours move.
+  const handleKnotworkRecolour = useCallback(() => {
+    if (!gridComputed || placedBlocks.length === 0) return;
+    const colorSeed = Math.floor(Math.random() * 0x80000000) || 1;
+    const nextSettings = { ...knotworkSettings, colorSeed };
+    setKnotworkSettings(nextSettings);
+    const block = buildKnotworkBlock({ ...nextSettings, ...knotworkThemeColors });
+    if (!block) return;
+    pushHistory(placedBlocks);
+    setPlacedBlocks([block]);
+    syncHistorySize();
+  }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleMondrianFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    pushHistory(placedBlocks);
+    const blocks = generateMondrianLayout(activeAssets, gridComputed, mondrianSettings);
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, mondrianSettings, placedBlocks, pushHistory, syncHistorySize]);
+
+  const handleGoldenFill = useCallback(() => {
+    if (!activeAssets.length || !gridComputed) return;
+    pushHistory(placedBlocks);
+    const blocks = generateGoldenLayout(activeAssets, gridComputed, goldenSettings);
+    setPlacedBlocks(blocks);
+    syncHistorySize();
+  }, [activeAssets, gridComputed, goldenSettings, placedBlocks, pushHistory, syncHistorySize]);
+
+  // Apply a predetermined layout: drop its wireframe placeholders and arm the
+  // grid-area mask (used by the main Fill button). Starts from a clean canvas.
+  const handleApplyLayout = useCallback((layoutId) => {
+    if (!gridComputed) return;
+    const layout = LAYOUTS.find(l => l.id === layoutId);
+    if (!layout) return;
+    pushHistory(placedBlocks);
+    setActiveLayoutId(layoutId);
+    setPlacedBlocks(buildWireframeBlocks(layout, gridComputed));
+    syncHistorySize();
+  }, [gridComputed, placedBlocks, pushHistory, syncHistorySize]);
+
+  // Clear the active layout: remove wireframes and disarm the mask (shapes stay).
+  const handleClearLayout = useCallback(() => {
+    pushHistory(placedBlocks);
+    setActiveLayoutId(null);
+    setPlacedBlocks(prev => prev.filter(b => b.type !== 'wireframe'));
+    syncHistorySize();
+  }, [placedBlocks, pushHistory, syncHistorySize]);
+
   // ── Save / Load / Export ───────────────────────────────────────────────────
   const handleLoadProject = useCallback((e) => {
     const file = e.target.files?.[0];
@@ -1139,7 +1566,7 @@ const [autoFill, setAutoFill] = useState(false);
     reader.onload = (evt) => {
       try {
         const state = JSON.parse(evt.target.result);
-        if (state.version !== 1 && state.version !== 2) return;
+        if (![1, 2, 3, 4].includes(state.version)) return;
         skipNextClear.current = true;
         if (state.presetKey)    setPresetKey(state.presetKey);
         if (state.customSize)   setCustomSize(state.customSize);
@@ -1164,6 +1591,15 @@ const [autoFill, setAutoFill] = useState(false);
         if (state.brightnessSettings) setBrightnessSettings(prev => ({ ...prev, ...state.brightnessSettings }));
         if (state.noiseSettings) setNoiseSettings(prev => ({ ...prev, ...state.noiseSettings }));
         if (state.geometricSettings) setGeometricSettings(prev => ({ ...prev, ...state.geometricSettings }));
+        if (state.halftoneSettings) setHalftoneSettings(prev => ({ ...prev, ...state.halftoneSettings }));
+        if (state.voronoiSettings) setVoronoiSettings(prev => ({ ...prev, ...state.voronoiSettings }));
+        if (state.spiralSettings) setSpiralSettings(prev => ({ ...prev, ...state.spiralSettings }));
+        if (state.flowFieldSettings) setFlowFieldSettings(prev => ({ ...prev, ...state.flowFieldSettings }));
+        if (state.fractalSettings) setFractalSettings(prev => ({ ...prev, ...state.fractalSettings }));
+        if (state.knotworkSettings) setKnotworkSettings(prev => ({ ...prev, ...state.knotworkSettings }));
+        if (state.mondrianSettings) setMondrianSettings(prev => ({ ...prev, ...state.mondrianSettings }));
+        if (state.goldenSettings) setGoldenSettings(prev => ({ ...prev, ...state.goldenSettings }));
+        setActiveLayoutId(state.activeLayoutId ?? null);
         if (state.enabledAssetIds) setEnabledAssetIds(new Set(state.enabledAssetIds));
         if (state.placedBlocks)  setPlacedBlocks(state.placedBlocks);
         setSelectedIds(new Set());
@@ -1177,7 +1613,7 @@ const [autoFill, setAutoFill] = useState(false);
 
   const handleSaveProject = useCallback(() => {
     const state = {
-      version: 2,
+      version: 4,
       presetKey,
       customSize,
       gridSettings,
@@ -1201,6 +1637,15 @@ const [autoFill, setAutoFill] = useState(false);
       brightnessSettings,
       noiseSettings,
       geometricSettings,
+      halftoneSettings,
+      voronoiSettings,
+      spiralSettings,
+      flowFieldSettings,
+      fractalSettings,
+      knotworkSettings,
+      mondrianSettings,
+      goldenSettings,
+      activeLayoutId,
       enabledAssetIds: [...enabledAssetIds],
       placedBlocks,
     };
@@ -1222,7 +1667,7 @@ const [autoFill, setAutoFill] = useState(false);
       return;
     }
     downloadBlob(new Blob([json], { type: 'application/json' }), 'grid-project.json');
-  }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, meshSettings, glitchSettings, stripSettings, multiStripSettings, audioSettings, backdropSrc, backdropSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, enabledAssetIds, placedBlocks]);
+  }, [presetKey, customSize, gridSettings, maxScale, scaleFreq, bgColor, canvasBg, colorMode, paletteKey, shapeColors, bgColors, gradientSettings, meshSettings, glitchSettings, stripSettings, multiStripSettings, audioSettings, backdropSrc, backdropSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, halftoneSettings, voronoiSettings, spiralSettings, flowFieldSettings, fractalSettings, knotworkSettings, mondrianSettings, goldenSettings, activeLayoutId, enabledAssetIds, placedBlocks]);
 
   const handleExport = useCallback(async (options = {}) => {
     const {
@@ -1231,6 +1676,7 @@ const [autoFill, setAutoFill] = useState(false);
       transparentBackground = false,
       jpegQuality = 0.92,
       photoComposite = false,
+      includeWireframeLayer = false,
     } = options;
     if (!placedBlocks.length || !gridComputed) return;
 
@@ -1243,6 +1689,7 @@ const [autoFill, setAutoFill] = useState(false);
       canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled,
       colourRemap: imageColourRemap,
       backdropSrc, backdropSettings: effectiveBackdropSettings, blendMode,
+      includeWireframes: includeWireframeLayer,
     };
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -1425,6 +1872,7 @@ selectedIds={selectedIds}
           />
         )}
 
+        {appMode === 'gridBuilder' && (
         <FloatingPanel
           activeTool={activeTool}
           onToolChange={setActiveTool}
@@ -1492,6 +1940,37 @@ selectedIds={selectedIds}
           canGeometricFill={activeAssets.length > 0 && gridComputed !== null}
           geometricSettings={geometricSettings}
           onGeometricSettingsChange={handleGeometricSettingsChange}
+          onHalftoneFill={handleHalftoneFill}
+          canHalftoneFill={activeAssets.length > 0 && gridComputed !== null}
+          halftoneSettings={halftoneSettings}
+          onHalftoneSettingsChange={handleHalftoneSettingsChange}
+          onVoronoiFill={handleVoronoiFill}
+          canVoronoiFill={activeAssets.length > 0 && gridComputed !== null}
+          voronoiSettings={voronoiSettings}
+          onVoronoiSettingsChange={handleVoronoiSettingsChange}
+          onSpiralFill={handleSpiralFill}
+          canSpiralFill={activeAssets.length > 0 && gridComputed !== null}
+          spiralSettings={spiralSettings}
+          onSpiralSettingsChange={handleSpiralSettingsChange}
+          onFlowFieldFill={handleFlowFieldFill}
+          canFlowFieldFill={activeAssets.length > 0 && gridComputed !== null}
+          flowFieldSettings={flowFieldSettings}
+          onFlowFieldSettingsChange={handleFlowFieldSettingsChange}
+          onFractalFill={handleFractalFill}
+          canFractalFill={activeAssets.length > 0 && gridComputed !== null}
+          fractalSettings={fractalSettings}
+          onFractalSettingsChange={handleFractalSettingsChange}
+          onMondrianFill={handleMondrianFill}
+          canMondrianFill={activeAssets.length > 0 && gridComputed !== null}
+          mondrianSettings={mondrianSettings}
+          onMondrianSettingsChange={handleMondrianSettingsChange}
+          onGoldenFill={handleGoldenFill}
+          canGoldenFill={activeAssets.length > 0 && gridComputed !== null}
+          goldenSettings={goldenSettings}
+          onGoldenSettingsChange={handleGoldenSettingsChange}
+          activeLayoutId={activeLayoutId}
+          onApplyLayout={handleApplyLayout}
+          onClearLayout={handleClearLayout}
           onExport={handleExport}
           workArea={workArea}
           onSaveProject={handleSaveProject}
@@ -1550,7 +2029,48 @@ selectedIds={selectedIds}
           onFlipH={handleFlipH}
           onFlipV={handleFlipV}
           canFlip={placedBlocks.length > 0}
+          appMode={appMode}
+          onAppModeChange={setAppMode}
         />
+        )}
+
+        {appMode === 'knotwork' && (
+          <KnotworkPanel
+            appMode={appMode}
+            onAppModeChange={setAppMode}
+            knotworkSettings={knotworkSettings}
+            onKnotworkSettingsChange={handleKnotworkSettingsChange}
+            onKnotworkFill={handleKnotworkFill}
+            canKnotworkFill={gridComputed !== null}
+            onKnotworkRecolour={handleKnotworkRecolour}
+            canKnotworkRecolour={placedBlocks.length > 0}
+            themePreview={knotworkThemeColors}
+            presetKey={presetKey}
+            onPresetChange={setPresetKey}
+            customSize={customSize}
+            onCustomSizeChange={setCustomSize}
+            gridSettings={gridSettings}
+            onGridSettingsChange={handleGridSettingsChange}
+            gridComputed={gridComputed}
+            validCols={validCols}
+            paletteKey={paletteKey}
+            onPaletteKeyChange={handleKnotworkPaletteSelect}
+            customPalettes={customPalettes}
+            onApplyCustomPalette={handleKnotworkCustomPaletteSelect}
+            onDeleteCustomPalette={handleDeleteCustomPalette}
+            bgColor={bgColor}
+            onBgColorChange={setBgColor}
+            canvasBg={canvasBg}
+            onCanvasBgChange={handleKnotworkCanvasBgChange}
+            backdropSrc={backdropSrc}
+            onBackdropSrcChange={setBackdropSrc}
+            backdropSettings={backdropSettings}
+            onBackdropSettingsChange={handleBackdropSettingsChange}
+            onExport={handleExport}
+            canExport={placedBlocks.length > 0}
+            workArea={workArea}
+          />
+        )}
     </div>
   );
 }
