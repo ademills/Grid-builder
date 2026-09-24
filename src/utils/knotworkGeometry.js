@@ -129,3 +129,49 @@ export function compileClosedKnotworkPath(points, radius) {
   cmds.push('Z');
   return cmds.join(' ');
 }
+
+function directionOf(a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const l = Math.hypot(dx, dy) || 1;
+  return { x: dx / l, y: dy / l };
+}
+
+// True for a path endpoint, or any vertex where the incoming and outgoing
+// directions differ -- i.e. exactly the set of vertices compileKnotworkPath
+// would fillet (or cap, at the endpoints). addTensionWobble below never
+// inserts a point next to one of these, so it can never perturb a fillet's
+// angle or a cap's direction.
+function isCornerVertex(points, i) {
+  if (i <= 0 || i >= points.length - 1) return true;
+  const dIn = directionOf(points[i - 1], points[i]);
+  const dOut = directionOf(points[i], points[i + 1]);
+  return Math.abs(dIn.x - dOut.x) > 1e-6 || Math.abs(dIn.y - dOut.y) > 1e-6;
+}
+
+// Inserts a small perpendicular-offset point at the midpoint of each
+// interior straight-run segment -- one whose both endpoints are themselves
+// non-corner vertices -- to give strands a hand-drawn "tension" instead of
+// mechanically uniform straight lines. Never touches an existing point, so
+// every corner vertex and path endpoint compileKnotworkPath sees is
+// byte-identical to the tension=0 case; only brand-new inserted points
+// carry the offset. Those new points do introduce a (tiny) turn angle of
+// their own, which compileKnotworkPath fillets automatically using the
+// same shared radius as everything else -- at these near-straight angles
+// that resolves to a very gentle, wide arc rather than a sharp kink, which
+// is what actually reads as "wobble" rather than "zigzag".
+export function addTensionWobble(points, tension, cellSize, rng) {
+  if (points.length < 3 || tension <= 0) return points;
+  const maxOffset = cellSize * 0.18 * tension;
+  const out = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    if (!isCornerVertex(points, i - 1) && !isCornerVertex(points, i)) {
+      const dir = directionOf(a, b);
+      const px = -dir.y, py = dir.x;
+      const offset = (rng() * 2 - 1) * maxOffset;
+      out.push({ x: (a.x + b.x) / 2 + px * offset, y: (a.y + b.y) / 2 + py * offset });
+    }
+    out.push(b);
+  }
+  return out;
+}

@@ -1,8 +1,9 @@
-# Grid Builder
+# Mills Pattern Studio
 
-A Windows desktop app for building pattern/grid artwork from a library of SVG
-shapes. Lay shapes out on a grid, colourize them with random/uniform/gradient/
-image palettes, animate them, and export the result as SVG.
+A Windows desktop app for building pattern artwork. Two modes share one
+canvas: **Grid Builder** mode packs a library of SVG shapes onto a
+configurable grid and colourizes/animates them; **Meander** mode generates
+Celtic/Kufic-style knot and key patterns from a seeded procedural walker.
 
 Built with React 19 + Vite, packaged as a native Windows app with
 [Tauri 2](https://v2.tauri.app/).
@@ -20,6 +21,7 @@ Built with React 19 + Vite, packaged as a native Windows app with
   colours, per-block context menu actions
 - **Export** — export the finished pattern as an SVG file
 - **Project save/load** — persist and restore a layout
+- **Meander mode** — a separate generative-pattern mode: seeded meander/key walker with adjustable density, symmetry (mirror/rotate/kaleidoscope), strand width and roundness, word/name-seeded designs, image-sampled strand colour, and single-motif seamless tiling
 
 ## Development
 

@@ -22,6 +22,12 @@
 // non-square canvas -- gets mopped up by a final unrestricted pass
 // identical to the plain none algorithm, so coverage is always complete
 // even where the symmetry is not perfectly exact.
+//
+// An optional textMaskCells set (knotworkTextMask.js, "weave as letters")
+// adds a third pass ahead of both of the above: confined to the mask the
+// same way the symmetry pass is confined to its seed region, so a word's
+// letterforms get claimed first and read clearly, with the symmetry pass
+// and mop-up filling in whatever is left exactly as they already do.
 // Core-zone cells are always walled off too, since the ring+cross template
 // (knotworkCoreTemplate.js) owns that area.
 
@@ -107,6 +113,11 @@ export function computeKnotworkMeanderStrands(gridComputed, settings) {
     wallDensity = 0.08,
     symmetryMode = "none",
     kaleidoscopeFold = 4,
+    // Set<"col,row"> of cells a "weave as letters" text mask wants covered
+    // first (knotworkTextMask.js), or null/undefined when the feature is
+    // off. Claimed before the symmetry pass and the general mop-up, both
+    // of which already respect whatever is pre-claimed.
+    textMaskCells = null,
   } = settings;
 
   const rng = mulberry32(seed);
@@ -139,6 +150,42 @@ export function computeKnotworkMeanderStrands(gridComputed, settings) {
   const paths = [];
   const singleCellDots = [];
   const targetVisited = Math.round(meanderCells.length * density);
+
+  // Letters-first pass: confined to textMaskCells the same way the
+  // symmetry pass below is confined to its seed region -- blocked = walls
+  // plus every meander cell outside the mask, so a walk can never wander
+  // out of the letterform and blur its edges. Runs before the symmetry
+  // pass and the general mop-up, both of which already treat whatever is
+  // pre-claimed here as unavailable, so this composes with either.
+  if (textMaskCells && textMaskCells.size) {
+    const letterCells = meanderCells.filter(function (cell) { return textMaskCells.has(cellKey(cell.col, cell.row)); });
+    const outsideLetters = new Set();
+    for (const cell of meanderCells) {
+      if (!textMaskCells.has(cellKey(cell.col, cell.row))) outsideLetters.add(cellKey(cell.col, cell.row));
+    }
+    const lettersBlocked = new Set([...walls, ...outsideLetters]);
+
+    let letterClaimedCount = 0;
+    let guardLetters = letterCells.length + 10;
+    while (letterClaimedCount < letterCells.length && guardLetters-- > 0) {
+      const starts = letterCells.filter(function (cell) {
+        return !claimed.has(cellKey(cell.col, cell.row)) && !lettersBlocked.has(cellKey(cell.col, cell.row));
+      });
+      if (!starts.length) break;
+      const start = starts[Math.floor(rng() * starts.length)];
+      const path = walkStrand(start, cols, rows, zones, lettersBlocked, claimed, rng, straightBias, minStraightRun, maxSteps);
+      letterClaimedCount += path.length;
+      if (path.length >= 2) paths.push(path);
+      else singleCellDots.push(path[0]);
+    }
+  }
+  // Everything pushed to `paths`/`singleCellDots` above (if anything) came
+  // from the letters pass; the symmetry pass and mop-up below only ever
+  // append after this point. Recording the counts here lets the compose
+  // step (knotworkCompose.js) tell letter strands/dots apart from general
+  // ones by index alone, with no extra bookkeeping through the walk.
+  const letterPathCount = paths.length;
+  const letterDotCount = singleCellDots.length;
 
   if (transforms.length) {
     const seedCells = meanderCells.filter(function (cell) { return seedTest(cell.col, cell.row, cols, rows); });
@@ -182,7 +229,7 @@ export function computeKnotworkMeanderStrands(gridComputed, settings) {
     else singleCellDots.push(path[0]);
   }
 
-  return { paths: paths, singleCellDots: singleCellDots };
+  return { paths: paths, singleCellDots: singleCellDots, letterPathCount: letterPathCount, letterDotCount: letterDotCount };
 }
 
 export function compileKnotworkMeanderStrands(paths, gridComputed, radius) {

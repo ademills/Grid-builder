@@ -656,7 +656,7 @@
   color: #4d34d3;
 }
 
-/* -- App-level mode tab switcher (Grid Builder / Knotwork) -- deliberately
+/* -- App-level mode tab switcher (Grid Builder / Meander) -- deliberately
    its own compact class rather than reusing .modeToggle/.modeBtn, since
    those wrap onto a second row once label text like "Grid Builder" no
    longer fits a shrunk flex item, doubling the block's height. */

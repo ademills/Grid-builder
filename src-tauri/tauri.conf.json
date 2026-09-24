@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Grid Builder",
+  "productName": "Mills Pattern Studio",
   "version": "1.0.0",
   "identifier": "com.ademills.gridbuilder",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Grid Builder",
+        "title": "Mills Pattern Studio",
         "width": 1400,
         "height": 900,
         "resizable": true,

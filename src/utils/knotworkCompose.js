@@ -19,8 +19,10 @@
 import { computeKnotworkMeanderStrands } from './knotworkMeanderStrand';
 import { buildCoreMeanderWeave } from './knotworkCoreMeanderWeave';
 import { computeCelticCoreLoops, renderCelticCoreMarkup } from './knotworkCelticCore';
-import { knotworkPathToPixels, compileKnotworkPath } from './knotworkGeometry';
+import { knotworkPathToPixels, compileKnotworkPath, addTensionWobble } from './knotworkGeometry';
 import { mulberry32 } from './rng';
+import { sampleStrandColours } from './knotworkImageSample';
+import { computeTextMaskCells, computeScatteredTextMask } from './knotworkTextMask';
 
 // Fisher-Yates shuffle of the strand colour list, seeded so the same
 // colorSeed always reassigns colours the same way -- lets the Recolour
@@ -217,6 +219,50 @@ export function composeKnotworkSvg(gridComputed, settings) {
     // gives that same several-interlocking-cords read.
     palette = [fg],
     colorSeed = 0,
+    // 'palette' (default): strandColors below cycle through palette.
+    // 'image': strand colour is sampled from imagePixels instead, once
+    // per strand (averaged over a few points along its path) -- see
+    // sampleStrandColours in knotworkImageSample.js.
+    inkMode = 'palette',
+    imagePixels = null,
+    imageFit = 'cover',
+    // Per-strand stroke-width variance (0-1, fraction of strandStrokeWidth
+    // each strand's own width can drift by) and perpendicular wobble
+    // amount (0-1) applied along straight runs only -- see strandWidths
+    // and addTensionWobble below.
+    widthJitter = 0,
+    tension = 0,
+    // "Weave as letters" -- see computeTextMaskCells (knotworkTextMask.js)
+    // and the letters-first pass in computeKnotworkMeanderStrands.
+    // seedWord is the same text the Seed field's word-hash uses; reused
+    // here as the letterform source rather than a separate text input.
+    seedWord = '',
+    weaveAsLetters = false,
+    letterSize = 0.7,
+    // 'line' (default): one rasterized line of text, width-fit to the
+    // grid (computeTextMaskCells). 'scatter': each letter rasterized and
+    // sized independently, placed at a random row in left-to-right order
+    // (computeScatteredTextMask) -- see letterArrangementSeed below.
+    letterLayout = 'scatter',
+    // Drives per-letter size/position in scatter layout only. Always
+    // re-randomized on Fill (App.jsx handleKnotworkFill), unlike seed --
+    // deliberately NOT reproduced from the word hash, so the same word
+    // scatters differently each time you hit Fill.
+    letterArrangementSeed = 0,
+    // Scatter-mode fine controls (see computeScatteredTextMask):
+    // randomSize/randomPlacement off pin that axis to a fixed value
+    // instead of drawing from the RNG; align sets where the run of
+    // letters starts horizontally once sizes are known.
+    letterRandomSize = true,
+    letterRandomPlacement = true,
+    letterAlign = 'center',
+    // Fixed colour for the word's own strands, chosen from the active
+    // palette in the UI -- null falls back to fg. letterColourExclusive
+    // removes it from the pool the rest of the design cycles through, so
+    // it reads as unique to the word rather than just also turning up
+    // elsewhere by coincidence of the normal palette cycle.
+    letterColour = null,
+    letterColourExclusive = false,
   } = settings;
 
   // On small grids a fixed coreRadius can swallow almost the whole canvas,
@@ -234,13 +280,37 @@ export function composeKnotworkSvg(gridComputed, settings) {
   const strandStrokeWidth = cellSize * strandWidthRatio;
   const radius = (cellSize / 2) * roundness;
   const strandJoin = roundness > 0 ? 'round' : 'miter';
+  // Computed once, synchronously -- rasterizing text is cheap and
+  // doesn't need the async image-loading path imagePixels does.
+  const textMaskCells = weaveAsLetters && seedWord
+    ? (letterLayout === 'scatter'
+      ? computeScatteredTextMask(gridComputed, seedWord, letterSize, mulberry32(letterArrangementSeed || 1), { randomSize: letterRandomSize, randomPlacement: letterRandomPlacement, align: letterAlign })
+      : computeTextMaskCells(gridComputed, seedWord, letterSize))
+    : null;
 
-  const { paths: strandPaths, singleCellDots } = computeKnotworkMeanderStrands(gridComputed, {
+  const { paths: strandPaths, singleCellDots, letterPathCount, letterDotCount } = computeKnotworkMeanderStrands(gridComputed, {
     seed, coreRadius, density, straightBias, minStraightRun, wallDensity, symmetryMode, kaleidoscopeFold,
+    textMaskCells,
   });
+
+  // Independent RNG stream from the geometry walk's own mulberry32(seed)
+  // instance (that one is closed over inside computeKnotworkMeanderStrands
+  // and already exhausted by the time it returns) -- keyed off the same
+  // seed so width jitter is still fully deterministic and reproducible,
+  // but XORed so it doesn't just replay the same draw sequence. Seeded off
+  // seed (not colorSeed) so per-strand width stays stable across a
+  // Recolour, which only ever changes colorSeed.
+  const widthRng = mulberry32(seed ^ 0x9e3779b9);
+  const strandWidths = strandPaths.map(() =>
+    strandStrokeWidth * (1 + (widthRng() * 2 - 1) * widthJitter)
+  );
+
   const strandMergeInfo = strandPaths.map(findSelfMergeEnds);
   const strandPixelPointsList = strandPaths.map(path => knotworkPathToPixels(path, gridComputed));
-  const compiledStrands = strandPixelPointsList.map((pts, i) => {
+  const wobbledPointsList = tension > 0
+    ? strandPixelPointsList.map(pts => addTensionWobble(pts, tension, cellSize, widthRng))
+    : strandPixelPointsList;
+  const compiledStrands = wobbledPointsList.map((pts, i) => {
     const { startMerge, endMerge } = strandMergeInfo[i];
     const extended = extendForMerge(pts, cellSize, startMerge, endMerge);
     return compileKnotworkPath(extended, radius);
@@ -261,9 +331,31 @@ export function composeKnotworkSvg(gridComputed, settings) {
       )
     : { barUnderLayers: [], ringOverLayers: [], barOverLayers: [] };
 
-  const strandColors = colorSeed
-    ? shuffleColors(palette.length ? palette : [fg], colorSeed)
-    : (palette.length ? palette : [fg]);
+  // Letter strands/dots (the first letterPathCount/letterDotCount entries
+  // of strandPaths/singleCellDots -- see computeKnotworkMeanderStrands)
+  // get a fixed colour when "weave as letters" is on; everything else
+  // still cycles through the palette exactly as before, optionally with
+  // that colour removed from the cycle (letterColourExclusive) so it
+  // reads as unique to the word rather than a coincidence of the cycle.
+  const basePalette = palette.length ? palette : [fg];
+  const hasLetterOverride = weaveAsLetters && letterPathCount > 0;
+  const effectiveLetterColour = letterColour || fg;
+  const generalPaletteRaw = (hasLetterOverride && letterColourExclusive)
+    ? basePalette.filter(c => c !== effectiveLetterColour)
+    : basePalette;
+  const generalPalette = generalPaletteRaw.length ? generalPaletteRaw : basePalette;
+
+  const imageColours = (inkMode === 'image' && imagePixels)
+    ? sampleStrandColours(strandPixelPointsList, imagePixels, cols * cellSize, rows * cellSize, imageFit, generalPalette)
+    : null;
+  const shuffledPalette = colorSeed ? shuffleColors(generalPalette, colorSeed) : generalPalette;
+  const generalColourAt = i => (imageColours && imageColours.length)
+    ? imageColours[i % imageColours.length]
+    : shuffledPalette[i % shuffledPalette.length];
+
+  const strandColors = strandPaths.map((_, i) =>
+    (hasLetterOverride && i < letterPathCount) ? effectiveLetterColour : generalColourAt(i)
+  );
 
   // Base strokes always use a plain flush (butt) cap now -- the actual
   // end-cap shape is drawn separately below via capPathD, since native
@@ -271,20 +363,20 @@ export function composeKnotworkSvg(gridComputed, settings) {
   let strandMarkup = '';
   compiledStrands.forEach((d, i) => {
     const strandColor = strandColors[i % strandColors.length];
-    strandMarkup += `<path d="${d}" stroke="${strandColor}" stroke-width="${strandStrokeWidth}" fill="none" stroke-linecap="butt" stroke-linejoin="${strandJoin}" />`;
+    strandMarkup += `<path d="${d}" stroke="${strandColor}" stroke-width="${strandWidths[i]}" fill="none" stroke-linecap="butt" stroke-linejoin="${strandJoin}" />`;
   });
 
   let capMarkupStr = '';
-  strandPixelPointsList.forEach((pts, i) => {
+  wobbledPointsList.forEach((pts, i) => {
     if (pts.length < 2) return;
     const strandColor = strandColors[i % strandColors.length];
     const { startMerge, endMerge } = strandMergeInfo[i];
     if (!startMerge) {
-      const startCap = capPathD(pts[0], pts[1], strandStrokeWidth, radius);
+      const startCap = capPathD(pts[0], pts[1], strandWidths[i], radius);
       if (startCap) capMarkupStr += `<path d="${startCap}" fill="${strandColor}" />`;
     }
     if (!endMerge) {
-      const endCap = capPathD(pts[pts.length - 1], pts[pts.length - 2], strandStrokeWidth, radius);
+      const endCap = capPathD(pts[pts.length - 1], pts[pts.length - 2], strandWidths[i], radius);
       if (endCap) capMarkupStr += `<path d="${endCap}" fill="${strandColor}" />`;
     }
   });
@@ -298,10 +390,14 @@ export function composeKnotworkSvg(gridComputed, settings) {
   // isolated cell reads as the same visual weight as the connected
   // strands -- a stub of the same "line", not a separate smaller dot.
   let cellDotsMarkup = '';
-  const cellDotRadius = strandStrokeWidth / 2;
   singleCellDots.forEach(({ col, row }, i) => {
     const [{ x, y }] = knotworkPathToPixels([{ col, row }], gridComputed);
-    const dotColor = strandColors[i % strandColors.length];
+    const dotColor = (hasLetterOverride && i < letterDotCount) ? effectiveLetterColour : generalColourAt(i);
+    // Reuses the same per-strand width sequence (cyclically) rather than
+    // drawing fresh from widthRng, so a dot's size still varies with
+    // widthJitter without needing its own RNG draw index.
+    const dotWidth = strandWidths.length ? strandWidths[i % strandWidths.length] : strandStrokeWidth;
+    const cellDotRadius = dotWidth / 2;
     const innerCorner = Math.min(radius, cellDotRadius);
     cellDotsMarkup += `<rect x="${fmt(x - cellDotRadius)}" y="${fmt(y - cellDotRadius)}" width="${fmt(cellDotRadius * 2)}" height="${fmt(cellDotRadius * 2)}" rx="${fmt(innerCorner)}" ry="${fmt(innerCorner)}" fill="${dotColor}" />`;
   });
@@ -315,7 +411,7 @@ export function composeKnotworkSvg(gridComputed, settings) {
   let dotsMarkup = '';
   if (showTerminalDots) {
     const dotRadius = strandStrokeWidth * 0.15;
-    strandPixelPointsList.forEach((pts, i) => {
+    wobbledPointsList.forEach((pts, i) => {
       const { startMerge, endMerge } = strandMergeInfo[i];
       const first = pts[0], last = pts[pts.length - 1];
       if (!startMerge) dotsMarkup += `<circle cx="${first.x}" cy="${first.y}" r="${dotRadius}" fill="${bg}" />`;

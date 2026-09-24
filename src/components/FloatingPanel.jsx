@@ -621,7 +621,7 @@ export function FloatingPanel({
             <button
               className={`${styles.appModeBtn} ${appMode === 'knotwork' ? styles.appModeBtnActive : ''}`}
               onClick={() => onAppModeChange('knotwork')}
-            >Knotwork</button>
+            >Meander</button>
           </div>
         )}
 

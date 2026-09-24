@@ -34,7 +34,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Grid Builder v__VERSION__'
+          releaseName: 'Mills Pattern Studio v__VERSION__'
           releaseBody: 'See the assets below to download and install.'
           releaseDraft: true
           prerelease: false

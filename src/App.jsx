@@ -441,9 +441,12 @@ function App() {
   }, []);
 
   const validCols = useMemo(
-    () => getValidCols(workArea, gridSettings.borderPct),
+    // Meander mode gets a higher column ceiling than Grid Builder mode --
+    // fine-grained letter placement (knotworkTextMask.js) benefits from
+    // more columns than the shape-grid side typically needs.
+    () => getValidCols(workArea, gridSettings.borderPct, appMode === 'knotwork' ? 160 : 80),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workArea.width, workArea.height, gridSettings.borderPct]
+    [workArea.width, workArea.height, gridSettings.borderPct, appMode]
   );
 
   useEffect(() => {
@@ -687,10 +690,37 @@ function App() {
     strandWidthRatio: 0.86,
     showTerminalDots: false, roundness: 1,
     seed: Math.floor(Math.random() * 0x80000000), colorSeed: 0,
+    // Display-only: the word/phrase last used to derive `seed` via hashSeed,
+    // so reopening the panel shows the word rather than just its hash.
+    seedWord: '',
+    // 'palette': strandColors cycle through the active palette (default,
+    // unchanged behaviour). 'image': strand colour is sampled from
+    // knotworkImagePixels instead -- see buildKnotworkBlock.
+    inkMode: 'palette',
+    // Per-strand stroke-width variance (0-1) and perpendicular wobble
+    // amount (0-1) -- see composeKnotworkSvg's strandWidths/tension handling.
+    // Currently disabled in the UI (KnotworkPanel) while the look is
+    // refined -- left wired through App.jsx/knotworkCompose.js so nothing
+    // else needs to change when they're re-enabled.
+    widthJitter: 0, tension: 0,
+    // 'Weave as letters' -- see computeTextMaskCells (knotworkTextMask.js).
+    // 'line'|'scatter' -- see composeKnotworkSvg. letterArrangementSeed
+    // drives scatter-mode per-letter size/position only, and is always
+    // re-randomized on Fill (handleKnotworkFill) regardless of seedWord --
+    // deliberately not tied to the word hash, unlike everything else here.
+    letterLayout: 'scatter',
+    letterArrangementSeed: Math.floor(Math.random() * 0x80000000),
+    letterRandomSize: true, letterRandomPlacement: true, letterAlign: 'center',
+    weaveAsLetters: false, letterSize: 0.7,
+    letterColour: null, letterColourExclusive: false,
   });
   const handleKnotworkSettingsChange = useCallback((changes) => {
     setKnotworkSettings(prev => ({ ...prev, ...changes }));
   }, []);
+
+  // Single-motif seamless-tile preview toggle -- see tilePreviewDataUri
+  // below and the 3x3 preview rendered into Canvas's overlay slot.
+  const [showTilePreview, setShowTilePreview] = useState(false);
 
   const [mondrianSettings, setMondrianSettings] = useState({
     minSize: 2, splitVariance: 0.3,
@@ -1416,7 +1446,13 @@ const [autoFill, setAutoFill] = useState(false);
     fg: activePalette[0] ?? '#8a1f11',
     bg: canvasBg,
     palette: activePalette.length ? activePalette : ['#8a1f11'],
-  }), [activePalette, canvasBg]);
+    // Only wired through when inkMode is 'image' -- composeKnotworkSvg
+    // ignores these otherwise. backdropPixels is the same buffer the
+    // Palette Extractor already samples from (loaded whenever backdropSrc
+    // changes), reused here rather than re-downsampling the image again.
+    imagePixels: knotworkSettings.inkMode === 'image' ? backdropPixels : null,
+    imageFit: backdropSettings.fit,
+  }), [activePalette, canvasBg, knotworkSettings.inkMode, backdropPixels, backdropSettings.fit]);
 
   // Builds a placed image block for the given knotwork settings, confined
   // to the grid's own inset footprint (same cols/rows/border the preview
@@ -1440,11 +1476,17 @@ const [autoFill, setAutoFill] = useState(false);
 
   // Randomises the seed on every press rather than reusing whatever was
   // last set, so each click of Fill gives a fresh variation without
-  // needing to separately manage the seed field first.
+  // needing to separately manage the seed field first -- UNLESS a
+  // seedWord is set, in which case the whole point is that the same word
+  // always reproduces the same design, so the word-derived seed already in
+  // knotworkSettings.seed is left alone.
   const handleKnotworkFill = useCallback(() => {
     if (!gridComputed) return;
-    const seed = Math.floor(Math.random() * 0x80000000);
-    const nextSettings = { ...knotworkSettings, seed };
+    const seed = knotworkSettings.seedWord ? knotworkSettings.seed : Math.floor(Math.random() * 0x80000000);
+    // Unlike seed, this always re-rolls on Fill even when a word is set --
+    // the scatter layout is deliberately not reproduced from the word hash.
+    const letterArrangementSeed = Math.floor(Math.random() * 0x80000000);
+    const nextSettings = { ...knotworkSettings, seed, letterArrangementSeed };
     setKnotworkSettings(nextSettings);
     const block = buildKnotworkBlock({ ...nextSettings, ...knotworkThemeColors });
     if (!block) return;
@@ -1754,6 +1796,21 @@ const [autoFill, setAutoFill] = useState(false);
     }
   }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode]);
 
+  // Full-canvas data URI for the Meander single-motif tile preview --
+  // same buildFlatSvgElement path handleExport uses, so the preview always
+  // matches what Export actually produces (background + border margin +
+  // the knot block). Only computed while the preview is actually shown.
+  const tilePreviewDataUri = useMemo(() => {
+    if (appMode !== 'knotwork' || !showTilePreview || !placedBlocks.length || !gridComputed) return null;
+    const { svgEl } = buildFlatSvgElement({
+      placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
+      canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled,
+      colourRemap: imageColourRemap, backdropSrc, backdropSettings, blendMode,
+    });
+    const svgString = new XMLSerializer().serializeToString(svgEl);
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgString)}`;
+  }, [appMode, showTilePreview, placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode]);
+
   return (
     <div className={styles.app}>
         <Canvas
@@ -1767,19 +1824,35 @@ const [autoFill, setAutoFill] = useState(false);
           onMarqueeSelect={handleMarqueeSelect}
           onViewportResize={setViewportSize}
           overlay={
-            <SelectionToolbar
-              selectedBlocks={selectedBlocks}
-              viewTransform={viewTransform}
-              gridComputed={gridComputed}
-              colorMode={colorMode}
-              effectivePalette={activePalette}
-              bgOptions={activeBgColors}
-              onDelete={handleDeleteSelected}
-              onRefresh={handleRefreshSelected}
-              onRandomise={handleRandomiseSelected}
-              onSwap={handleSwapSelected}
-              onToggleLock={handleToggleLockSelected}
-            />
+            <>
+              <SelectionToolbar
+                selectedBlocks={selectedBlocks}
+                viewTransform={viewTransform}
+                gridComputed={gridComputed}
+                colorMode={colorMode}
+                effectivePalette={activePalette}
+                bgOptions={activeBgColors}
+                onDelete={handleDeleteSelected}
+                onRefresh={handleRefreshSelected}
+                onRandomise={handleRandomiseSelected}
+                onSwap={handleSwapSelected}
+                onToggleLock={handleToggleLockSelected}
+              />
+              {tilePreviewDataUri && (
+                <div className={styles.tilePreview}>
+                  <div className={styles.tilePreviewGrid}>
+                    {Array.from({ length: 9 }).map((_, i) => (
+                      <img key={i} src={tilePreviewDataUri} alt="" draggable={false} />
+                    ))}
+                  </div>
+                  {gridSettings.borderPct === 0 && (
+                    <div className={styles.tilePreviewHint}>
+                      Increase Border % so the pattern doesn't touch the tile edge
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           }
         >
           {backdropSrc && (
@@ -2069,6 +2142,8 @@ selectedIds={selectedIds}
             onExport={handleExport}
             canExport={placedBlocks.length > 0}
             workArea={workArea}
+            showTilePreview={showTilePreview}
+            onToggleTilePreview={() => setShowTilePreview(v => !v)}
           />
         )}
     </div>

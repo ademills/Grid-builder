@@ -11,6 +11,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { PRESETS } from '../gridPresets';
 import { PALETTES, PALETTE_GROUPS } from '../utils/colorize';
+import { hashSeed } from '../utils/textSeed';
 import styles from './FloatingPanel.module.css';
 
 function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues }) {
@@ -45,6 +46,7 @@ export function KnotworkPanel({
   bgColor, onBgColorChange, canvasBg, onCanvasBgChange,
   backdropSrc, onBackdropSrcChange, backdropSettings, onBackdropSettingsChange,
   onExport, canExport, workArea,
+  showTilePreview, onToggleTilePreview,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState('main');
@@ -87,7 +89,7 @@ export function KnotworkPanel({
       <div className={styles.header}>
         <div className={styles.titleRow}>
           <div className={styles.dot} />
-          {!collapsed && <span className={styles.title}>Knotwork</span>}
+          {!collapsed && <span className={styles.title}>Meander</span>}
         </div>
         <button
           className={styles.collapseBtn}
@@ -107,7 +109,7 @@ export function KnotworkPanel({
           <button
             className={`${styles.appModeBtn} ${appMode === 'knotwork' ? styles.appModeBtnActive : ''}`}
             onClick={() => onAppModeChange('knotwork')}
-          >Knotwork</button>
+          >Meander</button>
         </div>
       )}
 
@@ -204,7 +206,7 @@ export function KnotworkPanel({
             <div className={styles.formRowPair}>
               <div className={styles.stackedField}>
                 <span className={styles.label}>Columns</span>
-                <Stepper value={gridSettings.cols} onChange={v => onGridSettingsChange({ cols: v })} min={1} max={80} validValues={validCols} />
+                <Stepper value={gridSettings.cols} onChange={v => onGridSettingsChange({ cols: v })} min={1} max={160} validValues={validCols} />
               </div>
               <div className={styles.stackedField}>
                 <span className={styles.label}>Border</span>
@@ -361,6 +363,17 @@ export function KnotworkPanel({
                 <span className={styles.sliderVal}>{Math.round(backdropSettings.tintOpacity * 100)}%</span>
               </div>
             </div>
+
+            {backdropSrc && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Ink from image</span>
+              <button
+                className={`${styles.modeBtn} ${knotworkSettings.inkMode === 'image' ? styles.modeBtnActive : ''}`}
+                onClick={() => onKnotworkSettingsChange({ inkMode: knotworkSettings.inkMode === 'image' ? 'palette' : 'image' })}
+                title="Sample strand colour from this image instead of the palette"
+              >{knotworkSettings.inkMode === 'image' ? 'On' : 'Off'}</button>
+            </div>
+            )}
             </>)}
 
             <div className={styles.subHeading} style={{ marginTop: 12 }}>Knot generator</div>
@@ -432,6 +445,27 @@ export function KnotworkPanel({
             </div>
 
             <div className={styles.formRow}>
+              <span className={styles.label}>Width jitter</span>
+              <div className={styles.sliderRow}>
+                <input type="range" className={`${styles.slider} ${styles.sliderDisabled}`} min={0} max={1} step={0.05} disabled title="Coming back soon"
+                  value={knotworkSettings.widthJitter}
+                  onChange={e => onKnotworkSettingsChange({ widthJitter: +e.target.value })} />
+                <span className={styles.sliderVal}>{Math.round(knotworkSettings.widthJitter * 100)}%</span>
+              </div>
+            </div>
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Tension</span>
+              <div className={styles.sliderRow}>
+                <input type="range" className={`${styles.slider} ${styles.sliderDisabled}`} min={0} max={1} step={0.05} disabled title="Coming back soon"
+                  value={knotworkSettings.tension}
+                  onChange={e => onKnotworkSettingsChange({ tension: +e.target.value })} />
+                <span className={styles.sliderVal}>{Math.round(knotworkSettings.tension * 100)}%</span>
+              </div>
+            </div>
+
+
+            <div className={styles.formRow}>
               <span className={styles.label}>Terminal dots</span>
               <button
                 className={`${styles.modeBtn} ${knotworkSettings.showTerminalDots ? styles.modeBtnActive : ''}`}
@@ -440,13 +474,135 @@ export function KnotworkPanel({
             </div>
 
             <div className={styles.formRow}>
+              <span className={styles.label}>Name / word</span>
+              <input type="text" className={styles.numberInput} style={{ flex: 1 }}
+                placeholder="Type a word..."
+                value={knotworkSettings.seedWord}
+                onChange={e => {
+                  const seedWord = e.target.value;
+                  onKnotworkSettingsChange({ seedWord, seed: hashSeed(seedWord) });
+                }} />
+            </div>
+
+            {knotworkSettings.seedWord && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Weave as letters</span>
+              <button
+                className={`${styles.modeBtn} ${knotworkSettings.weaveAsLetters ? styles.modeBtnActive : ''}`}
+                onClick={() => onKnotworkSettingsChange({ weaveAsLetters: !knotworkSettings.weaveAsLetters })}
+                title="Fill the word's letterforms first, then the rest of the grid as usual"
+              >{knotworkSettings.weaveAsLetters ? 'On' : 'Off'}</button>
+            </div>
+            )}
+
+            {knotworkSettings.seedWord && knotworkSettings.weaveAsLetters && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Layout</span>
+              <div className={styles.modeToggle}>
+                {[
+                  { key: 'scatter', label: 'Scattered' },
+                  { key: 'line',    label: 'Line' },
+                ].map(({ key, label }) => (
+                  <button key={key}
+                    className={`${styles.modeBtn} ${knotworkSettings.letterLayout === key ? styles.modeBtnActive : ''}`}
+                    onClick={() => onKnotworkSettingsChange({ letterLayout: key })}
+                  >{label}</button>
+                ))}
+              </div>
+            </div>
+            )}
+
+            {knotworkSettings.seedWord && knotworkSettings.weaveAsLetters && knotworkSettings.letterLayout === 'scatter' && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Random size</span>
+              <button
+                className={`${styles.modeBtn} ${knotworkSettings.letterRandomSize ? styles.modeBtnActive : ''}`}
+                onClick={() => onKnotworkSettingsChange({ letterRandomSize: !knotworkSettings.letterRandomSize })}
+                title="Each letter draws its own random size, or off for one shared size"
+              >{knotworkSettings.letterRandomSize ? 'On' : 'Off'}</button>
+            </div>
+            )}
+
+            {knotworkSettings.seedWord && knotworkSettings.weaveAsLetters && knotworkSettings.letterLayout === 'scatter' && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Random placement</span>
+              <button
+                className={`${styles.modeBtn} ${knotworkSettings.letterRandomPlacement ? styles.modeBtnActive : ''}`}
+                onClick={() => onKnotworkSettingsChange({ letterRandomPlacement: !knotworkSettings.letterRandomPlacement })}
+                title="Each letter lands on a random row, or off to centre them all on one row"
+              >{knotworkSettings.letterRandomPlacement ? 'On' : 'Off'}</button>
+            </div>
+            )}
+
+            {knotworkSettings.seedWord && knotworkSettings.weaveAsLetters && knotworkSettings.letterLayout === 'scatter' && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Alignment</span>
+              <div className={styles.modeToggle}>
+                {[
+                  { key: 'left',   label: 'Left' },
+                  { key: 'center', label: 'Centre' },
+                  { key: 'right',  label: 'Right' },
+                ].map(({ key, label }) => (
+                  <button key={key}
+                    className={`${styles.modeBtn} ${knotworkSettings.letterAlign === key ? styles.modeBtnActive : ''}`}
+                    onClick={() => onKnotworkSettingsChange({ letterAlign: key })}
+                  >{label}</button>
+                ))}
+              </div>
+            </div>
+            )}
+
+            {knotworkSettings.seedWord && knotworkSettings.weaveAsLetters && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Letter size</span>
+              <div className={styles.sliderRow}>
+                <input type="range" className={styles.slider} min={0.2} max={1} step={0.05}
+                  value={knotworkSettings.letterSize}
+                  onChange={e => onKnotworkSettingsChange({ letterSize: +e.target.value })} />
+                <span className={styles.sliderVal}>{Math.round(knotworkSettings.letterSize * 100)}%</span>
+              </div>
+            </div>
+            )}
+
+            {knotworkSettings.seedWord && knotworkSettings.weaveAsLetters && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Word colour</span>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
+                {(themePreview?.palette ?? []).map((c, i) => (
+                  <button key={i}
+                    onClick={() => onKnotworkSettingsChange({ letterColour: c })}
+                    title={c}
+                    style={{
+                      width: 20, height: 18, flex: '0 0 20px', cursor: 'pointer', border: 'none', padding: 0,
+                      borderRadius: 3, background: c,
+                      outline: (knotworkSettings.letterColour || themePreview?.fg) === c ? '2px solid #4d34d3' : '1px solid rgba(0,0,0,0.2)',
+                      outlineOffset: 1,
+                    }} />
+                ))}
+              </div>
+            </div>
+            )}
+
+            {knotworkSettings.seedWord && knotworkSettings.weaveAsLetters && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Colour exclusive to word</span>
+              <button
+                className={`${styles.modeBtn} ${knotworkSettings.letterColourExclusive ? styles.modeBtnActive : ''}`}
+                onClick={() => onKnotworkSettingsChange({ letterColourExclusive: !knotworkSettings.letterColourExclusive })}
+                title="Keep this colour only on the word's strands, or let the rest of the fill use it too"
+              >{knotworkSettings.letterColourExclusive ? 'On' : 'Off'}</button>
+            </div>
+            )}
+
+
+            <div className={styles.formRow}>
               <span className={styles.label}>Seed</span>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 <input type="number" className={styles.numberInput} style={{ width: 72 }}
                   value={knotworkSettings.seed}
-                  onChange={e => onKnotworkSettingsChange({ seed: +e.target.value || 0 })} />
+                  onChange={e => onKnotworkSettingsChange({ seed: +e.target.value || 0, seedWord: '' })} />
                 <button className={styles.actionBtn} title="Randomise seed"
-                  onClick={() => onKnotworkSettingsChange({ seed: Math.floor(Math.random() * 0x80000000) })}
+                  onClick={() => onKnotworkSettingsChange({ seed: Math.floor(Math.random() * 0x80000000), seedWord: '' })}
                 >&#8635;</button>
               </div>
             </div>
@@ -456,7 +612,7 @@ export function KnotworkPanel({
               style={{ width: '100%', marginTop: 12 }}
               onClick={onKnotworkFill}
               disabled={!canKnotworkFill}
-            >Fill -- Knotwork</button>
+            >Fill -- Meander</button>
 
             <button
               className={styles.actionBtn}
@@ -467,6 +623,15 @@ export function KnotworkPanel({
             >Recolour</button>
 
             <div className={styles.subHeading} style={{ marginTop: 16, borderTop: '1px dashed rgba(77,52,211,0.2)', paddingTop: 12 }}>Export</div>
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Seamless tile</span>
+              <button
+                className={`${styles.modeBtn} ${showTilePreview ? styles.modeBtnActive : ''}`}
+                onClick={onToggleTilePreview}
+                title="Preview the current design repeated as a single-motif tile"
+              >{showTilePreview ? 'On' : 'Off'}</button>
+            </div>
 
             <div className={styles.formRow}>
               <span className={styles.label}>Format</span>
