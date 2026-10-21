@@ -42,7 +42,7 @@ if (answer.trim().toLowerCase() !== 'y') {
   process.exit(0);
 }
 
-run('git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml');
+run('git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock');
 run(`git commit -m "Bump version to ${tag}"`);
 run('git push');
 run(`git tag ${tag}`);
