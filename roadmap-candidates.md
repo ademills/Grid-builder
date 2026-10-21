@@ -926,9 +926,10 @@ Help › Export Diagnostics writes logs, version and recent errors to a zip for 
 
 ## v1.2.0 first pass
 
-Chosen 2026-10-21. Scoped for v1.2.0, not built yet. Grouped by the code they touch.
+Chosen 2026-10-21. **Built and committed 2026-10-21; not released yet** (no tag pushed).
 
-1. **Block properties** (block data model, `projectFormat.js`, `PlacedBlocks.jsx`, Properties panel): 5.4 Per-block opacity → 3.13 Copy / paste / duplicate → 3.11 Info / Transform panel.
-2. **Canvas tools & view** (tool handlers in `DocumentEditor.jsx`, `Canvas.jsx`, View menu): 3.5 Zoom rectangle + Alt+scroll, 3.6 Eyedropper Alt+click, 7.4 Composition overlays.
-3. **Panels & generation** (`Dock.jsx`, mode registry, Generate panel): 1.9 Panel ☰ menus → 4.10 Surprise Me.
-4. **Shell & files** (`AppShell.jsx`, `fileIO.js`, Tauri capabilities, `HomeScreen.jsx`): 1.5 Window title, 1.4 Drag a file onto the window, 6.3 Swatch library thumbnails on Home.
+0. **Foundations:** 0.1 refactor verified in a native Tauri build and committed; 0.10 command registry. Also fixed: the desktop app never detected Tauri, so it used browser fallbacks for Save/Export, recent files, updates and the close prompt.
+1. **Block properties** (block data model, `projectFormat.js`, `PlacedBlocks.jsx`, Info panel): 5.4 Per-block opacity (plus random opacity on fills) → 3.13 Cut / copy / paste / duplicate → 3.11 Info panel. Add-on: 5.5 per-block blend modes.
+2. **Canvas tools & view** (tool handlers in `DocumentEditor.jsx`, `Canvas.jsx`, View menu): 3.5 Zoom rectangle + modifier-wheel zoom, 3.6 Eyedropper Alt+click, 7.4 Composition overlays. Add-ons: 3.10 rulers and guides, 6.1 recent colours.
+3. **Panels & generation** (`Dock.jsx`, mode registry, Generate panel): 1.9 Panel ☰ menus → 4.10 Surprise Me. Add-on: 4.12 consistent seed behaviour.
+4. **Shell & files** (`AppShell.jsx`, `fileDrop.js`, Tauri capabilities, `HomeScreen.jsx`): 1.5 Window title, 1.4 Drag a file onto the window, 6.3 Start from a palette on Home. Add-on: 1.15 templates on Home.
