@@ -2,6 +2,23 @@
   box-sizing: border-box;
 }
 
+/* Workspace chrome tokens (menu bar, tabs, tool bar, status bar, home).
+   Modelled on Illustrator's dark interface. */
+:root {
+  --chrome-bg: #323232;
+  --chrome-bg-raised: #3c3c3c;
+  --chrome-bg-sunken: #262626;
+  --chrome-bg-hover: #464646;
+  --chrome-border: #1c1c1c;
+  --chrome-text: #d9d9d9;
+  --chrome-text-dim: #9a9a9a;
+  --chrome-text-faint: #6e6e6e;
+  --chrome-accent: #7b61ff;
+  --chrome-accent-soft: rgba(123, 97, 255, 0.18);
+  --chrome-danger: #ff6b5e;
+  --pasteboard: #1f1f1f;
+}
+
 html, body, #root {
   margin: 0;
   padding: 0;
@@ -11,6 +28,7 @@ html, body, #root {
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
   color-scheme: dark;
+  background: var(--chrome-bg);
 }
 
 button {

@@ -464,6 +464,22 @@ function buildClassFillMap(root) {
   return map;
 }
 
+// The effective fill an element has in the source markup (attribute, inline
+// style or class), lower-cased; null when it has none.
+function readFill(el, classFillMap) {
+  const norm = (v) => {
+    const s = v.trim().toLowerCase();
+    if (/^#[0-9a-f]{3}$/.test(s)) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`;
+    return s;
+  };
+  const fill = el.getAttribute('fill');
+  if (fill && fill !== 'none' && fill !== 'transparent') return norm(fill);
+  const m = (el.getAttribute('style') || '').match(/\bfill\s*:\s*([^;'"]+)/);
+  if (m && m[1].trim() !== 'none' && m[1].trim() !== 'transparent') return norm(m[1]);
+  const cls = (el.getAttribute('class') || '').trim().split(/\s+/).find(c => classFillMap?.[c]);
+  return cls ? norm(classFillMap[cls]) : null;
+}
+
 function applyFill(el, color, classFillMap) {
   const fill  = el.getAttribute('fill');
   const style = el.getAttribute('style') || '';
@@ -535,6 +551,10 @@ function buildColorTemplate(svgContent) {
         [...root.querySelectorAll(SHAPE_SEL)].forEach((el, i) => slots.push({ el, group: 'all', indexInGroup: i }));
       }
 
+      // The colour each slot has in the source artwork — what 'none' colour
+      // mode shows, and the base that per-slot pins override.
+      const originalColours = slots.map(slot => readFill(slot.el, classFillMap));
+
       // Stamp each fillable element with a unique placeholder through the same
       // applyFill() codepath used at runtime, so it lands in whichever
       // mechanism (attribute / inline style / class override) the real colour
@@ -555,6 +575,10 @@ function buildColorTemplate(svgContent) {
         parts,
         slotMeta: slots.map(({ group, indexInGroup }) => ({ group, indexInGroup })),
         hasLayers,
+        originalColours,
+        // Slots that actually carry a fill in the markup (applyFill skips
+        // fill:none / unfilled elements, so those never get a placeholder).
+        paintable: [...new Set(parts.filter(p => typeof p === 'number'))],
       };
     }
   } catch {
@@ -681,14 +705,38 @@ function computeSlotColours(template, mode, palette, seed, colorOffset, bgOption
   return null;
 }
 
-export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgOptions = [], gradientPos = null, meshPos = null) {
-  if (mode === 'none') return svgContent;
+// Per-slot colours for a block in the given mode, with `pins` ({ slotIndex:
+// hex }) overriding individual slots. Falls back to the artwork's own colours
+// where the mode doesn't recolour. Returns null if the SVG can't be parsed.
+export function resolveSlotColours(svgContent, mode, palette, seed = 0, colorOffset = 0, bgOptions = [], gradientPos = null, meshPos = null, pins = null) {
+  const template = buildColorTemplate(svgContent);
+  if (!template) return null;
+  const computed = mode === 'none' || mode === 'image'
+    ? null
+    : computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos, meshPos);
+  const colours = computed ? [...computed] : [...template.originalColours];
+  if (pins) for (const [slot, hex] of Object.entries(pins)) if (hex) colours[+slot] = hex;
+  return colours;
+}
+
+// Paintable slot indices and original colours for an SVG (see buildColorTemplate).
+export function getColourTemplate(svgContent) {
+  return buildColorTemplate(svgContent);
+}
+
+export function colorizeSvg(svgContent, mode, palette, seed = 0, colorOffset = 0, bgOptions = [], gradientPos = null, meshPos = null, pins = null) {
+  const hasPins = pins && Object.keys(pins).length > 0;
+  if (mode === 'none' && !hasPins) return svgContent;
 
   const template = buildColorTemplate(svgContent);
   if (!template) return svgContent;
 
-  const colours = computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos, meshPos);
-  if (!colours) return svgContent;
+  let colours = mode === 'none' ? null : computeSlotColours(template, mode, palette, seed, colorOffset, bgOptions, gradientPos, meshPos);
+  if (!colours && !hasPins) return svgContent;
+  if (hasPins) {
+    colours = colours ? [...colours] : [...template.originalColours];
+    for (const [slot, hex] of Object.entries(pins)) if (hex) colours[+slot] = hex;
+  }
 
   const { parts } = template;
   let out = '';

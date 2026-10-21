@@ -84,6 +84,7 @@ export function useSelection({
     const svgX2 = (x2 - panX) / scale;
     const svgY2 = (y2 - panY) / scale;
     const hits = placedBlocks.filter(b => {
+      if (b.hidden || b.locked) return false; // see Layers panel
       const bx = gridOriginX + b.gridCol * cellSize;
       const by = gridOriginY + b.gridRow * cellSize;
       const bw = b.cols * cellSize;
@@ -95,7 +96,7 @@ export function useSelection({
 
   const handleDeleteSelected = useCallback(() => {
     pushHistory(placedBlocks);
-    setPlacedBlocks(prev => prev.filter(b => !selectedIds.has(b.id)));
+    setPlacedBlocks(prev => prev.filter(b => !selectedIds.has(b.id) || b.locked));
     setSelectedIds(new Set());
     syncHistorySize();
   }, [selectedIds, placedBlocks, pushHistory, setPlacedBlocks, syncHistorySize]);

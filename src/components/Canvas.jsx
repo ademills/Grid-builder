@@ -1,7 +1,13 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import styles from './Canvas.module.css';
 
-export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, onViewportResize, overlay, children }) {
+const DEFAULT_VIEW = { x: 0, y: 0, scale: 1 };
+
+// Tools the canvas handles itself; every other tool's clicks and drags are
+// reported through onToolPointer in artboard coordinates.
+const NAV_TOOLS = new Set(['select', 'hand', 'zoom']);
+
+export function Canvas({ viewTransform, needsFit = true, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, onViewportResize, onToolPointer, overlay, children }) {
   const containerRef = useRef(null);
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
@@ -12,13 +18,35 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
   const suppressClick = useRef(false);
   const [marqueeRect, setMarqueeRect] = useState(null);
 
+  // Editing-tool drag state, plus the latest view for converting pointer
+  // positions to artboard coordinates inside event handlers.
+  const toolDown = useRef(false);
+  const viewRef = useRef(viewTransform);
+  useEffect(() => { viewRef.current = viewTransform; }, [viewTransform]);
+  const toArtboard = useCallback((e) => {
+    const rect = containerRef.current.getBoundingClientRect();
+    const v = viewRef.current;
+    return {
+      x: (e.clientX - rect.left - v.x) / v.scale,
+      y: (e.clientY - rect.top - v.y) / v.scale,
+      altKey: e.altKey, shiftKey: e.shiftKey,
+    };
+  }, []);
+
   const width  = workArea?.width  ?? 800;
   const height = workArea?.height ?? 600;
 
-  // Fit the work area to the viewport on mount / when dimensions change
+  // Fit the work area to the viewport when the document has no saved view
+  // yet, and whenever the work area's dimensions change. A document that
+  // already has a view (e.g. switching back to its tab) keeps it.
+  const fittedDims = useRef(null);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    const dims = `${width}x${height}`;
+    const isFirst = fittedDims.current === null;
+    fittedDims.current = dims;
+    if (isFirst && !needsFit) return;
     const { width: vw, height: vh } = el.getBoundingClientRect();
     const padding = 80;
     const scale = Math.min((vw - padding * 2) / width, (vh - padding * 2) / height, 1);
@@ -27,6 +55,7 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
       y: (vh - height * scale) / 2,
       scale,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- needsFit is only consulted on first run
   }, [width, height, setViewTransform]);
 
   // Report the container's on-screen pixel size so callers can derive which
@@ -51,7 +80,8 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-      setViewTransform(prev => {
+      setViewTransform(stored => {
+        const prev = stored ?? DEFAULT_VIEW;
         const newScale = Math.min(Math.max(prev.scale * factor, 0.05), 20);
         const sf = newScale / prev.scale;
         return {
@@ -67,6 +97,11 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
 
   const handleMouseDown = useCallback((e) => {
     if (e.button !== 0) return;
+    if (!NAV_TOOLS.has(activeTool)) {
+      toolDown.current = true;
+      onToolPointer?.('down', toArtboard(e));
+      return;
+    }
     if (activeTool === 'hand') {
       isPanning.current = true;
       lastMouse.current = { x: e.clientX, y: e.clientY };
@@ -78,14 +113,18 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
       marqueeActive.current = false;
       suppressClick.current = false;
     }
-  }, [activeTool]);
+  }, [activeTool, onToolPointer, toArtboard]);
 
   const handleMouseMove = useCallback((e) => {
+    if (toolDown.current) {
+      onToolPointer?.('move', toArtboard(e));
+      return;
+    }
     if (isPanning.current) {
       const dx = e.clientX - lastMouse.current.x;
       const dy = e.clientY - lastMouse.current.y;
       lastMouse.current = { x: e.clientX, y: e.clientY };
-      setViewTransform(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+      setViewTransform(stored => { const prev = stored ?? DEFAULT_VIEW; return { ...prev, x: prev.x + dx, y: prev.y + dy }; });
       return;
     }
     if (activeTool === 'select' && marqueeStart.current) {
@@ -104,10 +143,15 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
         });
       }
     }
-  }, [activeTool, setViewTransform]);
+  }, [activeTool, setViewTransform, onToolPointer, toArtboard]);
 
   const handleMouseUp = useCallback((e) => {
     isPanning.current = false;
+    if (toolDown.current) {
+      toolDown.current = false;
+      onToolPointer?.('up', toArtboard(e));
+      return;
+    }
     if (marqueeActive.current && marqueeStart.current) {
       const bounds = containerRef.current.getBoundingClientRect();
       const cx = e.clientX - bounds.left;
@@ -122,14 +166,15 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
     marqueeStart.current = null;
     marqueeActive.current = false;
     setMarqueeRect(null);
-  }, [onMarqueeSelect]);
+  }, [onMarqueeSelect, onToolPointer, toArtboard]);
 
   const stopAll = useCallback(() => {
+    if (toolDown.current) { toolDown.current = false; onToolPointer?.('up', null); }
     isPanning.current = false;
     marqueeStart.current = null;
     marqueeActive.current = false;
     setMarqueeRect(null);
-  }, []);
+  }, [onToolPointer]);
 
   const { x, y, scale } = viewTransform;
 
@@ -143,9 +188,22 @@ export function Canvas({ viewTransform, setViewTransform, activeTool, bgColor, c
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={stopAll}
-      onClick={() => {
+      onClick={(e) => {
         if (suppressClick.current) { suppressClick.current = false; return; }
         if (activeTool === 'select') onDeselectAll?.();
+        if (activeTool === 'zoom') {
+          // Zoom about the clicked point; Alt zooms out (as in Illustrator).
+          const rect = containerRef.current.getBoundingClientRect();
+          const cx = e.clientX - rect.left;
+          const cy = e.clientY - rect.top;
+          const factor = e.altKey ? 1 / 1.5 : 1.5;
+          setViewTransform(stored => {
+            const prev = stored ?? DEFAULT_VIEW;
+            const newScale = Math.min(Math.max(prev.scale * factor, 0.05), 20);
+            const sf = newScale / prev.scale;
+            return { scale: newScale, x: cx - (cx - prev.x) * sf, y: cy - (cy - prev.y) * sf };
+          });
+        }
       }}
     >
       <svg

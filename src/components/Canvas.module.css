@@ -23,3 +23,16 @@
   background: rgba(124, 58, 237, 0.08);
   border-radius: 2px;
 }
+
+.container[data-tool="zoom"] {
+  cursor: zoom-in;
+}
+
+/* Editing-tool cursors (hotspot = the working point of each tool). */
+.container[data-tool="wand"] { cursor: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cg%20stroke%3D%22%23fff%22%20stroke-width%3D%223%22%3E%3Cpath%20d%3D%22M4%2016L12.5%207.5%22%2F%3E%3Cpath%20d%3D%22M14%202.5v2.5M14%209v2.5M10.5%206h-2M19.5%206h-2%22%2F%3E%3C%2Fg%3E%3Cg%20stroke%3D%22%23111%22%20stroke-width%3D%221.4%22%3E%3Cpath%20d%3D%22M4%2016L12.5%207.5%22%2F%3E%3Cpath%20d%3D%22M14%202.5v2.5M14%209v2.5M10.5%206h-2M19.5%206h-2%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") 4 19, crosshair; }
+.container[data-tool="eyedropper"] { cursor: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cg%20stroke%3D%22%23fff%22%20stroke-width%3D%223%22%3E%3Cpath%20d%3D%22M13.5%203.5l3%203-2%202-1-1L7%2014H5v-2l6.5-6.5-1-1z%22%2F%3E%3Cpath%20d%3D%22M4%2016l1-2%22%2F%3E%3C%2Fg%3E%3Cg%20stroke%3D%22%23111%22%20stroke-width%3D%221.4%22%3E%3Cpath%20d%3D%22M13.5%203.5l3%203-2%202-1-1L7%2014H5v-2l6.5-6.5-1-1z%22%2F%3E%3Cpath%20d%3D%22M4%2016l1-2%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") 4 20, crosshair; }
+.container[data-tool="bucket"] { cursor: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cg%20stroke%3D%22%23fff%22%20stroke-width%3D%223%22%3E%3Cpath%20d%3D%22M8.5%203.5l7%207-5%205a1.4%201.4%200%2001-2%200l-5-5a1.4%201.4%200%20010-2z%22%2F%3E%3Cpath%20d%3D%22M16.5%2012.5s1.5%201.8%201.5%202.8a1.5%201.5%200%2001-3%200c0-1%201.5-2.8%201.5-2.8z%22%2F%3E%3C%2Fg%3E%3Cg%20stroke%3D%22%23111%22%20stroke-width%3D%221.4%22%3E%3Cpath%20d%3D%22M8.5%203.5l7%207-5%205a1.4%201.4%200%2001-2%200l-5-5a1.4%201.4%200%20010-2z%22%2F%3E%3Cpath%20d%3D%22M16.5%2012.5s1.5%201.8%201.5%202.8a1.5%201.5%200%2001-3%200c0-1%201.5-2.8%201.5-2.8z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") 20 18, crosshair; }
+.container[data-tool="eraser"] { cursor: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cg%20stroke%3D%22%23fff%22%20stroke-width%3D%223%22%3E%3Cpath%20d%3D%22M11%203.5l5.5%205.5-7%207H6l-2.5-2.5a1.4%201.4%200%20010-2z%22%2F%3E%3C%2Fg%3E%3Cg%20stroke%3D%22%23111%22%20stroke-width%3D%221.4%22%3E%3Cpath%20d%3D%22M11%203.5l5.5%205.5-7%207H6l-2.5-2.5a1.4%201.4%200%20010-2z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") 6 19, crosshair; }
+.container[data-tool="stamp"] { cursor: copy; }
+.container[data-tool="rotate"],
+.container[data-tool="reflect"] { cursor: pointer; }

@@ -1,11 +1,21 @@
-.app {
-  position: fixed;
+/* DocumentEditor layout: canvas fills the space left of the panel dock. */
+.editor {
+  position: absolute;
   inset: 0;
+  display: flex;
   overflow: hidden;
 }
 
+.canvasArea {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+
 .tilePreview {
-  position: fixed;
+  position: absolute;
   right: 16px;
   bottom: 16px;
   z-index: 20;

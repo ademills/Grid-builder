@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
 
 const HISTORY_LIMIT = 100;
@@ -8,50 +8,79 @@ const assetMap = new Map(ALL_BUILTIN_ASSETS.map(a => [a.id, a]));
 
 // Strip svgContent before storing — re-hydrate from the asset map on restore.
 // This saves ~90% of memory per history entry since SVG strings can be large.
-const compress = (blocks) => blocks.map(({ svgContent: _, ...b }) => b);
+const compress = (blocks) => blocks.map(b => {
+  if (!('svgContent' in b)) return b;
+  const rest = { ...b };
+  delete rest.svgContent;
+  return rest;
+});
 
 const hydrate = (blocks) => blocks.map(b => {
+  if (!b.assetId) return b;
   const asset = assetMap.get(b.assetId);
   return { ...b, svgContent: asset?.svgContent ?? '' };
 });
 
-export function useHistory(placedBlocks, setPlacedBlocks) {
-  const undoStack = useRef([]);
-  const redoStack = useRef([]);
-  const [historySize, setHistorySize] = useState({ undo: 0, redo: 0 });
+// Undo/redo stacks live outside React, keyed by document id, so a document
+// keeps its history when its tab is switched away from and back again.
+const stacksByDoc = new Map();
+
+function stacksFor(docId) {
+  let stacks = stacksByDoc.get(docId);
+  if (!stacks) {
+    stacks = { undo: [], redo: [] };
+    stacksByDoc.set(docId, stacks);
+  }
+  return stacks;
+}
+
+export function forgetDocHistory(docId) {
+  stacksByDoc.delete(docId);
+}
+
+export function useHistory(docId, placedBlocks, setPlacedBlocks) {
+  const [historySize, setHistorySize] = useState(() => {
+    const stacks = stacksFor(docId);
+    return { undo: stacks.undo.length, redo: stacks.redo.length };
+  });
 
   const syncHistorySize = useCallback(() => {
-    setHistorySize({ undo: undoStack.current.length, redo: redoStack.current.length });
-  }, []);
+    const stacks = stacksFor(docId);
+    setHistorySize({ undo: stacks.undo.length, redo: stacks.redo.length });
+  }, [docId]);
 
   const clearHistory = useCallback(() => {
-    undoStack.current = [];
-    redoStack.current = [];
+    const stacks = stacksFor(docId);
+    stacks.undo = [];
+    stacks.redo = [];
     setHistorySize({ undo: 0, redo: 0 });
-  }, []);
+  }, [docId]);
 
   const pushHistory = useCallback((snapshot) => {
-    undoStack.current = [...undoStack.current, compress(snapshot)].slice(-HISTORY_LIMIT);
-    redoStack.current = [];
-  }, []);
+    const stacks = stacksFor(docId);
+    stacks.undo = [...stacks.undo, compress(snapshot)].slice(-HISTORY_LIMIT);
+    stacks.redo = [];
+  }, [docId]);
 
   const handleUndo = useCallback(() => {
-    if (!undoStack.current.length) return;
-    const prev = undoStack.current[undoStack.current.length - 1];
-    undoStack.current = undoStack.current.slice(0, -1);
-    redoStack.current = [compress(placedBlocks), ...redoStack.current].slice(0, HISTORY_LIMIT);
+    const stacks = stacksFor(docId);
+    if (!stacks.undo.length) return;
+    const prev = stacks.undo[stacks.undo.length - 1];
+    stacks.undo = stacks.undo.slice(0, -1);
+    stacks.redo = [compress(placedBlocks), ...stacks.redo].slice(0, HISTORY_LIMIT);
     setPlacedBlocks(hydrate(prev));
     syncHistorySize();
-  }, [placedBlocks, setPlacedBlocks, syncHistorySize]);
+  }, [docId, placedBlocks, setPlacedBlocks, syncHistorySize]);
 
   const handleRedo = useCallback(() => {
-    if (!redoStack.current.length) return;
-    const next = redoStack.current[0];
-    redoStack.current = redoStack.current.slice(1);
-    undoStack.current = [...undoStack.current, compress(placedBlocks)].slice(-HISTORY_LIMIT);
+    const stacks = stacksFor(docId);
+    if (!stacks.redo.length) return;
+    const next = stacks.redo[0];
+    stacks.redo = stacks.redo.slice(1);
+    stacks.undo = [...stacks.undo, compress(placedBlocks)].slice(-HISTORY_LIMIT);
     setPlacedBlocks(hydrate(next));
     syncHistorySize();
-  }, [placedBlocks, setPlacedBlocks, syncHistorySize]);
+  }, [docId, placedBlocks, setPlacedBlocks, syncHistorySize]);
 
   return { pushHistory, handleUndo, handleRedo, historySize, syncHistorySize, clearHistory };
 }

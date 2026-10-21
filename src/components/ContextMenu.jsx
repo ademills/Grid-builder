@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import styles from './ContextMenu.module.css';
 
-export function ContextMenu({ x, y, block, colorMode, onClose, onDelete, onToggleLock, onRefresh, onRandomise }) {
+// Right-click menu for a shape on the canvas. `items` is
+// [{ label, shortcut?, action, danger?, disabled? } | null] — null draws a divider.
+export function ContextMenu({ x, y, items, onClose }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -15,29 +17,25 @@ export function ContextMenu({ x, y, block, colorMode, onClose, onDelete, onToggl
     };
   }, [onClose]);
 
-  const items = [
-    colorMode !== 'none' && {
-      label: block.colorLocked ? '🔓 Unlock colour' : '🔒 Lock colour',
-      action: onToggleLock,
-    },
-    colorMode !== 'none' && { label: '↺ Refresh colour', action: onRefresh },
-    { label: '⚄ Randomise asset', action: onRandomise },
-    null,
-    { label: '× Delete', action: onDelete, danger: true },
-  ].filter(Boolean);
+  // Keep the menu on screen near the bottom/right edges.
+  const left = Math.min(x, window.innerWidth - 220);
+  const top = Math.min(y, window.innerHeight - items.length * 28 - 16);
 
   return (
-    <div ref={ref} className={styles.menu} style={{ left: x, top: y }}>
+    <div ref={ref} className={styles.menu} style={{ left, top }} role="menu">
       {items.map((item, i) =>
         item === null
           ? <div key={i} className={styles.divider} />
           : (
             <button
               key={item.label}
+              role="menuitem"
               className={`${styles.item} ${item.danger ? styles.itemDanger : ''}`}
+              disabled={item.disabled}
               onClick={() => { item.action(); onClose(); }}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {item.shortcut && <span className={styles.shortcut}>{item.shortcut}</span>}
             </button>
           )
       )}

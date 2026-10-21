@@ -2,6 +2,8 @@ import { useMemo, useRef, useCallback, useEffect, memo } from 'react';
 import { colorizeSvg } from '../utils/colorize';
 import { assetIdToLibKey, getShapeCache } from '../utils/shapeLibraryRender';
 import { wireframeRects } from '../utils/layouts';
+import { resolvePins } from '../utils/blockColours';
+import { shapeTransform } from '../utils/blockTransform';
 
 // Animation types that repaint every cell every frame — for these, blocks are
 // rendered as inline SVG (below) so AnimationLayer can recolour them via plain
@@ -54,6 +56,8 @@ const GridBlock = memo(function GridBlock({
   animSettings,
   slotRefsMap,
   shapeLibrary,
+  swatchMap,
+  isHighlighted,
 }) {
   const x = gridOriginX + block.gridCol * cellSize;
   const y = gridOriginY + block.gridRow * cellSize;
@@ -71,6 +75,9 @@ const GridBlock = memo(function GridBlock({
   // Cheap image-mode lookup — does NOT trigger palette re-computation
   const imageDataUrl = colorMode === 'image' ? (imageDataUrls?.[block.id] ?? null) : null;
 
+  // Per-slot swatch pins (set from the Layers panel) resolved to colours.
+  const pins = useMemo(() => resolvePins(block, swatchMap ?? {}), [block, swatchMap]);
+
   // Expensive colour computation — imageDataUrls intentionally excluded from deps
   const colorDataUrl = useMemo(() => {
     if (isSpecial) return null;
@@ -84,14 +91,14 @@ const GridBlock = memo(function GridBlock({
     const meshPos = colorMode === 'mesh'
       ? { gridCol: block.gridCol, gridRow: block.gridRow, gridCols, gridRows, ...(meshSettings ?? {}) }
       : null;
-    const svg = colorMode !== 'none'
-      ? colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, bgOptions, gradPos, meshPos)
+    const svg = (colorMode !== 'none' || pins)
+      ? colorizeSvg(block.svgContent, colorMode, blockPalette, block.colorSeed ?? 0, block.colorOffset ?? 0, bgOptions, gradPos, meshPos, pins)
       : block.svgContent;
     const clean = svg.replace(/^<\?xml[^>]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/gi, '');
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
   }, [block.svgContent, block.id, block.colorSeed, block.colorOffset, block.reverseColor,
       block.gridCol, block.gridRow, colorMode, effectivePalette, bgOptions,
-      gridCols, gridRows, gradientSettings, meshSettings, randomReverseEnabled]);
+      gridCols, gridRows, gradientSettings, meshSettings, randomReverseEnabled, pins]);
 
   const dataUrl = colorMode === 'image' ? imageDataUrl : colorDataUrl;
 
@@ -112,7 +119,8 @@ const GridBlock = memo(function GridBlock({
     }
   }, [dataUrl]);
 
-  const isInteractive = activeTool === 'select';
+  // Locked blocks (Layers panel) can't be selected or edited on the canvas.
+  const isInteractive = activeTool === 'select' && !block.locked;
   // Lock-badge size as a fraction of the cell — scales with the grid rather
   // than the view, which (unlike 1/viewScale) keeps GridBlock's props stable
   // across zoom so memo() can skip re-rendering every visible block per tick.
@@ -202,13 +210,15 @@ const GridBlock = memo(function GridBlock({
           />
         )
       ) : useAnimatedInline && shapeEntry ? (
-        <AnimatedShapeImage
-          entry={shapeEntry}
-          libKey={libKey}
-          x={x} y={y} w={w} h={h}
-          blockId={block.id}
-          slotRefsMap={slotRefsMap}
-        />
+        <g transform={shapeTransform(block, x, y, w, h)}>
+          <AnimatedShapeImage
+            entry={shapeEntry}
+            libKey={libKey}
+            x={x} y={y} w={w} h={h}
+            blockId={block.id}
+            slotRefsMap={slotRefsMap}
+          />
+        </g>
       ) : dataUrl && (
         <image
           ref={setImageRef}
@@ -216,6 +226,7 @@ const GridBlock = memo(function GridBlock({
           x={x} y={y}
           width={w} height={h}
           preserveAspectRatio="xMidYMid meet"
+          transform={shapeTransform(block, x, y, w, h)}
           opacity={1}
           style={{ pointerEvents: 'none' }}
         />
@@ -227,6 +238,19 @@ const GridBlock = memo(function GridBlock({
           fill="rgba(124,58,237,0.07)"
           stroke="#7c3aed"
           strokeWidth={2.5}
+          vectorEffect="non-scaling-stroke"
+          data-noexport="true"
+          pointerEvents="none"
+        />
+      )}
+
+      {isHighlighted && !isSelected && (
+        <rect
+          x={x} y={y} width={w} height={h}
+          fill="none"
+          stroke="#7b61ff"
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
           vectorEffect="non-scaling-stroke"
           data-noexport="true"
           pointerEvents="none"
@@ -260,6 +284,8 @@ export const PlacedBlocks = memo(function PlacedBlocks({
   slotRefsMap,
   shapeLibrary,
   blendMode,
+  swatchMap,
+  highlightIds,
 }) {
   // Bounding boxes only change with block/grid geometry, not on every pan/zoom
   // frame — precomputing them here means the (per-frame) visibility filter below
@@ -283,10 +309,11 @@ export const PlacedBlocks = memo(function PlacedBlocks({
     let list;
     if (!blockBounds) return null;
     if (!visibleRect) {
-      list = placedBlocks;
+      list = placedBlocks.filter(b => !b.hidden);
     } else {
       list = [];
       for (const { block, left, top, right, bottom } of blockBounds) {
+        if (block.hidden) continue;
         if (right >= visibleRect.left && left <= visibleRect.right &&
             bottom >= visibleRect.top && top <= visibleRect.bottom) {
           list.push(block);
@@ -336,6 +363,8 @@ export const PlacedBlocks = memo(function PlacedBlocks({
           animSettings={animSettings}
           slotRefsMap={slotRefsMap}
           shapeLibrary={shapeLibrary}
+          swatchMap={swatchMap}
+          isHighlighted={highlightIds?.has(block.id) ?? false}
         />
       ))}
     </g>

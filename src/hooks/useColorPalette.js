@@ -1,25 +1,18 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { PALETTE_KEYS, PALETTES } from '../utils/colorize';
+import { useMemo, useCallback } from 'react';
+import { PALETTES } from '../utils/colorize';
+import { useDocField } from '../store/useDocField';
 
+// The document's colour state: mode, swatches (shape colours) and block
+// backgrounds, plus the palettes the colour modes draw from. Saved swatch
+// libraries live in store/libraryStore.js and are managed by the Swatches
+// panel.
 export function useColorPalette() {
-  const [colorMode, setColorMode] = useState('none');
-  const [paletteKey, setPaletteKey] = useState(PALETTE_KEYS[0]);
-  const [shapeColors, setShapeColors] = useState(
-    () => PALETTES[PALETTE_KEYS[0]].map((hex, i) => ({ id: `p-${i}`, hex, enabled: true, source: 'palette' }))
-  );
-  const [bgColors, setBgColors] = useState([
-    { id: 'bg-white', hex: '#ffffff', enabled: true  },
-    { id: 'bg-black', hex: '#000000', enabled: false },
-  ]);
-  const [customPalettes, setCustomPalettes] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('gb-custom-palettes') || '[]'); }
-    catch { return []; }
-  });
+  const [colorMode, setColorMode] = useDocField('colorMode');
+  const [paletteKey, setPaletteKey] = useDocField('paletteKey');
+  const [shapeColors, setShapeColors] = useDocField('shapeColors');
+  const [bgColors, setBgColors] = useDocField('bgColors');
 
-  useEffect(() => {
-    localStorage.setItem('gb-custom-palettes', JSON.stringify(customPalettes));
-  }, [customPalettes]);
-
+  // Swap in a built-in palette, keeping swatches the user added themselves.
   const handlePaletteKeyChange = useCallback((key) => {
     setPaletteKey(key);
     setShapeColors(prev => {
@@ -29,28 +22,9 @@ export function useColorPalette() {
       }));
       return [...palette, ...custom];
     });
-  }, []);
+  }, [setPaletteKey, setShapeColors]);
 
-  const handleSaveCustomPalette = useCallback((name) => {
-    if (!name.trim()) return;
-    const colors = shapeColors.filter(c => c.enabled).map(c => c.hex);
-    if (!colors.length) return;
-    setCustomPalettes(prev => [
-      ...prev.filter(p => p.name !== name.trim()),
-      { name: name.trim(), colors },
-    ]);
-  }, [shapeColors]);
-
-  const handleDeleteCustomPalette = useCallback((name) => {
-    setCustomPalettes(prev => prev.filter(p => p.name !== name));
-  }, []);
-
-  const handleApplyCustomPalette = useCallback((palette) => {
-    setShapeColors(palette.colors.map((hex, i) => ({
-      id: `cp-${palette.name}-${i}`, hex, enabled: true, source: 'palette',
-    })));
-  }, []);
-
+  // Swatches flagged "not in palette" are kept for pins but skipped here.
   const effectivePalette = useMemo(() => {
     const active = shapeColors.filter(c => c.enabled).map(c => c.hex);
     return active.length ? active : shapeColors.map(c => c.hex);
@@ -68,9 +42,5 @@ export function useColorPalette() {
     bgColors, setBgColors,
     effectivePalette,
     activeBgColors,
-    customPalettes,
-    handleSaveCustomPalette,
-    handleDeleteCustomPalette,
-    handleApplyCustomPalette,
   };
 }

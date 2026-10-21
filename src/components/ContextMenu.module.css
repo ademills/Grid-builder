@@ -1,39 +1,40 @@
 .menu {
   position: fixed;
   z-index: 3000;
-  background: #18191f;
-  border: 1px solid #2c2d38;
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
-  padding: 4px;
-  min-width: 168px;
+  min-width: 210px;
+  padding: 4px 0;
+  border: 1px solid var(--chrome-border);
+  border-radius: 6px;
+  background: var(--chrome-bg-raised);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
   user-select: none;
 }
 
 .item {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
   width: 100%;
-  text-align: left;
-  background: none;
+  padding: 5px 14px 5px 16px;
   border: none;
-  border-radius: 5px;
-  padding: 7px 10px;
-  font-size: 12px;
-  color: #d4d4d8;
-  cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  background: none;
+  color: var(--chrome-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: default;
 }
 
-.item:hover {
-  background: #2c2d38;
-  color: #f4f4f5;
-}
+.item:hover:not(:disabled) { background: var(--chrome-accent); color: #fff; }
+.item:disabled { color: var(--chrome-text-faint); }
 
-.itemDanger { color: #f87171; }
-.itemDanger:hover { background: rgba(239,68,68,0.15); color: #fca5a5; }
+.shortcut { font-size: 11.5px; color: var(--chrome-text-dim); }
+.item:hover:not(:disabled) .shortcut { color: rgba(255, 255, 255, 0.85); }
+
+.itemDanger { color: var(--chrome-danger); }
 
 .divider {
   height: 1px;
-  background: #2c2d38;
-  margin: 3px 6px;
+  margin: 4px 0;
+  background: var(--chrome-border);
 }

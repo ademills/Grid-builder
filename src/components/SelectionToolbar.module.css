@@ -6,104 +6,110 @@
   user-select: none;
 }
 
-/* ── Action bar ──────────────────────────────────────────── */
+/* ── Task bar ────────────────────────────────────────────── */
 
 .bar {
   display: flex;
   align-items: center;
-  gap: 3px;
-  background: #18191f;
-  border: 1px solid #2c2d38;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--chrome-border);
   border-radius: 8px;
-  padding: 4px 5px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.65);
+  background: var(--chrome-bg-raised);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
   white-space: nowrap;
 }
 
+.count {
+  min-width: 22px;
+  padding: 0 6px;
+  color: var(--chrome-text-dim);
+  font-size: 11.5px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .btn {
-  width: 30px;
-  height: 30px;
-  background: #23242c;
-  border: 1px solid #33343e;
-  border-radius: 6px;
-  color: #a1a1aa;
-  font-size: 15px;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.12s;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--chrome-text-dim);
+  font-size: 14px;
+  cursor: pointer;
 }
 
-.btn:hover {
-  background: #2c2d38;
-  color: #d4d4d8;
-  border-color: #555;
-}
+.btn:hover { background: var(--chrome-bg-hover); color: var(--chrome-text); }
 
-.btnActive {
-  background: rgba(124, 58, 237, 0.2);
-  border-color: #7c3aed;
-  color: #c4b5fd;
-}
+.btnActive,
+.btnActive:hover { background: var(--chrome-accent-soft); color: #fff; }
 
-.btnDelete {
-  color: rgba(220, 38, 38, 0.8);
-}
-
-.btnDelete:hover {
-  background: rgba(220, 38, 38, 0.12);
-  border-color: rgba(220, 38, 38, 0.5);
-  color: #ef4444;
-}
+.btnDelete { color: var(--chrome-danger); font-size: 17px; }
+.btnDelete:hover { background: rgba(255, 107, 94, 0.15); color: var(--chrome-danger); }
 
 .divider {
   width: 1px;
   height: 18px;
-  background: #2c2d38;
-  margin: 0 2px;
+  margin: 0 3px;
   flex-shrink: 0;
+  background: var(--chrome-border);
+}
+
+.paintIcon {
+  position: relative;
+  display: flex;
+}
+
+.paintIcon > span {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.6);
 }
 
 /* ── Swap panel ──────────────────────────────────────────── */
 
 .swapPanel {
-  margin-top: 6px;
-  background: #18191f;
-  border: 1px solid #2c2d38;
+  width: 300px;
+  margin: 6px auto 0;
+  border: 1px solid var(--chrome-border);
   border-radius: 8px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.65);
+  background: var(--chrome-bg-raised);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
   overflow: hidden;
-  width: 280px;
 }
 
 .swapSearch {
   display: block;
   width: 100%;
-  box-sizing: border-box;
   padding: 7px 10px;
-  background: #1e1f26;
   border: none;
-  border-bottom: 1px solid #2c2d38;
-  color: #d4d4d8;
-  font-size: 11px;
+  border-bottom: 1px solid var(--chrome-border);
+  background: var(--chrome-bg-sunken);
+  color: var(--chrome-text);
+  font-size: 11.5px;
   outline: none;
 }
 
-.swapSearch::placeholder {
-  color: #52525b;
-}
+.swapSearch::placeholder { color: var(--chrome-text-faint); }
 
 .swapGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
   gap: 4px;
-  padding: 6px;
   max-height: 220px;
+  padding: 6px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: #3a3b44 transparent;
+  scrollbar-color: #555 transparent;
 }
 
 .swapItem {
@@ -112,42 +118,37 @@
   align-items: center;
   gap: 3px;
   padding: 4px 3px;
-  background: #23242c;
-  border: 1px solid #33343e;
+  border: 1px solid #1a1a1a;
   border-radius: 5px;
+  background: var(--chrome-bg-sunken);
   cursor: pointer;
-  transition: all 0.12s;
 }
 
-.swapItem:hover {
-  background: #2c2d38;
-  border-color: #7c3aed;
-}
+.swapItem:hover { border-color: var(--chrome-accent); }
 
 .swapThumb {
+  display: block;
   width: 48px;
   height: 48px;
   border-radius: 3px;
   object-fit: contain;
-  background: #13141a;
-  display: block;
 }
 
 .swapName {
+  max-width: 54px;
   font-size: 9px;
-  color: #71717a;
+  color: var(--chrome-text-dim);
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 54px;
 }
 
 .swapEmpty {
-  font-size: 11px;
-  color: #52525b;
-  text-align: center;
-  padding: 12px;
   grid-column: 1 / -1;
   margin: 0;
+  padding: 12px;
+  font-size: 11px;
+  color: var(--chrome-text-faint);
+  text-align: center;
 }
