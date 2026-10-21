@@ -34,6 +34,7 @@ import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
 import { buildGridCells, renderImageFrame, sampleFrameColours, loadShapeLibrary, warmShapeCache } from './utils/shapeLibraryRender';
 import { ALL_BUILTIN_ASSETS } from './builtinAssets';
 import { useHistory } from './hooks/useHistory';
+import { isTauri } from './shell/fileIO';
 import { useDocField, useDocId } from './store/useDocField';
 import { useAppStore } from './store/appStore';
 import { buildSwatchMap, resolvePins, blockColourBreakdown, blockSlotColours, dominantColour } from './utils/blockColours';
@@ -44,7 +45,6 @@ import { useSelection } from './hooks/useSelection';
 import './App.css';
 import styles from './DocumentEditor.module.css';
 
-const isTauri = typeof window !== 'undefined' && '__TAURI__' in window;
 
 // Replace fill="#rrggbb" and fill:#rrggbb in style attrs using a colour remap map.
 function applyFillRemap(svgStr, remap) {

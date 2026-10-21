@@ -2,7 +2,9 @@ import { save as tauriSaveDialog, open as tauriOpenDialog } from '@tauri-apps/pl
 import { readTextFile, writeTextFile, readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { PROJECT_EXTENSION } from '../store/projectFormat';
 
-export const isTauri = typeof window !== 'undefined' && '__TAURI__' in window;
+// Tauri 2 always injects __TAURI_INTERNALS__; the __TAURI__ global only
+// exists when app.withGlobalTauri is on, which this app doesn't use.
+export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 // Generic binary open/save, used for swatch files (.ase / .gpl / .json).
 // filters = [{ name, extensions: ['ase', …] }]
