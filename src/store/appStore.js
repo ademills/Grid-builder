@@ -151,6 +151,10 @@ export const useAppStore = create((set, get) => ({
     p?.resolve(value);
   },
 
+  // A long-running job (e.g. 'Filling…'), shown in the status bar.
+  busy: null,
+  setBusy: (busy) => set({ busy }),
+
   // Transient one-line message in the status bar (e.g. "Saved").
   toast: null,
   showToast(message) {

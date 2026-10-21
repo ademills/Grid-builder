@@ -438,9 +438,9 @@ function mulberry32(seed) {
 }
 
 
-const SHAPE_SEL = 'rect, circle, ellipse, path, polygon, polyline';
+export const SHAPE_SEL = 'rect, circle, ellipse, path, polygon, polyline';
 
-function findLayer(root, name) {
+export function findLayer(root, name) {
   for (const g of root.querySelectorAll('g')) {
     const id    = (g.getAttribute('id') || '').toLowerCase();
     const label = (g.getAttribute('inkscape:label') || g.getAttribute('label') || '').toLowerCase();
@@ -452,7 +452,7 @@ function findLayer(root, name) {
 // Build a map of CSS class name → fill colour from <style> blocks in the SVG.
 // Needed because many SVG exporters (Illustrator, etc.) use class-based fills
 // rather than direct fill attributes.
-function buildClassFillMap(root) {
+export function buildClassFillMap(root) {
   const map = {};
   root.querySelectorAll('style').forEach(styleEl => {
     const text = styleEl.textContent || '';
@@ -782,7 +782,7 @@ export function buildColourRemap(colours, tolerance) {
 
 // Parse an SVG transform string to a 2D affine matrix [a,b,c,d,e,f]
 // where (x,y) → (ax+cy+e, bx+dy+f)
-function parseTransformMatrix(str) {
+export function parseTransformMatrix(str) {
   const identity = [1, 0, 0, 1, 0, 0];
   if (!str) return identity;
   const mul = (m1, m2) => [
@@ -814,7 +814,7 @@ function parseTransformMatrix(str) {
   return cur;
 }
 
-function concatMat(parent, child) {
+export function concatMat(parent, child) {
   return [
     parent[0]*child[0] + parent[2]*child[1], parent[1]*child[0] + parent[3]*child[1],
     parent[0]*child[2] + parent[2]*child[3], parent[1]*child[2] + parent[3]*child[3],
@@ -823,12 +823,12 @@ function concatMat(parent, child) {
   ];
 }
 
-function applyMat(m, x, y) {
+export function applyMat(m, x, y) {
   return [m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5]];
 }
 
 // Extract representative (x,y) sample points from a shape element in its local SVG space.
-function getShapePoints(el) {
+export function getShapePoints(el) {
   const tag = (el.tagName || '').toLowerCase().split(':').pop();
   const f = attr => parseFloat(el.getAttribute(attr)) || 0;
   if (tag === 'rect') {

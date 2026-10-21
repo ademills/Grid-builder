@@ -1,4 +1,10 @@
 import { useEffect, useState } from 'react';
+import { isTauri } from '../shell/fileIO';
+
+// The desktop app renders PNG/JPEG in Rust, which allows far larger images
+// than the browser's canvas (16,384 px a side).
+const SCALES = isTauri ? [1, 2, 4, 8, 16] : [1, 2, 4];
+const MAX_SIDE = { png: isTauri ? 32768 : 16384, jpeg: 16384 };
 import styles from '../panels/Panel.module.css';
 
 function Dialog({ title, onClose, children, width }) {
@@ -49,7 +55,7 @@ export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayo
           <div className={styles.formRow}>
             <span className={styles.label}>Scale</span>
             <div className={styles.modeToggle}>
-              {[1, 2, 4].map(s => (
+              {SCALES.map(s => (
                 <button key={s}
                   className={`${styles.modeBtn} ${scale === s ? styles.modeBtnActive : ''}`}
                   onClick={() => setScale(s)}
@@ -62,6 +68,9 @@ export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayo
         {workArea && (
           <div className={styles.gridInfo}>
             Output size: {Math.round(workArea.width * outScale)} × {Math.round(workArea.height * outScale)} px
+            {format !== 'svg' && Math.max(workArea.width, workArea.height) * outScale > MAX_SIDE[format] && (
+              <span className={styles.snapNote}> — too large; {format.toUpperCase()} is limited to {MAX_SIDE[format].toLocaleString()} px a side</span>
+            )}
           </div>
         )}
 

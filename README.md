@@ -44,14 +44,18 @@ and drive the GitHub Actions release workflow.
 
 ## Project structure
 
-- `src/components/` — Canvas, grid rendering (`PlacedBlocks`, `Grid`), the
-  animation layer, floating panels, selection toolbar, context menu
-- `src/hooks/` — colour palette, selection, and undo/redo history state
-- `src/utils/` — shape-library rendering/caching, colourizing, colour
-  separation, bin-packing, noise generation
-- `src/workers/` — off-main-thread colour separation
-- `src-tauri/` — the Rust/Tauri shell that wraps the frontend into a native
-  Windows app (window config, capabilities, updater, release packaging)
+- `src/shell/` — the app shell: menus, tabs, dock, home screen, command
+  registry (`commands.js`), file handling and drag-and-drop
+- `src/DocumentEditor.jsx` — the editor for one open document
+- `src/components/` — the canvas: `ShapeCanvas` draws the artboard and
+  shapes with the 2D canvas API; an SVG layer above holds selection outlines,
+  guides and overlays
+- `src/panels/` — dock panels (Properties, Layers, Info, Generate, Colour…)
+- `src/store/` — per-document and app state, project file format
+- `src/utils/` — fills, colouring, shape models, swatch files
+- `src/workers/` — fills run in a Web Worker
+- `src-tauri/` — the Rust/Tauri shell: window, permissions, updater, and
+  PNG/JPEG export rendered with resvg (`src/raster.rs`)
 
 ## Tracking improvements
 

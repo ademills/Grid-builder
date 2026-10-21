@@ -8,6 +8,7 @@ export function StatusBar({ doc }) {
   const status = useAppStore(s => s.editorStatus);
   const commands = useAppStore(s => s.editorCommands);
   const toast = useAppStore(s => s.toast);
+  const busy = useAppStore(s => s.busy);
 
   if (!doc || !status) {
     return (
@@ -44,6 +45,7 @@ export function StatusBar({ doc }) {
         {status.selectedCount > 0 && ` · ${status.selectedCount} selected`}
       </span>
       <span className={styles.statusSpacer} />
+      {busy && <span className={`${styles.statusItem} ${styles.toast}`}>{busy}</span>}
       {toast && <span className={`${styles.statusItem} ${styles.toast}`}>{toast.message}</span>}
       <span className={styles.statusItem}>{doc.dirty ? 'Unsaved changes' : (doc.filePath || doc.savedAt ? 'All changes saved' : 'Not saved yet')}</span>
     </footer>

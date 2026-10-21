@@ -5,46 +5,30 @@ ideas so they don't get lost.
 
 ## Performance
 
-### Throttle continuous colour-animation recompute
-`AnimationLayer`'s rAF loop recomputes and writes every slot's fill colour on
-every single frame for `noise`, `gradientSweep`, and `paletteWave` (see
-`src/components/AnimationLayer.jsx`). On a large grid that's hundreds of
-`style.fill` writes per frame, 60 times a second, indefinitely while the
-animation is enabled — a real cost for a desktop app that may be expected to
-sit in the background for long stretches.
-
-Ideas:
-- Gate the colour-recompute step to ~30fps (skip every other frame) when the
-  window doesn't have focus, or always — most of these effects don't need a
-  full 60fps to read smoothly
-- Move the per-slot colour computation to a Web Worker / OffscreenCanvas and
-  post back a batch of colours, so the main thread only does the DOM writes
-- Consider whether `flicker`'s `Math.random()` block selection could reuse
-  the seeded `mulberry32` PRNG already used elsewhere, for reproducibility
-
-### `<image href="data:...">` vs inline SVG rendering
-Most blocks render as `<image href="data:image/svg+xml;...">` (a rasterised
-data-URI), while continuously-animated blocks render as inline `<svg
-dangerouslySetInnerHTML>` so their fills can be mutated directly (see
-`AnimatedShapeImage` in `src/components/PlacedBlocks.jsx`). Switching *all*
-blocks to the inline-SVG path would remove the data-URI encode/decode step
-entirely and let recolouring become plain `style.fill` writes everywhere —
-but it changes the rendering pipeline for every block on screen, including
-non-animated ones, and needs profiling before committing to it: more inline
-DOM nodes could cost more than the data-URI encode it saves on a large grid.
-Worth a profiled spike before deciding either way.
+### Animation frame rate on very large grids
+Colour animations redraw every shape each frame. On an 80-column A4 grid
+(~9,400 shapes) the canvas renderer reaches about 25 fps; smaller grids run
+at the display rate. If very large animated grids matter, options are:
+- Cap the animation at 30 fps (most effects read smoothly there)
+- Render the animated frame at a lower resolution while zoomed out
+- Use the seeded `mulberry32` PRNG for `flicker` instead of `Math.random()`,
+  so a recorded animation is reproducible (also needed for animated export)
 
 ## Done
 
+- ~~Canvas renderer~~ — shapes are drawn with the 2D canvas API
+  (`components/ShapeCanvas.jsx`) instead of one SVG `<image>` (or inline SVG,
+  while animating) per shape. Each shape is parsed once into `Path2D`s
+  (`utils/shapeModel.js`) and fills are batched by layer and colour. This
+  replaced the data-URI vs inline-SVG question and the animation DOM writes.
+  Export still builds SVG, so exported files are unchanged.
+- ~~PNG/JPEG export in Rust~~ (`src-tauri/src/raster.rs`, resvg) — no 16,384 px
+  canvas cap (PNG up to 32,768 px a side, rendered in strips), off the UI
+  thread. The browser build keeps the canvas path.
+- ~~Fills in a Web Worker~~ (`workers/fillWorker.js`) — the interface stays
+  responsive while large or image-based fills compute.
 - ~~Removed the canvas background drop-shadow filter~~ (pure cosmetic cost,
   no longer rendered)
-- ~~Decoupled `GridBlock` from the view `scale` prop~~ — selection outline now
-  uses `vector-effect="non-scaling-stroke"`, lock badge now sized relative to
-  `cellSize`; `memo()` no longer re-renders every visible block on every
-  zoom/pan tick
 - ~~Rewrote `colorizeSvg` to use a per-asset cached string-template~~ instead
   of parsing/mutating/serialising the SVG DOM on every call — colour
   application is now pure string substitution after the first hit per asset
-- ~~Precomputed block bounding boxes for viewport culling~~ so the per-frame
-  visibility filter in `PlacedBlocks` is pure numeric comparison instead of
-  re-deriving geometry for every block on every pan/zoom frame

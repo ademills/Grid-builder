@@ -1,57 +1,10 @@
 /**
  * shapeLibraryRender.js
  *
- * Zero-DOMParser render engine for image-mode colorization.
- * Replaces the chunked setTimeout pipeline in App.jsx with a single
- * synchronous pass of pure arithmetic + string replacement.
- *
- * For 30-60fps video, call renderImageFrame() inside requestAnimationFrame
- * with the latest imgData (from a video element snapshot), then apply
- * the returned URLs imperatively via imageRef.setAttribute('href', url)
- * to bypass React's render cycle entirely.
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * INTEGRATION — replace the two-phase useEffect in App.jsx:
- *
- *   import shapeLibraryData from '../assets/shapeLibrary.json';
- *   import { buildGridCells, renderImageFrame } from './utils/shapeLibraryRender';
- *
- *   // Derive virtual cell state once when blocks or grid geometry changes
- *   const gridCells = useMemo(
- *     () => buildGridCells(placedBlocks, gridComputed),
- *     [placedBlocks, gridComputed]
- *   );
- *
- *   // Replace the old chunked useEffect (App.jsx lines ~202-291) with:
- *   useEffect(() => {
- *     if (colorMode !== 'image' || !imagePixels || !gridCells.length) {
- *       setImageDataUrls({});
- *       return;
- *     }
- *     setImageDataUrls(
- *       renderImageFrame(gridCells, shapeLibraryData.shapes, imagePixels, workArea.width, workArea.height)
- *     );
- *   }, [colorMode, imagePixels, gridCells, workArea.width, workArea.height]);
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * VIDEO LOOP PATTERN (imperative, bypasses React):
- *
- *   const imageRefs = useRef({});  // blockId → <image> DOM node ref
- *
- *   useEffect(() => {
- *     if (colorMode !== 'video') return;
- *     let rafId;
- *     const tick = () => {
- *       const imgData = sampleVideoFrame(videoRef.current, workArea);
- *       const urls    = renderImageFrame(gridCells, shapeLibraryData.shapes, imgData, workArea.width, workArea.height);
- *       for (const [id, url] of Object.entries(urls)) {
- *         imageRefs.current[id]?.setAttribute('href', url);
- *       }
- *       rafId = requestAnimationFrame(tick);
- *     };
- *     rafId = requestAnimationFrame(tick);
- *     return () => cancelAnimationFrame(rafId);
- *   }, [colorMode, gridCells, workArea]);
+ * Image colour mode helpers built on the pre-generated shape library
+ * (assets/shapeLibrary.json): which colours the image gives every shape slot,
+ * used to build the colour-tolerance remap. The shapes themselves are drawn by
+ * ShapeCanvas (components/ShapeCanvas.jsx).
  */
 
 // ── Lazy library loading ──────────────────────────────────────────────────────
@@ -93,88 +46,6 @@ export function assetIdToLibKey(assetId) {
   // theme may contain " / " separators for nested folder paths
   const themePath = parts.slice(0, -2).join('/').replace(/ \/ /g, '/');
   return `${themePath}/${size}/${name}`;
-}
-
-// ── Shape render cache ────────────────────────────────────────────────────────
-// For each shape we pre-compute, once, and cache by libKey:
-//   parts        — SVG template split at __SLOT_N__ markers, static segments
-//                  pre-encoded (fast string-concat URL assembly for data URIs)
-//   slotCenters  — [ [cx, cy], ... ] averaged anchor point per slot, in viewbox
-//                  coordinates — used to derive each slot's canvas position so
-//                  continuous animations can sample a colour per slot
-//   innerMarkup  — template with the outer <svg> wrapper stripped and each
-//                  __SLOT_N__ marker replaced with a placeholder fill plus a
-//                  data-slot="N" tag, for inline (non-<image>) rendering whose
-//                  fills can be mutated directly via element.style.fill
-//
-// This preserves multi-colour shapes (bauhaus blocks with bg/fg/accent slots).
-
-const _shapeCache = new Map(); // libKey → { parts, slotCenters, innerMarkup }
-
-const SVG_WRAPPER_RE = /^<svg[^>]*>([\s\S]*)<\/svg>\s*$/;
-const INLINE_PLACEHOLDER_FILL = '#9ca3af';
-
-export function getShapeCache(entry, libKey) {
-  if (_shapeCache.has(libKey)) return _shapeCache.get(libKey);
-
-  // Pre-encode static SVG segments; record slot indices as numbers in-between
-  const parts = [];
-  let last = 0;
-  for (const m of entry.template.matchAll(/__SLOT_(\d+)__/g)) {
-    parts.push(encodeURIComponent(entry.template.slice(last, m.index)));
-    parts.push(+m[1]);
-    last = m.index + m[0].length;
-  }
-  parts.push(encodeURIComponent(entry.template.slice(last)));
-
-  // Average anchor points per slot → single representative position in viewbox space
-  const slotCenters = entry.slots.map(({ pts }) => {
-    if (!pts.length) return [0, 0];
-    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
-    const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
-    return [cx, cy];
-  });
-
-  // Inline-renderable markup: strip the outer <svg> wrapper and tag each slot
-  // element with data-slot="N" so it can be queried once and its fill mutated
-  // directly per frame — bypasses data-URI rebuild + <image> redecode entirely.
-  const wrapped = entry.template.match(SVG_WRAPPER_RE);
-  const inner = wrapped ? wrapped[1] : entry.template;
-  const innerMarkup = inner.replace(
-    /style="fill:__SLOT_(\d+)__"/g,
-    (_, i) => `style="fill:${INLINE_PLACEHOLDER_FILL}" data-slot="${i}"`
-  );
-
-  const cached = { parts, slotCenters, innerMarkup };
-  _shapeCache.set(libKey, cached);
-  return cached;
-}
-
-// _shapeCache is naturally bounded — one entry per shape in the library
-// (currently 112), keyed by libKey, never invalidated. Rather than let entries
-// trickle in lazily (the first time each shape is animated, potentially
-// mid-frame), pre-populate the whole cache once, right after the library
-// loads — a few ms of string work done up front instead of as scattered
-// per-shape hitches during animation.
-export function warmShapeCache(shapeLib) {
-  for (const [libKey, entry] of Object.entries(shapeLib)) {
-    getShapeCache(entry, libKey);
-  }
-}
-
-// Build a data URL using one colour per slot (indexed by slot number).
-// Colours is an array; each part that is a number indexes into it.
-export function buildUrlMulti(parts, colours) {
-  let url = 'data:image/svg+xml;charset=utf-8,';
-  for (let i = 0; i < parts.length; i++) {
-    if (typeof parts[i] === 'number') {
-      const c = colours[parts[i]] ?? colours[0] ?? '#000000';
-      url += '%23' + c.slice(1);   // '#rrggbb' → '%23rrggbb'
-    } else {
-      url += parts[i];
-    }
-  }
-  return url;
 }
 
 // ── Virtual grid state ────────────────────────────────────────────────────────
@@ -232,50 +103,8 @@ function sampleSlots(entry, cell, data, iW, iH, scaleX, scaleY) {
 }
 
 /**
- * Pure, synchronous image-mode colorization.
- * No DOMParser, no XMLSerializer, no DOM reads — only Uint8ClampedArray lookups
- * and string replacements on pre-built templates.
- *
- * @param {Array}   gridCells     - from buildGridCells()
- * @param {object}  shapeLib      - shapeLibraryData.shapes  (the .shapes sub-object from the JSON)
- * @param {object}  imgData       - { data: Uint8ClampedArray, width, height, scaleX, scaleY }
- * @param {number}  canvasW       - workArea.width  (unscaled canvas dimensions)
- * @param {number}  canvasH       - workArea.height
- * @param {object}  [colourRemap] - optional { '#rrggbb': '#rrggbb' } map from buildColourRemap()
- * @returns {object}  { [blockId]: dataUrl }  — drop-in replacement for imageDataUrls state
- */
-export function renderImageFrame(gridCells, shapeLib, imgData, canvasW, canvasH, colourRemap = null) {
-  if (!imgData || !gridCells?.length) return {};
-
-  // imgData may be a downsampled buffer (max 512px longest side).
-  const scaleX = imgData.scaleX ?? (imgData.width  / canvasW);
-  const scaleY = imgData.scaleY ?? (imgData.height / canvasH);
-  const { data, width: iW, height: iH } = imgData;
-  const result = {};
-
-  for (const cell of gridCells) {
-    if (!cell.libKey) continue;
-    const entry = shapeLib[cell.libKey];
-    if (!entry) continue;
-
-    const colors = sampleSlots(entry, cell, data, iW, iH, scaleX, scaleY);
-    const svgStr = entry.template.replace(
-      /__SLOT_(\d+)__/g,
-      (_, i) => {
-        const c = colors[+i];
-        return c === 'currentColor' ? c : (colourRemap?.[c] ?? c);
-      }
-    );
-    result[cell.id] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
-  }
-
-  return result;
-}
-
-/**
- * Returns all sampled slot colours across all cells — used to compute a
- * colourRemap before calling renderImageFrame, so the tolerance slider can
- * live-update the preview without a second full render pass.
+ * Returns all sampled slot colours across all cells — used to compute the
+ * colour-tolerance remap (buildColourRemap) for image colour mode.
  */
 export function sampleFrameColours(gridCells, shapeLib, imgData, canvasW, canvasH) {
   if (!imgData || !gridCells?.length) return [];
@@ -297,7 +126,7 @@ export function sampleFrameColours(gridCells, shapeLib, imgData, canvasW, canvas
 
 /**
  * Sample a single frame from a <video> element into the same imgData format
- * that App.jsx's imagePixels state uses. Feed the result directly to renderImageFrame.
+ * that the editor's imagePixels state uses.
  *
  * Call this inside requestAnimationFrame — it is synchronous and fast.
  *

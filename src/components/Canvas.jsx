@@ -8,7 +8,7 @@ const DEFAULT_VIEW = { x: 0, y: 0, scale: 1 };
 // reported through onToolPointer in artboard coordinates.
 const NAV_TOOLS = new Set(['select', 'hand', 'zoom']);
 
-export function Canvas({ viewTransform, needsFit = true, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, onViewportResize, onToolPointer, onPointerMove, overlay, children }) {
+export function Canvas({ viewTransform, needsFit = true, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, onViewportResize, onToolPointer, onPointerMove, onSelectAt, onContextMenuAt, underlay, overlay, children }) {
   const containerRef = useRef(null);
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
@@ -213,9 +213,18 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={() => { onPointerMove?.(null); stopAll(); }}
+      onContextMenu={(e) => {
+        if (activeTool !== 'select' || !onContextMenuAt) return;
+        if (onContextMenuAt(toArtboard(e), e.clientX, e.clientY)) e.preventDefault();
+      }}
       onClick={(e) => {
         if (suppressClick.current) { suppressClick.current = false; return; }
-        if (activeTool === 'select') onDeselectAll?.();
+        // Shapes are drawn on a canvas (see ShapeCanvas), so a click selects
+        // whatever is under it by position rather than by DOM target.
+        if (activeTool === 'select') {
+          if (onSelectAt) onSelectAt(toArtboard(e), e.shiftKey);
+          else onDeselectAll?.();
+        }
         if (activeTool === 'zoom') {
           // Zoom about the clicked point; Alt zooms out (as in Illustrator).
           const rect = containerRef.current.getBoundingClientRect();
@@ -231,6 +240,7 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
         }
       }}
     >
+      {underlay}
       <svg
         id="main-canvas"
         width="100%"
@@ -239,7 +249,8 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
         className={styles.svg}
       >
         <g transform={`translate(${x},${y}) scale(${scale})`}>
-          <rect width={width} height={height} fill={canvasBg ?? '#ffffff'} />
+          {/* With an underlay the artboard is drawn there instead. */}
+          {!underlay && <rect width={width} height={height} fill={canvasBg ?? '#ffffff'} />}
           {children}
         </g>
       </svg>

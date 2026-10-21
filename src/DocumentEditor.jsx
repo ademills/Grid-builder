@@ -5,38 +5,27 @@ import { Dock } from './shell/Dock';
 import { MODE_REGISTRY } from './modes/registry';
 import { EditorContext } from './editor/EditorContext';
 import { ExportDialog, ShortcutsDialog } from './editor/Dialogs';
-import { AnimationLayer, ANIM_FILTER_ID } from './components/AnimationLayer';
+import { AnimationLayer } from './components/AnimationLayer';
+import { ShapeCanvas } from './components/ShapeCanvas';
 import { createAudioAnalyser } from './utils/audioAnalysis';
-import { Grid } from './components/Grid';
 import { PlacedBlocks } from './components/PlacedBlocks';
 import { SelectionToolbar } from './components/SelectionToolbar';
 import { Overlays } from './components/Overlays';
 import { GuideLines, Rulers } from './components/RulersGuides';
 import { useGuideDrag } from './hooks/useGuideDrag';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
-import { fillGrid, fillMasked } from './utils/binPack';
-import { computeGlitchMask } from './utils/glitchFill';
-import { computeStripMask, computeMultiStripMask } from './utils/stripFill';
 import { extractPalette } from './utils/kmeans';
-import { computeEdgeMask } from './utils/edgeFill';
-import { computeBrightnessMask } from './utils/brightnessFill';
-import { computeNoiseMask } from './utils/noiseFill';
-import { computeGeometricMask } from './utils/geometricFill';
-import { computeHalftoneMask } from './utils/halftoneFill';
-import { computeVoronoiMask } from './utils/voronoiFill';
-import { computeSpiralMask } from './utils/spiralFill';
-import { computeFlowFieldMask } from './utils/flowFieldFill';
-import { computeFractalMask } from './utils/fractalFill';
-import { generateMondrianLayout } from './utils/mondrianFill';
-import { generateGoldenLayout } from './utils/goldenFill';
 import { composeKnotworkSvg } from './utils/knotworkCompose';
 import { LAYOUTS, computeGridMask, buildWireframeBlocks, wireframeRects } from './utils/layouts';
 import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift } from './utils/colorize';
 import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
-import { buildGridCells, renderImageFrame, sampleFrameColours, loadShapeLibrary, warmShapeCache } from './utils/shapeLibraryRender';
+import { buildGridCells, sampleFrameColours, loadShapeLibrary } from './utils/shapeLibraryRender';
 import { ALL_BUILTIN_ASSETS } from './builtinAssets';
 import { useHistory } from './hooks/useHistory';
+import { runFillInWorker } from './workers/fillClient';
+import { fillGrid } from './utils/binPack';
 import { FILLS } from './modes/gridBuilder/fills';
 import { pickSurprise } from './modes/gridBuilder/surprise';
 import { useDocumentStore } from './store/documentStore';
@@ -651,8 +640,6 @@ export function DocumentEditor({ mode: appMode }) {
   // Image colour mode
   const [imageSrc] = useDocField('imageSrc');
   const [imagePixels, setImagePixels] = useState(null);
-  const [imageDataUrls, setImageDataUrls] = useState({});
-  const [imageProgress, setImageProgress] = useState(null);
   const [imageColourTolerance] = useDocField('imageColourTolerance');
 
   // Palette Extractor
@@ -673,8 +660,6 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Animation
   const [animSettings] = useDocField('animSettings');
-  const imageRefsMap = useRef({});
-  const slotRefsMap = useRef({});
 
   // Audio Reactive Mode
   const [audioSettings] = useDocField('audioSettings');
@@ -737,7 +722,6 @@ export function DocumentEditor({ mode: appMode }) {
     loadShapeLibrary().then(lib => {
       if (cancelled) return;
       setShapeLibrary(lib);
-      warmShapeCache(lib.shapes);
     });
     return () => { cancelled = true; };
   }, []);
@@ -794,34 +778,6 @@ export function DocumentEditor({ mode: appMode }) {
     const allFills = sampleFrameColours(gridCells, shapeLibrary.shapes, imagePixels, workArea.width, workArea.height);
     return buildColourRemap(allFills, imageColourTolerance) ?? null;
   }, [colorMode, imagePixels, gridCells, shapeLibrary, imageColourTolerance, workArea.width, workArea.height]);
-
-  // Image colour mode — pure arithmetic pass against the pre-built shape library.
-  // Pre-clears old URLs so the browser frees decoded SVG bitmaps before allocating new ones,
-  // then defers the computation one rAF so it doesn't block the React render cycle.
-  useEffect(() => {
-    if (colorMode !== 'image' || !imagePixels || !gridCells.length || !shapeLibrary) {
-      setImageDataUrls({});
-      setImageProgress(null);
-      return;
-    }
-    // Clear old data URLs first — lets the browser release old decoded SVG bitmaps before
-    // we allocate a new set, halving peak GPU/browser-side memory usage.
-    setImageDataUrls({});
-    const snapPixels = imagePixels;
-    const snapCells  = gridCells;
-    const snapW      = workArea.width;
-    const snapH      = workArea.height;
-    const snapLib    = shapeLibrary;
-    const snapRemap  = imageColourRemap;
-    const rafId = requestAnimationFrame(() => {
-      setImageDataUrls(
-        renderImageFrame(snapCells, snapLib.shapes, snapPixels, snapW, snapH, snapRemap)
-      );
-      setImageProgress(null);
-    });
-    return () => cancelAnimationFrame(rafId);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colorMode, imagePixels, gridCells, workArea.width, workArea.height, shapeLibrary, imageColourRemap]);
 
   // ── History ────────────────────────────────────────────────────────────────
   const {
@@ -1058,41 +1014,35 @@ export function DocumentEditor({ mode: appMode }) {
     ...randomOpacity(),
   }), [randomOpacity]);
 
-  // Standard fill: the whole grid, or only the active layout's grid area
-  // (keeping its wireframe placeholders).
-  const fillStandard = useCallback(() => {
-    if (!layoutGridMask) return fillGrid(activeAssets, gridComputed, maxScale, scaleFreq);
-    const wireframes = placedBlocks.filter(b => b.type === 'wireframe');
-    return [...wireframes, ...fillMasked(activeAssets, gridComputed, layoutGridMask, maxScale, scaleFreq)];
-  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, layoutGridMask]);
+  // Fills run in a Web Worker (workers/fillWorker.js) so big grids and image
+  // fills don't freeze the interface. Only the newest request applies; one
+  // started while another is running supersedes it.
+  const setBusy = useAppStore(s => s.setBusy);
+  const fillSeq = useRef(0);
+  const fillInWorker = useCallback(async (fillId, settings, extra = {}) => {
+    if (!activeAssets.length || !gridComputed) return { error: 'Enable some shapes in the Assets panel first.' };
+    const seq = ++fillSeq.current;
+    setBusy('Filling…');
+    try {
+      const result = await runFillInWorker({
+        fillId, settings, grid: gridComputed, assets: activeAssets, imagePixels,
+        layoutMask: layoutGridMask, maxScale, scaleFreq, ...extra,
+      });
+      return seq === fillSeq.current ? result : { stale: true };
+    } finally {
+      if (seq === fillSeq.current) setBusy(null);
+    }
+  }, [activeAssets, gridComputed, imagePixels, layoutGridMask, maxScale, scaleFreq, setBusy]);
 
-  const handleFillGaps = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    pushHistory(placedBlocks);
-    const newBlocks = (layoutGridMask
-      ? fillMasked(activeAssets, gridComputed, layoutGridMask, maxScale, scaleFreq, placedBlocks)
-      : fillGrid(activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks)
-    ).map(decorate);
-    setPlacedBlocks(prev => [...prev, ...newBlocks]);
+  const handleFillGaps = useCallback(async () => {
+    const result = await fillInWorker('gaps', null, { existing: placedBlocksRef.current });
+    if (result.stale) return;
+    if (result.error) { showToast(result.error); return; }
+    const current = placedBlocksRef.current;
+    pushHistory(current);
+    setPlacedBlocks([...current, ...result.blocks.map(decorate)]);
     syncHistorySize();
-  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, layoutGridMask, pushHistory, syncHistorySize, decorate]);
-
-  // Every mask-based fill: settings → the set of cells to pack shapes into.
-  // Mondrian and Golden Ratio build their own layouts instead (below).
-  const FILL_MASKS = useMemo(() => ({
-    glitch:     { mask: (g, s) => computeGlitchMask(g, s),              empty: 'No glitch cells generated — try increasing Force or Active Ratio.' },
-    strip:      { mask: (g, s) => computeStripMask(g, s),               empty: 'No strip cells generated — try increasing Width.' },
-    multiStrip: { mask: (g, s) => computeMultiStripMask(g, s),          empty: 'No strip cells generated — try increasing Width or Strip count.' },
-    edge:       { mask: (g, s) => computeEdgeMask(g, imagePixels, s),   empty: 'No edge cells detected — try lowering Edge Threshold.', image: true },
-    brightness: { mask: (g, s) => computeBrightnessMask(g, imagePixels, s), empty: 'No cells matched this brightness zone — try adjusting the range.', image: true },
-    noise:      { mask: (g, s) => computeNoiseMask(g, s),               empty: 'No cells matched this noise field — try raising the threshold.' },
-    geometric:  { mask: (g, s) => computeGeometricMask(g, s),           empty: 'No cells matched this pattern — try adjusting its settings.' },
-    halftone:   { mask: (g, s) => computeHalftoneMask(g, s),            empty: 'No cells matched — try adjusting halftone settings.' },
-    voronoi:    { mask: (g, s) => computeVoronoiMask(g, s),             empty: 'No cells matched — try adjusting voronoi settings.' },
-    spiral:     { mask: (g, s) => computeSpiralMask(g, s),              empty: 'No cells matched — try adjusting spiral settings.' },
-    flowField:  { mask: (g, s) => computeFlowFieldMask(g, s),           empty: 'No cells matched — try adjusting flow field settings.' },
-    fractal:    { mask: (g, s) => computeFractalMask(g, s),             empty: 'No cells matched — try adjusting fractal settings.' },
-  }), [imagePixels]);
+  }, [fillInWorker, pushHistory, setPlacedBlocks, syncHistorySize, decorate, showToast]);
 
   // Current settings for each fill, by fill id.
   const fillSettingsById = useMemo(() => ({
@@ -1102,47 +1052,54 @@ export function DocumentEditor({ mode: appMode }) {
     mondrian: mondrianSettings, golden: goldenSettings,
   }), [glitchSettings, stripSettings, multiStripSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, halftoneSettings, voronoiSettings, spiralSettings, flowFieldSettings, fractalSettings, mondrianSettings, goldenSettings]);
 
-  // The blocks a fill produces, or { error } when it can't place anything.
-  // `settings` defaults to the fill's saved settings.
-  const computeFill = useCallback((fillId, settings = fillSettingsById[fillId]) => {
-    if (!activeAssets.length || !gridComputed) return { error: 'Enable some shapes in the Assets panel first.' };
-    if (fillId === 'standard') return { blocks: fillStandard().map(b => (b.type === 'wireframe' ? b : decorate(b))) };
-    if (fillId === 'mondrian') return { blocks: generateMondrianLayout(activeAssets, gridComputed, settings).map(b => ({ ...b, ...randomOpacity() })) };
-    if (fillId === 'golden') return { blocks: generateGoldenLayout(activeAssets, gridComputed, settings).map(b => ({ ...b, ...randomOpacity() })) };
-    const def = FILL_MASKS[fillId];
-    if (!def) return { error: `Unknown fill: ${fillId}` };
-    if (def.image && !imagePixels) return { error: 'This fill needs an image loaded in Image colour mode.' };
-    const cells = def.mask(gridComputed, settings);
-    if (cells.size === 0) return { error: def.empty };
-    // Glitch has its own scale settings; the rest use the document's.
-    const [ms, sf] = fillId === 'glitch' ? [settings.maxScale, settings.scaleFreq] : [maxScale, scaleFreq];
-    return { blocks: fillMasked(activeAssets, gridComputed, cells, ms, sf).map(decorate) };
-  }, [activeAssets, gridComputed, fillSettingsById, FILL_MASKS, imagePixels, maxScale, scaleFreq, fillStandard, decorate, randomOpacity]);
+  // The blocks a fill produces, or { error } when it can't place anything
+  // ({ stale } if a newer fill replaced it). `settings` defaults to the
+  // fill's saved settings.
+  const computeFill = useCallback(async (fillId, settings = fillSettingsById[fillId]) => {
+    const result = await fillInWorker(fillId, settings);
+    if (result.error || result.stale) return result;
+    if (fillId === 'mondrian' || fillId === 'golden') {
+      // These layouts set their own colour seeds.
+      return { blocks: result.blocks.map(b => ({ ...b, ...randomOpacity() })) };
+    }
+    const shapes = result.blocks.map(decorate);
+    // The standard fill keeps the active layout's wireframe placeholders.
+    if (fillId === 'standard' && layoutGridMask) {
+      return { blocks: [...placedBlocksRef.current.filter(b => b.type === 'wireframe'), ...shapes] };
+    }
+    return { blocks: shapes };
+  }, [fillInWorker, fillSettingsById, decorate, randomOpacity, layoutGridMask]);
 
   // Runs a fill as one undoable step. `fields` are document fields the
   // caller changed alongside it, so undo restores those too.
-  const runFill = useCallback((fillId, settings, fields) => {
-    const result = computeFill(fillId, settings);
+  const runFill = useCallback(async (fillId, settings, fields) => {
+    const result = await computeFill(fillId, settings);
+    if (result.stale) return false;
     if (result.error) { showToast(result.error); return false; }
-    pushHistory(placedBlocks, fields);
+    pushHistory(placedBlocksRef.current, fields);
     setPlacedBlocks(result.blocks);
     syncHistorySize();
     return true;
-  }, [computeFill, placedBlocks, pushHistory, setPlacedBlocks, syncHistorySize, showToast]);
+  }, [computeFill, pushHistory, setPlacedBlocks, syncHistorySize, showToast]);
 
   // Surprise Me: a random fill with random settings, a random palette and a
   // fresh seed, as one undo step. Grid size and enabled shapes stay as they are.
-  const surpriseMe = useCallback(() => {
+  const surpriseMe = useCallback(async () => {
     if (!activeAssets.length || !gridComputed) return;
-    const state = useDocumentStore.getState().docs[docId].state;
-    const pinned = new Set(placedBlocks.flatMap(b => Object.values(b.slotPins ?? {})));
     // A few attempts, since some random settings leave nothing to fill.
     for (let attempt = 0; attempt < 6; attempt++) {
       const { fill, settings, palette } = pickSurprise({ canUseImage: !!imagePixels, libraries: useLibraryStore.getState().libraries });
+      const state = useDocumentStore.getState().docs[docId]?.state;
+      if (!state) return;
       const merged = fill.settingsKey ? { ...state[fill.settingsKey], ...settings } : undefined;
-      const result = computeFill(fill.id, merged);
+      const result = await computeFill(fill.id, merged);
+      if (result.stale) return;
       if (result.error) continue;
 
+      // Read again: the document may have changed while the fill ran.
+      const now = useDocumentStore.getState().docs[docId]?.state;
+      if (!now) return;
+      const pinned = new Set(now.placedBlocks.flatMap(b => Object.values(b.slotPins ?? {})));
       const tag = crypto.randomUUID().slice(0, 4);
       const next = {
         activeFill: fill.id,
@@ -1150,15 +1107,15 @@ export function DocumentEditor({ mode: appMode }) {
         // Keep user-added and pinned swatches, as applying a library does.
         shapeColors: [
           ...palette.colours.map((hex, i) => ({ id: `p-surprise-${tag}-${i}`, hex, enabled: true, source: 'palette' })),
-          ...state.shapeColors.filter(c => c.source === 'custom' || pinned.has(c.id))
+          ...now.shapeColors.filter(c => c.source === 'custom' || pinned.has(c.id))
             .map(c => (c.source === 'custom' ? c : { ...c, enabled: false, source: 'custom' })),
         ],
         // A palette only shows in a palette-based colour mode.
-        colorMode: state.colorMode === 'none' || (state.colorMode === 'image' && !imagePixels) ? 'random' : state.colorMode,
+        colorMode: now.colorMode === 'none' || (now.colorMode === 'image' && !imagePixels) ? 'random' : now.colorMode,
         ...(fill.settingsKey ? { [fill.settingsKey]: merged } : {}),
       };
-      const before = Object.fromEntries(Object.keys(next).map(k => [k, state[k]]));
-      pushHistory(placedBlocks, before);
+      const before = Object.fromEntries(Object.keys(next).map(k => [k, now[k]]));
+      pushHistory(placedBlocksRef.current, before);
       for (const [k, v] of Object.entries(next)) useDocumentStore.getState().setField(docId, k, v);
       setPlacedBlocks(result.blocks);
       syncHistorySize();
@@ -1166,7 +1123,7 @@ export function DocumentEditor({ mode: appMode }) {
       return;
     }
     showToast('Surprise Me couldn’t find a fill that works here — try again');
-  }, [activeAssets, gridComputed, docId, placedBlocks, imagePixels, computeFill, pushHistory, setPlacedBlocks, syncHistorySize, showToast]);
+  }, [activeAssets, gridComputed, docId, imagePixels, computeFill, pushHistory, setPlacedBlocks, syncHistorySize, showToast]);
 
   // Sourced from the app's active theme rather than its own colour pickers
   // — changing the palette/background reshapes future knotwork fills too.
@@ -1356,15 +1313,38 @@ export function DocumentEditor({ mode: appMode }) {
     // Raster export (PNG / JPEG)
     const targetW = Math.round(workArea.width * scale);
     const targetH = Math.round(workArea.height * scale);
-    if (targetW > MAX_CANVAS_DIMENSION || targetH > MAX_CANVAS_DIMENSION) {
-      alert(`Export dimensions (${targetW}×${targetH}px) exceed the ${MAX_CANVAS_DIMENSION}px canvas limit. Reduce the export scale.`);
-      return;
-    }
-
     const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
     const extension = format === 'jpeg' ? 'jpg' : 'png';
     const filename = `grid-layout-${timestamp}.${extension}`;
     const transparentBg = format === 'png' && transparentBackground;
+
+    // Desktop: rendered in Rust (src-tauri/src/raster.rs) — no canvas size
+    // cap, flat memory use, and the UI stays responsive while it renders.
+    if (isTauri) {
+      const path = await tauriSaveDialog({
+        title: 'Export Image',
+        defaultPath: filename,
+        filters: [{ name: format.toUpperCase(), extensions: [extension] }],
+      });
+      if (!path) return;
+      const { svgEl } = buildFlatSvgElement({ ...commonBuildArgs, layer: transparentBg ? 'shapes' : 'all' });
+      useAppStore.getState().showToast(`Exporting ${targetW} × ${targetH} px…`);
+      try {
+        await invoke('render_raster', {
+          svg: new XMLSerializer().serializeToString(svgEl),
+          width: targetW, height: targetH, format, quality: Math.round(jpegQuality * 100), path,
+        });
+        useAppStore.getState().showToast(`Exported ${path.split(/[\\/]/).pop()}`);
+      } catch (err) {
+        alert('Export failed: ' + (err.message ?? err));
+      }
+      return;
+    }
+
+    if (targetW > MAX_CANVAS_DIMENSION || targetH > MAX_CANVAS_DIMENSION) {
+      alert(`Export dimensions (${targetW}×${targetH}px) exceed the ${MAX_CANVAS_DIMENSION}px canvas limit. Reduce the export scale.`);
+      return;
+    }
 
     // Render at up to 3x the output resolution and downscale, to smooth away
     // hairline antialiasing seams between adjacent shapes/paths.
@@ -1743,6 +1723,20 @@ export function DocumentEditor({ mode: appMode }) {
   }, [cellAt, setCursor]);
   useEffect(() => () => setCursor(null), [setCursor]);
 
+  // Selection tool clicks and right-clicks on the canvas. Shapes are drawn on
+  // a canvas, so the shape is found from the grid cell under the pointer.
+  const handleSelectAt = useCallback((pt, addToSelection) => {
+    const block = hitTest(pt, placedBlocksRef.current)?.block;
+    if (block && !block.locked && !block.type) handleSelectBlock(block.id, addToSelection);
+    else if (!addToSelection) handleDeselectAll();
+  }, [hitTest, handleSelectBlock, handleDeselectAll]);
+  const handleContextMenuAt = useCallback((pt, x, y) => {
+    const block = hitTest(pt, placedBlocksRef.current)?.block;
+    if (!block || block.locked || block.type) return false;
+    handleOpenContextMenu(block, x, y);
+    return true;
+  }, [hitTest, handleOpenContextMenu]);
+
   // ── Clipboard ──────────────────────────────────────────────────────────────
   // Copied shapes live in the app store so they can be pasted into another
   // tab. Paste goes under the pointer; if shapes are in the way the user can
@@ -1910,10 +1904,10 @@ export function DocumentEditor({ mode: appMode }) {
       hasBlocks: placedBlocks.length > 0,
       canFillGaps: canShapeFill && placedBlocks.length > 0,
       hasImage: !!imagePixels,
-      imageProgress,
+      imageProgress: null,
       canKnotworkFill: gridComputed !== null,
     },
-  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill, imageProgress]);
+  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
 
   // ── Shell bridge ───────────────────────────────────────────────────────────
   // Menu bar, status bar and app-level shortcuts reach this editor through
@@ -2001,7 +1995,30 @@ export function DocumentEditor({ mode: appMode }) {
           onMarqueeSelect={handleMarqueeSelect}
           onToolPointer={handleToolPointer}
           onPointerMove={handlePointerMove}
+          onSelectAt={handleSelectAt}
+          onContextMenuAt={handleContextMenuAt}
           onViewportResize={setViewportSize}
+          underlay={
+            <ShapeCanvas
+              viewTransform={viewTransform}
+              viewportSize={viewportSize}
+              visibleRect={visibleRect}
+              workArea={workArea}
+              canvasBg={canvasBg}
+              backdropSrc={backdropSrc}
+              backdropSettings={backdropSettings}
+              gridComputed={gridComputed}
+              gridSettings={gridSettings}
+              blocks={placedBlocks}
+              colourCtx={colourCtx}
+              imagePixels={imagePixels}
+              colourRemap={imageColourRemap}
+              blendMode={blendMode}
+              animSettings={animSettings}
+              audioSettings={audioSettings}
+              audioDataRef={audioDataRef}
+            />
+          }
           overlay={
             <>
               {showRulers && <Rulers viewTransform={viewTransform} viewportSize={viewportSize} onStartDrag={startGuideDrag} />}
@@ -2043,73 +2060,21 @@ export function DocumentEditor({ mode: appMode }) {
             </>
           }
         >
-          {backdropSrc && (
-            <>
-              <image
-                href={backdropSrc}
-                x={0} y={0}
-                width={workArea.width}
-                height={workArea.height}
-                preserveAspectRatio={
-                  backdropSettings.fit === 'cover' ? 'xMidYMid slice'
-                  : backdropSettings.fit === 'stretch' ? 'none'
-                  : 'xMidYMid meet'
-                }
-                opacity={backdropSettings.opacity}
-              />
-              {backdropSettings.tintOpacity > 0 && (
-                <rect
-                  x={0} y={0}
-                  width={workArea.width}
-                  height={workArea.height}
-                  fill={backdropSettings.tintColour}
-                  opacity={backdropSettings.tintOpacity}
-                />
-              )}
-            </>
-          )}
-          <Grid workArea={workArea} gridSettings={gridSettings} />
+          {/* Shapes, the artboard, background image and grid lines are drawn by
+              ShapeCanvas (the underlay). This SVG layer holds image blocks,
+              selection outlines and overlays. */}
           <PlacedBlocks
             placedBlocks={placedBlocks}
             visibleRect={visibleRect}
-            shapeLibrary={shapeLibrary}
             gridComputed={gridComputed}
             activeTool={activeTool}
             selectedIds={selectedIds}
             onSelect={handleSelectBlock}
             onContextMenu={handleOpenContextMenu}
-            colorMode={colorMode}
-            effectivePalette={activePalette}
-            bgOptions={activeBgColors}
-            gradientSettings={activeGradientSettings}
-            meshSettings={meshSettings}
-            imageDataUrls={imageDataUrls}
-            randomReverseEnabled={randomReverseEnabled}
-            filterUrl={
-              animSettings.enabled && ANIM_FILTER_ID[animSettings.type]
-                ? `url(#${ANIM_FILTER_ID[animSettings.type]})`
-                : undefined
-            }
-            imageRefsMap={imageRefsMap}
-            animSettings={animSettings}
-            slotRefsMap={slotRefsMap}
             blendMode={blendMode}
-            swatchMap={swatchMap}
             highlightIds={layerHighlight}
           />
-          <AnimationLayer
-            animSettings={animSettings}
-            gridCells={gridCells}
-            gridComputed={gridComputed}
-            palette={activePalette}
-            workArea={workArea}
-            shapeLibrary={shapeLibrary}
-            imageRefsMap={imageRefsMap}
-            slotRefsMap={slotRefsMap}
-            audioSettings={audioSettings}
-            audioDataRef={audioDataRef}
-            canvasBg={canvasBg}
-          />
+          <AnimationLayer animSettings={animSettings} />
           <Overlays ids={overlayIds} width={workArea.width} height={workArea.height} scale={viewTransform.scale} />
           {(showGuides || guideDrag.drag) && (
             <GuideLines guides={guides} drag={guideDrag.drag} onStartDrag={startGuideDrag}

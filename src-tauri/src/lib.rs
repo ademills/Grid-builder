@@ -1,3 +1,5 @@
+mod raster;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -5,6 +7,7 @@ pub fn run() {
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
+    .invoke_handler(tauri::generate_handler![raster::render_raster])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
