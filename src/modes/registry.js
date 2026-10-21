@@ -3,6 +3,7 @@ import {
   GridModeMark, MeanderModeMark,
 } from '../shell/icons';
 import { PropertiesPanel } from '../panels/PropertiesPanel';
+import { InfoPanel } from '../panels/InfoPanel';
 import { GeneratePanel, LayoutsPanel } from '../panels/GeneratePanel';
 import { ColourPanel } from '../panels/ColourPanel';
 import { SwatchesPanel } from '../panels/SwatchesPanel';
@@ -15,7 +16,8 @@ import { MeanderPanel, MeanderThemePanel } from '../panels/MeanderPanels';
 // the home screen and tabs, which tools appear in the tool bar, and how its
 // panels are grouped in the dock while one of its documents is active.
 //
-// Dock groups: { id, panels: [{ id, title, component }], defaultCollapsed?, grow? }.
+// Dock groups: { id, panels: [{ id, title, component, menu? }], defaultCollapsed?, grow? }.
+// `menu` lists command ids (shell/commands.js) for the panel's ☰ menu.
 // Group ids are shared across modes where the meaning matches (e.g. 'colour')
 // so a panel can be revealed with showDockTab(groupId, panelId) in either mode.
 
@@ -44,18 +46,19 @@ export const MODE_REGISTRY = {
     tools: ['select', 'wand', '|', 'stamp', 'eraser', 'rotate', 'reflect', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
     dock: [
       { id: 'properties', panels: [
-        { id: 'properties', title: 'Properties', component: PropertiesPanel },
-        { id: 'layers', title: 'Layers', component: LayersPanel },
+        { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'generate.fillGaps', 'generate.flipH', 'generate.flipV', 'file.export'] },
+        { id: 'layers', title: 'Layers', component: LayersPanel, menu: ['select.all', 'select.none', 'object.showAll', 'object.unlockAll'] },
+        { id: 'info', title: 'Info', component: InfoPanel, menu: ['object.randomOpacity', 'object.resetOpacity', 'object.unpin', 'edit.duplicate'] },
       ], grow: 3 },
       { id: 'generate', panels: [
-        { id: 'generate', title: 'Generate', component: GeneratePanel },
-        { id: 'layouts', title: 'Layouts', component: LayoutsPanel },
+        { id: 'generate', title: 'Generate', component: GeneratePanel, menu: ['generate.fill', 'generate.fillGaps', 'generate.surprise', 'generate.clear'] },
+        { id: 'layouts', title: 'Layouts', component: LayoutsPanel, menu: ['generate.clearLayout'] },
       ], grow: 3 },
       { id: 'colour', panels: [
-        { id: 'colour', title: 'Colour', component: ColourPanel },
-        { id: 'swatches', title: 'Swatches', component: SwatchesPanel },
+        { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['colour.shuffle', 'colour.saveSwatches'] },
+        { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
       ], grow: 3 },
-      { id: 'assets', panels: [{ id: 'assets', title: 'Assets', component: AssetsPanel }], defaultCollapsed: true, grow: 3 },
+      { id: 'assets', panels: [{ id: 'assets', title: 'Assets', component: AssetsPanel, menu: ['assets.enableAll', 'assets.disableAll', 'assets.enableUsed'] }], defaultCollapsed: true, grow: 3 },
       { id: 'image', panels: [{ id: 'image', title: 'Image', component: ImagePanel }], defaultCollapsed: true },
       { id: 'motion', panels: [
         { id: 'animation', title: 'Animation', component: AnimationPanel },
@@ -73,13 +76,13 @@ export const MODE_REGISTRY = {
     tools: ['select', 'hand', 'zoom'],
     dock: [
       { id: 'properties', panels: [
-        { id: 'properties', title: 'Properties', component: PropertiesPanel },
+        { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },
         { id: 'layers', title: 'Layers', component: MeanderLayersPanel },
       ], grow: 2 },
-      { id: 'meander', panels: [{ id: 'meander', title: 'Meander', component: MeanderPanel }], grow: 4 },
+      { id: 'meander', panels: [{ id: 'meander', title: 'Meander', component: MeanderPanel, menu: ['meander.fill', 'meander.recolour'] }], grow: 4 },
       { id: 'colour', panels: [
-        { id: 'colour', title: 'Colour', component: MeanderThemePanel },
-        { id: 'swatches', title: 'Swatches', component: SwatchesPanel },
+        { id: 'colour', title: 'Colour', component: MeanderThemePanel, menu: ['colour.saveSwatches'] },
+        { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
       ], grow: 2 },
       { id: 'image', panels: [{ id: 'image', title: 'Image', component: ImagePanel }], defaultCollapsed: true },
     ],

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { check as checkForUpdate } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -7,9 +7,9 @@ import { DocContext } from '../store/useDocField';
 import { useDocumentStore, selectActiveDoc } from '../store/documentStore';
 import { useAppStore } from '../store/appStore';
 import { MODE_REGISTRY, TOOLS } from '../modes/registry';
-import {
-  newDocument, openDocument, openRecent, saveDocument, closeDocument, dirtyDocuments, cycleTab,
-} from './documentActions';
+import { openRecent, dirtyDocuments } from './documentActions';
+import { commandContext, commandForEvent, menuItem, runCommand } from './commands';
+import { useFileDrop } from './fileDrop';
 import { isTauri } from './fileIO';
 import { MenuBar } from './MenuBar';
 import { TabBar } from './TabBar';
@@ -57,40 +57,23 @@ function useCloseGuard() {
   }, []);
 }
 
-// App-wide shortcuts. Editing shortcuts (undo, nudge, delete) stay in the
-// editor; anything here works from the home screen too where it makes sense.
+// Keyboard shortcuts. Command shortcuts come from the registry
+// (shell/commands.js); single-letter keys pick a tool in the active mode.
 function useShellShortcuts(activeId, activeMode) {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (useAppStore.getState().prompt) return;
-      const ctrl = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
-      const cmds = useAppStore.getState().editorCommands;
-
-      if (ctrl) {
-        const handled = (() => {
-          if (key === 'n') { e.shiftKey ? newDocument('knotwork') : newDocument('gridBuilder'); return true; }
-          if (key === 'o') { openDocument(); return true; }
-          if (key === 's' && activeId) { saveDocument(activeId, { saveAs: e.shiftKey }); return true; }
-          if (key === 'w' && activeId) { closeDocument(activeId); return true; }
-          if (key === 'tab') { cycleTab(e.shiftKey ? -1 : 1); return true; }
-          if (key === 'e' && e.shiftKey && cmds && useAppStore.getState().editorStatus?.canExport) { cmds.openExport(); return true; }
-          if (!cmds) return false;
-          if (key === '=' || key === '+') { cmds.zoomIn(); return true; }
-          if (key === '-') { cmds.zoomOut(); return true; }
-          if (key === '0') { cmds.fitView(); return true; }
-          if (key === '1') { cmds.setZoom(1); return true; }
-          if (isTypingTarget(e.target)) return false;
-          if (key === 'a') { e.shiftKey ? cmds.deselectAll() : cmds.selectAll(); return true; }
-          return false;
-        })();
-        if (handled) e.preventDefault();
+      const id = commandForEvent(e);
+      if (id) {
+        if (runCommand(id)) e.preventDefault();
+        else if (e.ctrlKey || e.metaKey) e.preventDefault(); // e.g. Ctrl+S with nothing open
         return;
       }
-
+      if (e.ctrlKey || e.metaKey) return;
       if (!activeId || isTypingTarget(e.target) || e.altKey) return;
+      const key = e.key.toLowerCase();
       const tools = MODE_REGISTRY[activeMode].tools;
-      const tool = tools.find(id => TOOLS[id]?.key.toLowerCase() === key);
+      const tool = tools.find(t => TOOLS[t]?.key.toLowerCase() === key);
       if (tool) { useAppStore.getState().setActiveTool(tool); e.preventDefault(); }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -98,95 +81,61 @@ function useShellShortcuts(activeId, activeMode) {
   }, [activeId, activeMode]);
 }
 
-function useMenus(activeDoc) {
-  const status = useAppStore(s => s.editorStatus);
-  const cmds = useAppStore(s => s.editorCommands);
-  const recentFiles = useAppStore(s => s.recentFiles);
-  const hasDoc = !!activeDoc && !!cmds;
-  const gridDoc = hasDoc && activeDoc?.mode === 'gridBuilder';
-  const hasSel = gridDoc && (status?.selectedCount ?? 0) > 0;
+// Menu structure: command ids, 'separator', or { heading }.
+const MENUS = [
+  { label: 'File', items: ['file.newGrid', 'file.newMeander', 'separator', 'file.open', 'recent', 'separator',
+    'file.save', 'file.saveAs', 'separator', 'file.export', 'file.exportSvg', 'separator', 'file.close'] },
+  { label: 'Edit', items: ['edit.undo', 'edit.redo', 'separator', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate',
+    'separator', 'edit.delete'] },
+  { label: 'Object', items: ['object.rotateCw', 'object.rotateCcw', 'object.reflectH', 'object.reflectV', 'separator',
+    'object.paint', 'object.unpin', 'object.randomOpacity', 'object.resetOpacity', 'separator',
+    'object.hide', 'object.showAll', 'object.lock', 'object.unlockAll'] },
+  { label: 'Select', items: ['select.all', 'select.none', 'separator', 'select.sameColour', 'select.sameShape'] },
+  { label: 'Generate', items: ['generate.fill', 'generate.fillGaps', 'generate.surprise', 'separator',
+    'generate.flipH', 'generate.flipV', 'generate.clearLayout', 'generate.clear', 'separator',
+    'meander.fill', 'meander.recolour'] },
+  { label: 'View', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', 'view.wheelZooms', 'separator',
+    'view.rulers', 'view.guides', 'view.clearGuides', 'separator', { heading: 'Overlays' },
+    'view.overlay.thirds', 'view.overlay.golden', 'view.overlay.centre', 'view.overlay.ig45', 'view.overlay.ig916',
+    'view.overlay.none'] },
+  { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.resetDock'] },
+  { label: 'Help', items: ['help.shortcuts'] },
+];
 
-  return useMemo(() => [
-    {
-      label: 'File',
-      items: [
-        { label: 'New Grid Pattern', shortcut: 'Ctrl+N', onClick: () => newDocument('gridBuilder') },
-        { label: 'New Meander', shortcut: 'Ctrl+Shift+N', onClick: () => newDocument('knotwork') },
-        'separator',
-        { label: 'Open…', shortcut: 'Ctrl+O', onClick: openDocument },
-        ...(recentFiles.length
+function useMenus() {
+  // Re-render whenever anything a command's enabled/checked state reads changes.
+  useAppStore(s => s.editorStatus);
+  useAppStore(s => s.editorCommands);
+  useAppStore(s => s.clipboard);
+  useAppStore(s => s.overlays);
+  useAppStore(s => s.showRulers);
+  useAppStore(s => s.showGuides);
+  useAppStore(s => s.wheelZooms);
+  useDocumentStore(selectActiveDoc);
+  const recentFiles = useAppStore(s => s.recentFiles);
+
+  const c = commandContext();
+  return MENUS.map(menu => ({
+    label: menu.label,
+    items: menu.items.flatMap(item => {
+      if (item === 'separator' || typeof item === 'object') return [item];
+      if (item === 'recent') {
+        return recentFiles.length
           ? [{ heading: 'Open Recent' }, ...recentFiles.slice(0, 6).map(r => ({ label: r.name, onClick: () => openRecent(r) }))]
-          : []),
-        'separator',
-        { label: 'Save', shortcut: 'Ctrl+S', disabled: !activeDoc, onClick: () => saveDocument(activeDoc.id) },
-        { label: 'Save As…', shortcut: 'Ctrl+Shift+S', disabled: !activeDoc, onClick: () => saveDocument(activeDoc.id, { saveAs: true }) },
-        'separator',
-        { label: 'Export As…', shortcut: 'Ctrl+Shift+E', disabled: !hasDoc || !status?.canExport, onClick: () => cmds.openExport() },
-        { label: 'Quick Export SVG…', disabled: !hasDoc || !status?.canExport, onClick: () => cmds.exportSvg() },
-        'separator',
-        { label: 'Close', shortcut: 'Ctrl+W', disabled: !activeDoc, onClick: () => closeDocument(activeDoc.id) },
-      ],
-    },
-    {
-      label: 'Edit',
-      items: [
-        { label: 'Undo', shortcut: 'Ctrl+Z', disabled: !hasDoc || !status?.canUndo, onClick: () => cmds.undo() },
-        { label: 'Redo', shortcut: 'Ctrl+Shift+Z', disabled: !hasDoc || !status?.canRedo, onClick: () => cmds.redo() },
-        'separator',
-        { label: 'Delete', shortcut: 'Del', disabled: !hasDoc || !status?.selectedCount, onClick: () => cmds.deleteSelection() },
-      ],
-    },
-    {
-      label: 'Object',
-      items: [
-        { label: 'Rotate 90° Clockwise', disabled: !hasSel, onClick: () => cmds.selection.rotate(true) },
-        { label: 'Rotate 90° Anticlockwise', disabled: !hasSel, onClick: () => cmds.selection.rotate(false) },
-        { label: 'Reflect Horizontal', disabled: !hasSel, onClick: () => cmds.selection.reflect(false) },
-        { label: 'Reflect Vertical', disabled: !hasSel, onClick: () => cmds.selection.reflect(true) },
-        'separator',
-        { label: 'Paint with Current Colour', disabled: !hasSel, onClick: () => cmds.selection.paint() },
-        { label: 'Unpin Colours', disabled: !hasSel, onClick: () => cmds.selection.unpin() },
-        'separator',
-        { label: 'Hide', disabled: !hasSel, onClick: () => cmds.selection.hide() },
-        { label: 'Show All', disabled: !gridDoc, onClick: () => cmds.showAll() },
-        { label: 'Lock', disabled: !hasSel, onClick: () => cmds.selection.lock() },
-        { label: 'Unlock All', disabled: !gridDoc, onClick: () => cmds.unlockAll() },
-      ],
-    },
-    {
-      label: 'Select',
-      items: [
-        { label: 'All', shortcut: 'Ctrl+A', disabled: !hasDoc, onClick: () => cmds.selectAll() },
-        { label: 'Deselect', shortcut: 'Ctrl+Shift+A', disabled: !hasDoc, onClick: () => cmds.deselectAll() },
-        'separator',
-        { label: 'Same Colour', disabled: !hasSel, onClick: () => cmds.selection.selectSameColour() },
-        { label: 'Same Shape', disabled: !hasSel, onClick: () => cmds.selection.selectSameShape() },
-      ],
-    },
-    {
-      label: 'View',
-      items: [
-        { label: 'Zoom In', shortcut: 'Ctrl++', disabled: !hasDoc, onClick: () => cmds.zoomIn() },
-        { label: 'Zoom Out', shortcut: 'Ctrl+−', disabled: !hasDoc, onClick: () => cmds.zoomOut() },
-        { label: 'Fit Artboard in Window', shortcut: 'Ctrl+0', disabled: !hasDoc, onClick: () => cmds.fitView() },
-        { label: 'Actual Size', shortcut: 'Ctrl+1', disabled: !hasDoc, onClick: () => cmds.setZoom(1) },
-      ],
-    },
-    {
-      label: 'Window',
-      items: [
-        { label: 'Home', onClick: () => useDocumentStore.getState().showHome() },
-        { label: 'Next Document', shortcut: 'Ctrl+Tab', onClick: () => cycleTab(1) },
-        { label: 'Previous Document', shortcut: 'Ctrl+Shift+Tab', onClick: () => cycleTab(-1) },
-      ],
-    },
-    {
-      label: 'Help',
-      items: [
-        { label: 'Keyboard Shortcuts', shortcut: '?', disabled: !hasDoc, onClick: () => cmds.toggleShortcuts() },
-      ],
-    },
-  ], [activeDoc, cmds, status, hasDoc, gridDoc, hasSel, recentFiles]);
+          : [];
+      }
+      return [menuItem(item, c)];
+    }),
+  }));
+}
+
+// Window title follows the active document, with a dot for unsaved changes.
+function useWindowTitle(activeDoc) {
+  const title = activeDoc ? `${activeDoc.name}${activeDoc.dirty ? ' •' : ''} — Mills Pattern Studio` : 'Mills Pattern Studio';
+  useEffect(() => {
+    document.title = title;
+    if (isTauri) getCurrentWindow().setTitle(title).catch(() => {});
+  }, [title]);
 }
 
 export function AppShell() {
@@ -198,7 +147,9 @@ export function AppShell() {
   useUpdateCheck();
   useCloseGuard();
   useShellShortcuts(activeId, activeMode);
-  const menus = useMenus(activeDoc);
+  const menus = useMenus();
+  useWindowTitle(activeDoc);
+  const dropping = useFileDrop();
   const selectedCount = useAppStore(s => s.editorStatus?.selectedCount ?? 0);
 
   // Each mode has its own tool set — fall back to Selection if the active
@@ -233,6 +184,7 @@ export function AppShell() {
       )}
       <StatusBar doc={activeDoc} />
       <PromptDialog />
+      {dropping && <div className={styles.dropOverlay}><span>Drop to open</span></div>}
     </div>
   );
 }

@@ -12,8 +12,9 @@ import { pickAndReadProject, readProjectAt, writeProject, isTauri } from './file
 const docs = () => useDocumentStore.getState();
 const app = () => useAppStore.getState();
 
-export function newDocument(mode, { presetKey } = {}) {
-  return docs().createDocument(mode, presetKey ? { state: { presetKey } } : {});
+// `state` overrides document defaults (e.g. a palette from the home screen).
+export function newDocument(mode, { presetKey, state } = {}) {
+  return docs().createDocument(mode, { state: { ...(presetKey ? { presetKey } : {}), ...state } });
 }
 
 function openParsed(text, path, fileName) {
@@ -29,6 +30,20 @@ function alreadyOpen(path) {
   if (!path) return null;
   const { docs: all, order } = docs();
   return order.find(id => all[id].filePath === path) ?? null;
+}
+
+// Opens project text that's already been read (e.g. a dropped file).
+export function openProjectText(text, { path = null, fileName } = {}) {
+  const existing = alreadyOpen(path);
+  if (existing) { docs().setActive(existing); return existing; }
+  try {
+    const id = openParsed(text, path, fileName);
+    rememberRecent(id);
+    return id;
+  } catch (err) {
+    app().showToast(`Could not open ${fileName ?? 'project'}: ${err.message ?? err}`);
+    return null;
+  }
 }
 
 export async function openDocument() {

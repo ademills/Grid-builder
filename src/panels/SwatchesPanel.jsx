@@ -4,14 +4,13 @@ import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useLibraryStore } from '../store/libraryStore';
 import { useAppStore } from '../store/appStore';
-import { parseSwatchFile, writeAse, writeGpl, writeJson } from '../utils/swatchFiles';
-import { pickAndReadBinary, saveBinary } from '../shell/fileIO';
+import { writeAse, writeGpl, writeJson } from '../utils/swatchFiles';
+import { saveBinary } from '../shell/fileIO';
+import { importSwatchLibrary } from '../shell/commands';
 import { ColorPicker } from './ColorPicker';
 import { Stepper, Toggle } from './controls';
 import { SWATCH_MIME } from './panelUtils';
 import styles from './Panel.module.css';
-
-const SWATCH_FILE_FILTERS = [{ name: 'Swatch files', extensions: ['ase', 'gpl', 'json'] }];
 
 // Built-in palettes presented as read-only libraries.
 const BUILT_IN = PALETTE_GROUPS.map(group => ({
@@ -169,9 +168,11 @@ export function SwatchesPanel() {
   const [, setMeshSettings] = useDocField('meshSettings');
   const [extractSettings, setExtractSettings] = useDocSettings('paletteExtractSettings');
   const libraries = useLibraryStore(s => s.libraries);
-  const { addLibrary, addLibraries, renameLibrary, deleteLibrary } = useLibraryStore.getState();
+  const { addLibrary, renameLibrary, deleteLibrary } = useLibraryStore.getState();
   const showToast = useAppStore(s => s.showToast);
   const setToolOption = useAppStore(s => s.setToolOption);
+  const recentColours = useAppStore(s => s.recentColours);
+  const paintHex = useAppStore(s => s.toolOptions.paintHex);
   // Picking a swatch also makes it the Paint Bucket colour.
   const pickSwatch = (list, id) => {
     setSelected(id ? { list, id } : null);
@@ -235,18 +236,7 @@ export function SwatchesPanel() {
   const docLibrary = () => ({ name: paletteKey || 'Document swatches', swatches: shapeColors.map(c => ({ hex: c.hex, ...(c.name ? { name: c.name } : {}) })) });
 
   const importFile = async () => {
-    try {
-      const picked = await pickAndReadBinary({ title: 'Import Swatches', filters: SWATCH_FILE_FILTERS });
-      if (!picked) return;
-      const libs = parseSwatchFile(picked.fileName, picked.buffer).filter(l => l.swatches.length);
-      if (!libs.length) { showToast('No swatches found in that file'); return; }
-      const base = picked.fileName.replace(/\.[^.]+$/, '');
-      addLibraries(libs.map(l => ({ ...l, name: libs.length === 1 && /^Imported/.test(l.name) ? base : l.name })));
-      setOpenGroups(prev => new Set([...prev, '__mine__']));
-      showToast(`Imported ${libs.length} ${libs.length === 1 ? 'library' : 'libraries'}`);
-    } catch (err) {
-      alert(`Could not import swatches.\n\n${err.message ?? err}`);
-    }
+    if (await importSwatchLibrary()) setOpenGroups(prev => new Set([...prev, '__mine__']));
   };
 
   const q = query.trim().toLowerCase();
@@ -279,6 +269,17 @@ export function SwatchesPanel() {
       {mode === 'knotwork' && <div className={styles.targetNote}>Editing swatches regenerates the design with the same layout.</div>}
 
       <div className={styles.sectionContent}>
+        {recentColours.length > 0 && (
+          <div className={styles.recentRow}>
+            <span className={styles.label}>Recent</span>
+            {recentColours.map(hex => (
+              <button key={hex} className={styles.popSwatchSmall} style={{ background: hex, outline: hex === paintHex?.toLowerCase() ? '2px solid var(--chrome-accent)' : undefined }}
+                title={`${hex} — click to paint with it, double-click to add it to the document`}
+                onClick={() => setToolOption({ paintHex: hex })}
+                onDoubleClick={() => setShapeColors(prev => [...prev, newSwatch(hex)])} />
+            ))}
+          </div>
+        )}
         <div className={styles.swatchHeader}>
           <div className={styles.subHeading} style={{ margin: 0, padding: 0, border: 'none', flex: 1 }}>Document · {paletteKey}</div>
           <button className={styles.addQuickBtn} title="New swatch"

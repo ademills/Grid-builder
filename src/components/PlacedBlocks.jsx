@@ -151,86 +151,90 @@ const GridBlock = memo(function GridBlock({
       {/* Transparent hit-area */}
       <rect x={x} y={y} width={w} height={h} fill="transparent" style={{ pointerEvents: 'all' }} />
 
-      {block.type === 'wireframe' ? (
-        <g style={{ pointerEvents: 'none' }}
-          transform={block.rotation ? `rotate(${block.rotation} ${x + w / 2} ${y + h / 2})` : undefined}>
-          <rect x={x} y={y} width={w} height={h} fill="rgba(0,0,0,0.04)" />
-          {wireframeRects(block.slotRole, block.align).map((r, i) => (
-            <rect key={i}
-              x={x + r.x * w} y={y + r.y * h}
-              width={r.w * w} height={r.h * h}
-              rx={Math.min(w, h) * 0.015}
-              fill={`rgba(0,0,0,${r.shade})`}
-            />
-          ))}
-        </g>
-      ) : block.type === 'text' ? (
-        <foreignObject
-          x={x} y={y} width={w} height={h}
-          style={{ pointerEvents: 'none', overflow: 'visible' }}
-          transform={block.rotation ? `rotate(${block.rotation} ${x + w / 2} ${y + h / 2})` : undefined}
-        >
-          <div
-            xmlns="http://www.w3.org/1999/xhtml"
-            style={{
-              width: '100%', height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: block.textAlign === 'left' ? 'flex-start' : block.textAlign === 'right' ? 'flex-end' : 'center',
-              justifyContent: block.textVAlign === 'flex-start' ? 'flex-start' : block.textVAlign === 'flex-end' ? 'flex-end' : 'center',
-              fontFamily: block.fontFamily ?? 'sans-serif',
-              fontSize: block.fontSize === 'auto' || !block.fontSize ? Math.max(8, Math.min(w, h) * 0.35) : block.fontSize,
-              fontWeight: block.fontWeight ?? 700,
-              fontStyle: block.fontStyle ?? 'normal',
-              color: block.textColor ?? '#000000',
-              textAlign: block.textAlign ?? 'center',
-              lineHeight: block.lineHeight ?? 1.15,
-              padding: `${h * 0.06}px ${w * 0.06}px`,
-              boxSizing: 'border-box',
-              wordBreak: 'break-word',
-              letterSpacing: block.letterSpacing != null ? `${block.letterSpacing}em` : undefined,
-              textTransform: block.textTransform ?? 'none',
-            }}
+      {/* Per-block opacity and blend mode (Info panel) apply to the artwork only. */}
+      <g opacity={block.opacity ?? undefined}
+        style={block.blendMode && block.blendMode !== 'normal' ? { mixBlendMode: block.blendMode } : undefined}>
+        {block.type === 'wireframe' ? (
+          <g style={{ pointerEvents: 'none' }}
+            transform={block.rotation ? `rotate(${block.rotation} ${x + w / 2} ${y + h / 2})` : undefined}>
+            <rect x={x} y={y} width={w} height={h} fill="rgba(0,0,0,0.04)" />
+            {wireframeRects(block.slotRole, block.align).map((r, i) => (
+              <rect key={i}
+                x={x + r.x * w} y={y + r.y * h}
+                width={r.w * w} height={r.h * h}
+                rx={Math.min(w, h) * 0.015}
+                fill={`rgba(0,0,0,${r.shade})`}
+              />
+            ))}
+          </g>
+        ) : block.type === 'text' ? (
+          <foreignObject
+            x={x} y={y} width={w} height={h}
+            style={{ pointerEvents: 'none', overflow: 'visible' }}
+            transform={block.rotation ? `rotate(${block.rotation} ${x + w / 2} ${y + h / 2})` : undefined}
           >
-            {block.text}
-          </div>
-        </foreignObject>
-      ) : block.type === 'image' ? (
-        block.imageSrc && (
+            <div
+              xmlns="http://www.w3.org/1999/xhtml"
+              style={{
+                width: '100%', height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: block.textAlign === 'left' ? 'flex-start' : block.textAlign === 'right' ? 'flex-end' : 'center',
+                justifyContent: block.textVAlign === 'flex-start' ? 'flex-start' : block.textVAlign === 'flex-end' ? 'flex-end' : 'center',
+                fontFamily: block.fontFamily ?? 'sans-serif',
+                fontSize: block.fontSize === 'auto' || !block.fontSize ? Math.max(8, Math.min(w, h) * 0.35) : block.fontSize,
+                fontWeight: block.fontWeight ?? 700,
+                fontStyle: block.fontStyle ?? 'normal',
+                color: block.textColor ?? '#000000',
+                textAlign: block.textAlign ?? 'center',
+                lineHeight: block.lineHeight ?? 1.15,
+                padding: `${h * 0.06}px ${w * 0.06}px`,
+                boxSizing: 'border-box',
+                wordBreak: 'break-word',
+                letterSpacing: block.letterSpacing != null ? `${block.letterSpacing}em` : undefined,
+                textTransform: block.textTransform ?? 'none',
+              }}
+            >
+              {block.text}
+            </div>
+          </foreignObject>
+        ) : block.type === 'image' ? (
+          block.imageSrc && (
+            <image
+              href={block.imageSrc}
+              x={x} y={y}
+              width={w} height={h}
+              preserveAspectRatio={
+                block.imageFit === 'cover' ? 'xMidYMid slice'
+                : block.imageFit === 'stretch' ? 'none'
+                : 'xMidYMid meet'
+              }
+              style={{ pointerEvents: 'none' }}
+            />
+          )
+        ) : useAnimatedInline && shapeEntry ? (
+          <g transform={shapeTransform(block, x, y, w, h)}>
+            <AnimatedShapeImage
+              entry={shapeEntry}
+              libKey={libKey}
+              x={x} y={y} w={w} h={h}
+              blockId={block.id}
+              slotRefsMap={slotRefsMap}
+            />
+          </g>
+        ) : dataUrl && (
           <image
-            href={block.imageSrc}
+            ref={setImageRef}
+            href={dataUrl}
             x={x} y={y}
             width={w} height={h}
-            preserveAspectRatio={
-              block.imageFit === 'cover' ? 'xMidYMid slice'
-              : block.imageFit === 'stretch' ? 'none'
-              : 'xMidYMid meet'
-            }
+            preserveAspectRatio="xMidYMid meet"
+            transform={shapeTransform(block, x, y, w, h)}
+            opacity={1}
             style={{ pointerEvents: 'none' }}
           />
-        )
-      ) : useAnimatedInline && shapeEntry ? (
-        <g transform={shapeTransform(block, x, y, w, h)}>
-          <AnimatedShapeImage
-            entry={shapeEntry}
-            libKey={libKey}
-            x={x} y={y} w={w} h={h}
-            blockId={block.id}
-            slotRefsMap={slotRefsMap}
-          />
-        </g>
-      ) : dataUrl && (
-        <image
-          ref={setImageRef}
-          href={dataUrl}
-          x={x} y={y}
-          width={w} height={h}
-          preserveAspectRatio="xMidYMid meet"
-          transform={shapeTransform(block, x, y, w, h)}
-          opacity={1}
-          style={{ pointerEvents: 'none' }}
-        />
-      )}
+        )}
+      </g>
 
       {isSelected && (
         <rect

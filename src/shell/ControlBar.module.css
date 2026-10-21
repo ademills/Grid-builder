@@ -187,3 +187,11 @@
 .assetCell:hover { border-color: #555; }
 .assetCellActive, .assetCellActive:hover { border-color: var(--chrome-accent); background: var(--chrome-accent-soft); }
 .assetCellOff { opacity: 0.45; }
+
+.popLabel {
+  margin: 2px 0 4px;
+  color: var(--chrome-text-dim);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

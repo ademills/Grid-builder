@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { useAppStore } from '../store/appStore';
 import styles from './Canvas.module.css';
 
 const DEFAULT_VIEW = { x: 0, y: 0, scale: 1 };
@@ -7,7 +8,7 @@ const DEFAULT_VIEW = { x: 0, y: 0, scale: 1 };
 // reported through onToolPointer in artboard coordinates.
 const NAV_TOOLS = new Set(['select', 'hand', 'zoom']);
 
-export function Canvas({ viewTransform, needsFit = true, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, onViewportResize, onToolPointer, overlay, children }) {
+export function Canvas({ viewTransform, needsFit = true, setViewTransform, activeTool, bgColor, canvasBg, workArea, onDeselectAll, onMarqueeSelect, onViewportResize, onToolPointer, onPointerMove, overlay, children }) {
   const containerRef = useRef(null);
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
@@ -71,11 +72,22 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
     return () => ro.disconnect();
   }, [onViewportResize]);
 
-  // Non-passive wheel listener so we can preventDefault and stop page scroll
+  // Non-passive wheel listener so we can preventDefault and stop page scroll.
+  // As in Illustrator, the wheel pans (Shift: sideways) and Ctrl/Alt+wheel
+  // (or a trackpad pinch) zooms at the pointer — unless View › Scroll Wheel
+  // Zooms is on, which makes the plain wheel zoom as before.
   useEffect(() => {
     const el = containerRef.current;
     const onWheel = (e) => {
       e.preventDefault();
+      const zoom = e.ctrlKey || e.altKey || e.metaKey || useAppStore.getState().wheelZooms;
+      if (!zoom) {
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1;
+        const dx = (e.shiftKey ? e.deltaY : e.deltaX) * unit;
+        const dy = (e.shiftKey ? 0 : e.deltaY) * unit;
+        setViewTransform(stored => { const prev = stored ?? DEFAULT_VIEW; return { ...prev, x: prev.x - dx, y: prev.y - dy }; });
+        return;
+      }
       const rect = el.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
@@ -107,7 +119,7 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
       lastMouse.current = { x: e.clientX, y: e.clientY };
       return;
     }
-    if (activeTool === 'select') {
+    if (activeTool === 'select' || activeTool === 'zoom') {
       const rect = containerRef.current.getBoundingClientRect();
       marqueeStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       marqueeActive.current = false;
@@ -116,6 +128,7 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
   }, [activeTool, onToolPointer, toArtboard]);
 
   const handleMouseMove = useCallback((e) => {
+    onPointerMove?.(toArtboard(e));
     if (toolDown.current) {
       onToolPointer?.('move', toArtboard(e));
       return;
@@ -127,7 +140,7 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
       setViewTransform(stored => { const prev = stored ?? DEFAULT_VIEW; return { ...prev, x: prev.x + dx, y: prev.y + dy }; });
       return;
     }
-    if (activeTool === 'select' && marqueeStart.current) {
+    if ((activeTool === 'select' || activeTool === 'zoom') && marqueeStart.current) {
       const bounds = containerRef.current.getBoundingClientRect();
       const cx = e.clientX - bounds.left;
       const cy = e.clientY - bounds.top;
@@ -143,7 +156,7 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
         });
       }
     }
-  }, [activeTool, setViewTransform, onToolPointer, toArtboard]);
+  }, [activeTool, setViewTransform, onToolPointer, onPointerMove, toArtboard]);
 
   const handleMouseUp = useCallback((e) => {
     isPanning.current = false;
@@ -160,13 +173,25 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
       const y1 = Math.min(marqueeStart.current.y, cy);
       const x2 = Math.max(marqueeStart.current.x, cx);
       const y2 = Math.max(marqueeStart.current.y, cy);
-      onMarqueeSelect?.({ x1, y1, x2, y2 });
+      if (activeTool === 'zoom') {
+        // Zoom tool drag: fit the dragged rectangle to the view.
+        const { width: vw, height: vh } = bounds;
+        setViewTransform(stored => {
+          const prev = stored ?? DEFAULT_VIEW;
+          const scale = Math.min(Math.max(prev.scale * Math.min(vw / (x2 - x1), vh / (y2 - y1)), 0.05), 20);
+          const ax = (x1 + x2) / 2, ay = (y1 + y2) / 2; // rect centre on screen
+          const px = (ax - prev.x) / prev.scale, py = (ay - prev.y) / prev.scale; // … in artboard px
+          return { scale, x: vw / 2 - px * scale, y: vh / 2 - py * scale };
+        });
+      } else {
+        onMarqueeSelect?.({ x1, y1, x2, y2 });
+      }
       suppressClick.current = true;
     }
     marqueeStart.current = null;
     marqueeActive.current = false;
     setMarqueeRect(null);
-  }, [onMarqueeSelect, onToolPointer, toArtboard]);
+  }, [activeTool, onMarqueeSelect, onToolPointer, setViewTransform, toArtboard]);
 
   const stopAll = useCallback(() => {
     if (toolDown.current) { toolDown.current = false; onToolPointer?.('up', null); }
@@ -187,7 +212,7 @@ export function Canvas({ viewTransform, needsFit = true, setViewTransform, activ
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={stopAll}
+      onMouseLeave={() => { onPointerMove?.(null); stopAll(); }}
       onClick={(e) => {
         if (suppressClick.current) { suppressClick.current = false; return; }
         if (activeTool === 'select') onDeselectAll?.();

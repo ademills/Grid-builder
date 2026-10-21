@@ -36,3 +36,71 @@
 .container[data-tool="stamp"] { cursor: copy; }
 .container[data-tool="rotate"],
 .container[data-tool="reflect"] { cursor: pointer; }
+
+/* ── Rulers (View › Rulers) ─────────────────────────────── */
+
+.rulers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.rulerTop,
+.rulerLeft {
+  position: absolute;
+  pointer-events: auto;
+  background: var(--chrome-bg);
+  overflow: hidden;
+  cursor: default;
+}
+
+.rulerTop {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 18px;
+  border-bottom: 1px solid var(--chrome-border);
+  cursor: ns-resize;
+}
+
+.rulerLeft {
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 100%;
+  border-right: 1px solid var(--chrome-border);
+  cursor: ew-resize;
+}
+
+.rulerTop line,
+.rulerLeft line {
+  stroke: var(--chrome-text-faint);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.rulerTop text,
+.rulerLeft text {
+  fill: var(--chrome-text-dim);
+  font-size: 9px;
+  font-family: system-ui, sans-serif;
+  user-select: none;
+}
+
+.rulerTop .rulerPointer,
+.rulerLeft .rulerPointer {
+  stroke: var(--chrome-accent);
+}
+
+.rulerCorner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  background: var(--chrome-bg);
+  border-right: 1px solid var(--chrome-border);
+  border-bottom: 1px solid var(--chrome-border);
+  pointer-events: auto;
+}

@@ -21,7 +21,7 @@ const MERGED_FIELDS = new Set([
   'edgeSettings', 'brightnessSettings', 'noiseSettings', 'geometricSettings', 'halftoneSettings',
   'voronoiSettings', 'spiralSettings', 'flowFieldSettings', 'fractalSettings', 'mondrianSettings',
   'goldenSettings', 'knotworkSettings', 'backdropSettings', 'animSettings', 'audioSettings',
-  'paletteExtractSettings',
+  'paletteExtractSettings', 'fillOpacity', 'guides',
 ]);
 
 function hydrateBlocks(blocks) {

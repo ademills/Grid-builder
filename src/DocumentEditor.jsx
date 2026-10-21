@@ -10,6 +10,9 @@ import { createAudioAnalyser } from './utils/audioAnalysis';
 import { Grid } from './components/Grid';
 import { PlacedBlocks } from './components/PlacedBlocks';
 import { SelectionToolbar } from './components/SelectionToolbar';
+import { Overlays } from './components/Overlays';
+import { GuideLines, Rulers } from './components/RulersGuides';
+import { useGuideDrag } from './hooks/useGuideDrag';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { fillGrid, fillMasked } from './utils/binPack';
 import { computeGlitchMask } from './utils/glitchFill';
@@ -34,7 +37,12 @@ import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
 import { buildGridCells, renderImageFrame, sampleFrameColours, loadShapeLibrary, warmShapeCache } from './utils/shapeLibraryRender';
 import { ALL_BUILTIN_ASSETS } from './builtinAssets';
 import { useHistory } from './hooks/useHistory';
+import { FILLS } from './modes/gridBuilder/fills';
+import { pickSurprise } from './modes/gridBuilder/surprise';
+import { useDocumentStore } from './store/documentStore';
+import { useLibraryStore } from './store/libraryStore';
 import { isTauri } from './shell/fileIO';
+import { runCommand } from './shell/commands';
 import { useDocField, useDocId } from './store/useDocField';
 import { useAppStore } from './store/appStore';
 import { buildSwatchMap, resolvePins, blockColourBreakdown, blockSlotColours, dominantColour } from './utils/blockColours';
@@ -185,6 +193,13 @@ function buildFlatSvgElement({
   }
   out.appendChild(blocksGroup);
 
+  // Per-block opacity / blend mode, applied to whatever element a block exports as.
+  const withAppearance = (el, block) => {
+    if (block.opacity != null && block.opacity < 1) el.setAttribute('opacity', String(block.opacity));
+    if (block.blendMode && block.blendMode !== 'normal') el.style.mixBlendMode = block.blendMode;
+    return el;
+  };
+
   placedBlocks.forEach(block => {
     const imgBx = gridOriginX + block.gridCol * cellSize;
     const imgBy = gridOriginY + block.gridRow * cellSize;
@@ -232,7 +247,7 @@ function buildFlatSvgElement({
           const g = document.createElementNS(FLAT_SVG_NS, 'g');
           g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
           for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
-          blocksGroup.appendChild(g);
+          blocksGroup.appendChild(withAppearance(g, block));
           return;
         }
         // Fall through to <image> below as a safety net if parsing failed.
@@ -249,7 +264,7 @@ function buildFlatSvgElement({
         block.imageFit === 'cover' ? 'xMidYMid slice'
         : block.imageFit === 'stretch' ? 'none'
         : 'xMidYMid meet');
-      blocksGroup.appendChild(imgEl);
+      blocksGroup.appendChild(withAppearance(imgEl, block));
       return;
     }
 
@@ -279,7 +294,7 @@ function buildFlatSvgElement({
       div.textContent = block.text ?? '';
       fo.appendChild(div);
       if (block.rotation) fo.setAttribute('transform', `rotate(${block.rotation} ${bx + bw / 2} ${by + bh / 2})`);
-      blocksGroup.appendChild(fo);
+      blocksGroup.appendChild(withAppearance(fo, block));
       return;
     }
 
@@ -321,7 +336,7 @@ function buildFlatSvgElement({
     const blockT = shapeTransform(block, bx, by, bw, bh);
     g.setAttribute('transform', `${blockT ? `${blockT} ` : ''}translate(${tx},${ty}) scale(${scale})`);
     for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
-    blocksGroup.appendChild(g);
+    blocksGroup.appendChild(withAppearance(g, block));
   });
 
   // Optional reference layer: the wireframe placeholders, drawn on top of
@@ -500,6 +515,7 @@ export function DocumentEditor({ mode: appMode }) {
   // Colour palette
   const {
     colorMode,
+    paletteKey,
     shapeColors, setShapeColors,
     bgColors, setBgColors,
     effectivePalette,
@@ -605,7 +621,7 @@ export function DocumentEditor({ mode: appMode }) {
   );
 
   // Built-in asset enable/disable
-  const [enabledAssetIds] = useDocField('enabledAssetIds');
+  const [enabledAssetIds, setEnabledAssetIds] = useDocField('enabledAssetIds');
 
 
   const activeAssets = useMemo(
@@ -614,7 +630,9 @@ export function DocumentEditor({ mode: appMode }) {
   );
 
   const [placedBlocks, setPlacedBlocks] = useDocField('placedBlocks');
-const [autoFill] = useDocField('autoFill');
+  const [autoFill] = useDocField('autoFill');
+  const [activeFill] = useDocField('activeFill');
+  const [guides, setGuides] = useDocField('guides');
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   // Background image layer (reference / backdrop)
@@ -934,13 +952,9 @@ const [autoFill] = useDocField('autoFill');
       const ctrl = e.ctrlKey || e.metaKey;
       if (isTypingTarget(e.target)) return;
 
-      if (ctrl) {
-        if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); return; }
-        if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); handleRedo(); return; }
-      }
-
-      if (e.key === '?') { e.preventDefault(); setShowShortcuts(s => !s); return; }
-
+      // Undo, redo and the other command shortcuts are handled by the shell
+      // (shell/commands.js); only nudging lives here.
+      if (ctrl || e.altKey) return;
       const arrowKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
       if (!arrowKeys.includes(e.key)) return;
       if (!selectedIdsRef.current.size || !gridComputedRef.current) return;
@@ -981,7 +995,7 @@ const [autoFill] = useDocField('autoFill');
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, []);
 
   // ── View controls ──────────────────────────────────────────────────────────
   const handleZoom = useCallback((direction) => {
@@ -1021,29 +1035,36 @@ const [autoFill] = useDocField('autoFill');
   }, [workArea, viewportSize, setViewTransform]);
 
   // ── Fill ───────────────────────────────────────────────────────────────────
+  const showToast = useAppStore(s => s.showToast);
   const assetUsageCounts = useMemo(() => {
     const counts = {};
     for (const b of placedBlocks) counts[b.assetId] = (counts[b.assetId] ?? 0) + 1;
     return counts;
   }, [placedBlocks]);
 
-  const handleFillGrid = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    pushHistory(placedBlocks);
-    // With a layout active, fill only the grid-area mask and keep the wireframe
-    // placeholders; otherwise fill the whole grid as before.
-    const wireframes = layoutGridMask ? placedBlocks.filter(b => b.type === 'wireframe') : [];
-    const shapes = (layoutGridMask
-      ? fillMasked(activeAssets, gridComputed, layoutGridMask, maxScale, scaleFreq)
-      : fillGrid(activeAssets, gridComputed, maxScale, scaleFreq)
-    ).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks([...wireframes, ...shapes]);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, layoutGridMask, pushHistory, syncHistorySize]);
+  // Random opacity for newly filled shapes (Properties → Opacity).
+  const [fillOpacity] = useDocField('fillOpacity');
+  const randomOpacity = useCallback(() => {
+    if (!fillOpacity?.random) return {};
+    const { min, max } = fillOpacity;
+    return { opacity: Math.round((min + Math.random() * (max - min)) * 100) / 100 };
+  }, [fillOpacity]);
+
+  // Gives a newly placed shape its colour seed (and random opacity, if on).
+  const decorate = useCallback((b) => ({
+    ...b,
+    colorSeed: Math.floor(Math.random() * 0x80000000),
+    colorOffset: 0,
+    ...randomOpacity(),
+  }), [randomOpacity]);
+
+  // Standard fill: the whole grid, or only the active layout's grid area
+  // (keeping its wireframe placeholders).
+  const fillStandard = useCallback(() => {
+    if (!layoutGridMask) return fillGrid(activeAssets, gridComputed, maxScale, scaleFreq);
+    const wireframes = placedBlocks.filter(b => b.type === 'wireframe');
+    return [...wireframes, ...fillMasked(activeAssets, gridComputed, layoutGridMask, maxScale, scaleFreq)];
+  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, layoutGridMask]);
 
   const handleFillGaps = useCallback(() => {
     if (!activeAssets.length || !gridComputed) return;
@@ -1051,233 +1072,101 @@ const [autoFill] = useDocField('autoFill');
     const newBlocks = (layoutGridMask
       ? fillMasked(activeAssets, gridComputed, layoutGridMask, maxScale, scaleFreq, placedBlocks)
       : fillGrid(activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks)
-    ).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
+    ).map(decorate);
     setPlacedBlocks(prev => [...prev, ...newBlocks]);
     syncHistorySize();
-  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, layoutGridMask, pushHistory, syncHistorySize]);
+  }, [activeAssets, gridComputed, maxScale, scaleFreq, placedBlocks, layoutGridMask, pushHistory, syncHistorySize, decorate]);
 
-  const handleGlitchFill = useCallback(() => {
+  // Every mask-based fill: settings → the set of cells to pack shapes into.
+  // Mondrian and Golden Ratio build their own layouts instead (below).
+  const FILL_MASKS = useMemo(() => ({
+    glitch:     { mask: (g, s) => computeGlitchMask(g, s),              empty: 'No glitch cells generated — try increasing Force or Active Ratio.' },
+    strip:      { mask: (g, s) => computeStripMask(g, s),               empty: 'No strip cells generated — try increasing Width.' },
+    multiStrip: { mask: (g, s) => computeMultiStripMask(g, s),          empty: 'No strip cells generated — try increasing Width or Strip count.' },
+    edge:       { mask: (g, s) => computeEdgeMask(g, imagePixels, s),   empty: 'No edge cells detected — try lowering Edge Threshold.', image: true },
+    brightness: { mask: (g, s) => computeBrightnessMask(g, imagePixels, s), empty: 'No cells matched this brightness zone — try adjusting the range.', image: true },
+    noise:      { mask: (g, s) => computeNoiseMask(g, s),               empty: 'No cells matched this noise field — try raising the threshold.' },
+    geometric:  { mask: (g, s) => computeGeometricMask(g, s),           empty: 'No cells matched this pattern — try adjusting its settings.' },
+    halftone:   { mask: (g, s) => computeHalftoneMask(g, s),            empty: 'No cells matched — try adjusting halftone settings.' },
+    voronoi:    { mask: (g, s) => computeVoronoiMask(g, s),             empty: 'No cells matched — try adjusting voronoi settings.' },
+    spiral:     { mask: (g, s) => computeSpiralMask(g, s),              empty: 'No cells matched — try adjusting spiral settings.' },
+    flowField:  { mask: (g, s) => computeFlowFieldMask(g, s),           empty: 'No cells matched — try adjusting flow field settings.' },
+    fractal:    { mask: (g, s) => computeFractalMask(g, s),             empty: 'No cells matched — try adjusting fractal settings.' },
+  }), [imagePixels]);
+
+  // Current settings for each fill, by fill id.
+  const fillSettingsById = useMemo(() => ({
+    glitch: glitchSettings, strip: stripSettings, multiStrip: multiStripSettings, edge: edgeSettings,
+    brightness: brightnessSettings, noise: noiseSettings, geometric: geometricSettings, halftone: halftoneSettings,
+    voronoi: voronoiSettings, spiral: spiralSettings, flowField: flowFieldSettings, fractal: fractalSettings,
+    mondrian: mondrianSettings, golden: goldenSettings,
+  }), [glitchSettings, stripSettings, multiStripSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, halftoneSettings, voronoiSettings, spiralSettings, flowFieldSettings, fractalSettings, mondrianSettings, goldenSettings]);
+
+  // The blocks a fill produces, or { error } when it can't place anything.
+  // `settings` defaults to the fill's saved settings.
+  const computeFill = useCallback((fillId, settings = fillSettingsById[fillId]) => {
+    if (!activeAssets.length || !gridComputed) return { error: 'Enable some shapes in the Assets panel first.' };
+    if (fillId === 'standard') return { blocks: fillStandard().map(b => (b.type === 'wireframe' ? b : decorate(b))) };
+    if (fillId === 'mondrian') return { blocks: generateMondrianLayout(activeAssets, gridComputed, settings).map(b => ({ ...b, ...randomOpacity() })) };
+    if (fillId === 'golden') return { blocks: generateGoldenLayout(activeAssets, gridComputed, settings).map(b => ({ ...b, ...randomOpacity() })) };
+    const def = FILL_MASKS[fillId];
+    if (!def) return { error: `Unknown fill: ${fillId}` };
+    if (def.image && !imagePixels) return { error: 'This fill needs an image loaded in Image colour mode.' };
+    const cells = def.mask(gridComputed, settings);
+    if (cells.size === 0) return { error: def.empty };
+    // Glitch has its own scale settings; the rest use the document's.
+    const [ms, sf] = fillId === 'glitch' ? [settings.maxScale, settings.scaleFreq] : [maxScale, scaleFreq];
+    return { blocks: fillMasked(activeAssets, gridComputed, cells, ms, sf).map(decorate) };
+  }, [activeAssets, gridComputed, fillSettingsById, FILL_MASKS, imagePixels, maxScale, scaleFreq, fillStandard, decorate, randomOpacity]);
+
+  // Runs a fill as one undoable step. `fields` are document fields the
+  // caller changed alongside it, so undo restores those too.
+  const runFill = useCallback((fillId, settings, fields) => {
+    const result = computeFill(fillId, settings);
+    if (result.error) { showToast(result.error); return false; }
+    pushHistory(placedBlocks, fields);
+    setPlacedBlocks(result.blocks);
+    syncHistorySize();
+    return true;
+  }, [computeFill, placedBlocks, pushHistory, setPlacedBlocks, syncHistorySize, showToast]);
+
+  // Surprise Me: a random fill with random settings, a random palette and a
+  // fresh seed, as one undo step. Grid size and enabled shapes stay as they are.
+  const surpriseMe = useCallback(() => {
     if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeGlitchMask(gridComputed, glitchSettings);
-    if (activeCells.size === 0) {
-      alert('No glitch cells generated — try increasing Force or Active Ratio.');
+    const state = useDocumentStore.getState().docs[docId].state;
+    const pinned = new Set(placedBlocks.flatMap(b => Object.values(b.slotPins ?? {})));
+    // A few attempts, since some random settings leave nothing to fill.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { fill, settings, palette } = pickSurprise({ canUseImage: !!imagePixels, libraries: useLibraryStore.getState().libraries });
+      const merged = fill.settingsKey ? { ...state[fill.settingsKey], ...settings } : undefined;
+      const result = computeFill(fill.id, merged);
+      if (result.error) continue;
+
+      const tag = crypto.randomUUID().slice(0, 4);
+      const next = {
+        activeFill: fill.id,
+        paletteKey: palette.name,
+        // Keep user-added and pinned swatches, as applying a library does.
+        shapeColors: [
+          ...palette.colours.map((hex, i) => ({ id: `p-surprise-${tag}-${i}`, hex, enabled: true, source: 'palette' })),
+          ...state.shapeColors.filter(c => c.source === 'custom' || pinned.has(c.id))
+            .map(c => (c.source === 'custom' ? c : { ...c, enabled: false, source: 'custom' })),
+        ],
+        // A palette only shows in a palette-based colour mode.
+        colorMode: state.colorMode === 'none' || (state.colorMode === 'image' && !imagePixels) ? 'random' : state.colorMode,
+        ...(fill.settingsKey ? { [fill.settingsKey]: merged } : {}),
+      };
+      const before = Object.fromEntries(Object.keys(next).map(k => [k, state[k]]));
+      pushHistory(placedBlocks, before);
+      for (const [k, v] of Object.entries(next)) useDocumentStore.getState().setField(docId, k, v);
+      setPlacedBlocks(result.blocks);
+      syncHistorySize();
+      showToast(`Surprise: ${fill.label} with ${palette.name}`);
       return;
     }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, glitchSettings.maxScale, glitchSettings.scaleFreq).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, glitchSettings, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleStripFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeStripMask(gridComputed, stripSettings);
-    if (activeCells.size === 0) {
-      alert('No strip cells generated — try increasing Width.');
-      return;
-    }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, stripSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleMultiStripFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeMultiStripMask(gridComputed, multiStripSettings);
-    if (activeCells.size === 0) {
-      alert('No strip cells generated — try increasing Width or Strip count.');
-      return;
-    }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, multiStripSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  // Re-run the active fill whenever its seed changes (e.g. via the
-  // randomise-seed button or manual entry), but not on initial mount.
-  // Tracks the previous seed value (rather than a "have we run yet" flag) so
-  // StrictMode's mount→cleanup→remount in dev doesn't mistake the second
-  // mount for a real seed change and trigger an unwanted fill.
-  const glitchSeedRef = useRef(glitchSettings.seed);
-  useEffect(() => {
-    if (glitchSeedRef.current === glitchSettings.seed) return;
-    glitchSeedRef.current = glitchSettings.seed;
-    if (activeAssets.length > 0 && gridComputed) handleGlitchFill();
-  }, [glitchSettings.seed]);
-
-  const stripSeedRef = useRef(stripSettings.seed);
-  useEffect(() => {
-    if (stripSeedRef.current === stripSettings.seed) return;
-    stripSeedRef.current = stripSettings.seed;
-    if (activeAssets.length > 0 && gridComputed) handleStripFill();
-  }, [stripSettings.seed]);
-
-  const multiStripSeedRef = useRef(multiStripSettings.seed);
-  useEffect(() => {
-    if (multiStripSeedRef.current === multiStripSettings.seed) return;
-    multiStripSeedRef.current = multiStripSettings.seed;
-    if (activeAssets.length > 0 && gridComputed) handleMultiStripFill();
-  }, [multiStripSettings.seed]);
-
-  const brightnessSeedRef = useRef(brightnessSettings.seed);
-  useEffect(() => {
-    if (brightnessSeedRef.current === brightnessSettings.seed) return;
-    brightnessSeedRef.current = brightnessSettings.seed;
-    if (activeAssets.length > 0 && gridComputed && imagePixels) handleBrightnessFill();
-  }, [brightnessSettings.seed]);
-
-  const noiseSeedRef = useRef(noiseSettings.seed);
-  useEffect(() => {
-    if (noiseSeedRef.current === noiseSettings.seed) return;
-    noiseSeedRef.current = noiseSettings.seed;
-    if (activeAssets.length > 0 && gridComputed) handleNoiseFill();
-  }, [noiseSettings.seed]);
-
-  const handleEdgeFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed || !imagePixels) return;
-    const activeCells = computeEdgeMask(gridComputed, imagePixels, edgeSettings);
-    if (activeCells.size === 0) {
-      alert('No edge cells detected — try lowering Edge Threshold.');
-      return;
-    }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, imagePixels, edgeSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleBrightnessFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed || !imagePixels) return;
-    const activeCells = computeBrightnessMask(gridComputed, imagePixels, brightnessSettings);
-    if (activeCells.size === 0) {
-      alert('No cells matched this brightness zone — try adjusting the range.');
-      return;
-    }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, imagePixels, brightnessSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleNoiseFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeNoiseMask(gridComputed, noiseSettings);
-    if (activeCells.size === 0) {
-      alert('No cells matched this noise field — try raising the threshold.');
-      return;
-    }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, noiseSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleGeometricFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeGeometricMask(gridComputed, geometricSettings);
-    if (activeCells.size === 0) {
-      alert('No cells matched this pattern — try adjusting its settings.');
-      return;
-    }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b,
-      colorSeed: Math.floor(Math.random() * 0x80000000),
-      colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, geometricSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleHalftoneFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeHalftoneMask(gridComputed, halftoneSettings);
-    if (activeCells.size === 0) { alert('No cells matched — try adjusting halftone settings.'); return; }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, halftoneSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleVoronoiFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeVoronoiMask(gridComputed, voronoiSettings);
-    if (activeCells.size === 0) { alert('No cells matched — try adjusting voronoi settings.'); return; }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, voronoiSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleSpiralFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeSpiralMask(gridComputed, spiralSettings);
-    if (activeCells.size === 0) { alert('No cells matched — try adjusting spiral settings.'); return; }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, spiralSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleFlowFieldFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeFlowFieldMask(gridComputed, flowFieldSettings);
-    if (activeCells.size === 0) { alert('No cells matched — try adjusting flow field settings.'); return; }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, flowFieldSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleFractalFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    const activeCells = computeFractalMask(gridComputed, fractalSettings);
-    if (activeCells.size === 0) { alert('No cells matched — try adjusting fractal settings.'); return; }
-    pushHistory(placedBlocks);
-    const blocks = fillMasked(activeAssets, gridComputed, activeCells, maxScale, scaleFreq).map(b => ({
-      ...b, colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
-    }));
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, fractalSettings, maxScale, scaleFreq, placedBlocks, pushHistory, syncHistorySize]);
+    showToast('Surprise Me couldn’t find a fill that works here — try again');
+  }, [activeAssets, gridComputed, docId, placedBlocks, imagePixels, computeFill, pushHistory, setPlacedBlocks, syncHistorySize, showToast]);
 
   // Sourced from the app's active theme rather than its own colour pickers
   // — changing the palette/background reshapes future knotwork fills too.
@@ -1394,22 +1283,6 @@ const [autoFill] = useDocField('autoFill');
     setPlacedBlocks([block]);
     syncHistorySize();
   }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleMondrianFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    pushHistory(placedBlocks);
-    const blocks = generateMondrianLayout(activeAssets, gridComputed, mondrianSettings);
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, mondrianSettings, placedBlocks, pushHistory, syncHistorySize]);
-
-  const handleGoldenFill = useCallback(() => {
-    if (!activeAssets.length || !gridComputed) return;
-    pushHistory(placedBlocks);
-    const blocks = generateGoldenLayout(activeAssets, gridComputed, goldenSettings);
-    setPlacedBlocks(blocks);
-    syncHistorySize();
-  }, [activeAssets, gridComputed, goldenSettings, placedBlocks, pushHistory, syncHistorySize]);
 
   // Apply a predetermined layout: drop its wireframe placeholders and arm the
   // grid-area mask (used by the main Fill button). Starts from a clean canvas.
@@ -1557,23 +1430,10 @@ const [autoFill] = useDocField('autoFill');
 
   // Fill id (modes/gridBuilder/fills.js) → its handler and availability.
   const canShapeFill = activeAssets.length > 0 && gridComputed !== null;
-  const fillActions = useMemo(() => ({
-    standard:   { run: handleFillGrid,       can: canShapeFill },
-    glitch:     { run: handleGlitchFill,     can: canShapeFill },
-    strip:      { run: handleStripFill,      can: canShapeFill },
-    multiStrip: { run: handleMultiStripFill, can: canShapeFill },
-    edge:       { run: handleEdgeFill,       can: canShapeFill && !!imagePixels },
-    brightness: { run: handleBrightnessFill, can: canShapeFill && !!imagePixels },
-    noise:      { run: handleNoiseFill,      can: canShapeFill },
-    geometric:  { run: handleGeometricFill,  can: canShapeFill },
-    halftone:   { run: handleHalftoneFill,   can: canShapeFill },
-    voronoi:    { run: handleVoronoiFill,    can: canShapeFill },
-    spiral:     { run: handleSpiralFill,     can: canShapeFill },
-    flowField:  { run: handleFlowFieldFill,  can: canShapeFill },
-    fractal:    { run: handleFractalFill,    can: canShapeFill },
-    mondrian:   { run: handleMondrianFill,   can: canShapeFill },
-    golden:     { run: handleGoldenFill,     can: canShapeFill },
-  }), [canShapeFill, imagePixels, handleFillGrid, handleGlitchFill, handleStripFill, handleMultiStripFill, handleEdgeFill, handleBrightnessFill, handleNoiseFill, handleGeometricFill, handleHalftoneFill, handleVoronoiFill, handleSpiralFill, handleFlowFieldFill, handleFractalFill, handleMondrianFill, handleGoldenFill]);
+  const fillActions = useMemo(() => Object.fromEntries(FILLS.map(f => [f.id, {
+    run: (settings) => runFill(f.id, settings),
+    can: canShapeFill && (f.image !== 'required' || !!imagePixels),
+  }])), [canShapeFill, imagePixels, runFill]);
 
   // ── Layers ─────────────────────────────────────────────────────────────────
   // Blocks to outline on the canvas while a Layers row is hovered.
@@ -1655,7 +1515,6 @@ const [autoFill] = useDocField('autoFill');
   // artboard coordinates (Canvas → onToolPointer).
   const toolOptions = useAppStore(s => s.toolOptions);
   const setToolOption = useAppStore(s => s.setToolOption);
-  const showToast = useAppStore(s => s.showToast);
   const toolDrag = useRef(null);
 
   // Cell under an artboard point, and the visible block covering it with the
@@ -1707,6 +1566,23 @@ const [autoFill] = useDocField('autoFill');
     return target ? blocks.map(b => (b.id === target.id ? block : b)) : [...blocks, block];
   }, [gridComputed, toolOptions.stampAsset, activeAssets]);
 
+  // Pins the main colour of each block to `hex` (Object › Paint, Eyedropper Alt+click).
+  const addRecentColour = useAppStore(s => s.addRecentColour);
+  const paintIds = useCallback((ids, hex) => {
+    if (!ids.length) return;
+    addRecentColour(hex);
+    const swatchId = ensureSwatch(hex);
+    updateBlocks(ids, b => {
+      if (b.type) return b;
+      const breakdown = blockColourBreakdown(b, colourCtx);
+      const main = breakdown.find(e => e.hex === dominantColour(breakdown));
+      if (!main) return b;
+      const slotPins = { ...(b.slotPins ?? {}) };
+      for (const s of main.slots) slotPins[s] = swatchId;
+      return { ...b, slotPins };
+    });
+  }, [ensureSwatch, updateBlocks, colourCtx, addRecentColour]);
+
   const handleToolPointer = useCallback(async (phase, pt) => {
     const { toolOverride, activeTool: chosen } = useAppStore.getState();
     const tool = toolOverride ?? chosen;
@@ -1757,7 +1633,17 @@ const [autoFill] = useDocField('autoFill');
       const slot = await slotUnder(block, hit.u, hit.v);
       const colours = blockSlotColours(block, colourCtx);
       const hex = (slot >= 0 && colours?.[slot]) || dominantColour(blockColourBreakdown(block, colourCtx));
-      if (hex) { setToolOption({ paintHex: hex }); showToast(`Picked ${hex}`); }
+      if (!hex) return;
+      setToolOption({ paintHex: hex });
+      addRecentColour(hex);
+      // Alt+click: apply the picked colour to the selection, as in Illustrator.
+      const targets = pt.altKey ? blocks.filter(b => selectedIdsRef.current.has(b.id) && !b.locked && !b.type).map(b => b.id) : [];
+      if (targets.length) {
+        paintIds(targets, hex);
+        showToast(`Painted ${targets.length} ${targets.length === 1 ? 'shape' : 'shapes'} ${hex}`);
+      } else {
+        showToast(`Picked ${hex}`);
+      }
       return;
     }
 
@@ -1768,6 +1654,7 @@ const [autoFill] = useDocField('autoFill');
       if (slot < 0) return;
       const from = blockSlotColours(block, colourCtx)?.[slot]?.toLowerCase();
       const swatchId = ensureSwatch(toolOptions.paintHex);
+      addRecentColour(toolOptions.paintHex);
       const wholeColour = pt.altKey || toolOptions.bucketScope === 'colour';
       // Shift: paint that colour in every unlocked shape, like recolouring a Layers group.
       const targets = pt.shiftKey ? blocks.filter(b => !b.locked && !b.type).map(b => b.id) : [block.id];
@@ -1789,7 +1676,7 @@ const [autoFill] = useDocField('autoFill');
     if (tool === 'reflect') {
       updateBlocks([block.id], b => (pt.altKey ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }));
     }
-  }, [hitTest, stampAt, pushHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks]);
+  }, [hitTest, stampAt, pushHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour]);
 
   // Actions on the current selection, shared by the task bar, the right-click
   // menu and the Object / Select menus. Locked shapes are never edited.
@@ -1803,25 +1690,172 @@ const [autoFill] = useDocField('autoFill');
     return {
       selectSameColour: () => selectMatching(colourKey),
       selectSameShape: () => selectMatching(b => b.assetId ?? b.type),
-      paint: () => {
-        const swatchId = ensureSwatch(toolOptions.paintHex);
-        updateBlocks(editable(), b => {
-          if (b.type) return b;
-          const breakdown = blockColourBreakdown(b, colourCtx);
-          const main = breakdown.find(e => e.hex === dominantColour(breakdown));
-          if (!main) return b;
-          const slotPins = { ...(b.slotPins ?? {}) };
-          for (const s of main.slots) slotPins[s] = swatchId;
-          return { ...b, slotPins };
-        });
+      paint: () => paintIds(editable(), toolOptions.paintHex),
+      // Info panel edits: `changes` is merged into every editable selected block.
+      setProps: (changes) => updateBlocks(editable(), b => ({ ...b, ...changes })),
+      // Swap the shape, keeping position and appearance. Only blocks with the
+      // same footprint change; colour pins are dropped (slots differ per shape).
+      setShape: (asset) => updateBlocks(editable(), b => {
+        if (b.type || b.cols !== (asset.cols ?? 1) || b.rows !== (asset.rows ?? 1)) return b;
+        const next = { ...b, assetId: asset.id, name: asset.name, svgContent: asset.svgContent };
+        delete next.slotPins;
+        return next;
+      }),
+      randomOpacity: () => {
+        const { min, max } = fillOpacity?.random ? fillOpacity : { min: 0.4, max: 1 };
+        updateBlocks(editable(), b => ({ ...b, opacity: Math.round((min + Math.random() * (max - min)) * 100) / 100 }));
       },
+      resetAppearance: () => updateBlocks(editable(), b => {
+        const next = { ...b };
+        delete next.opacity;
+        delete next.blendMode;
+        return next;
+      }),
       rotate: (clockwise = true) => updateBlocks(editable(), b => (b.type ? b : rotateBlock(b, clockwise))),
       reflect: (vertical = false) => updateBlocks(editable(), b => (b.type ? b : vertical ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX })),
       hide: () => layerActions.setHidden(editable(), true),
       lock: () => layerActions.setLocked(editable(), true),
       unpin: () => layerActions.clearPins(editable()),
     };
-  }, [placedBlocks, selectedIds, setSelectedIds, colourCtx, ensureSwatch, toolOptions.paintHex, updateBlocks, layerActions]);
+  }, [placedBlocks, selectedIds, setSelectedIds, colourCtx, toolOptions.paintHex, updateBlocks, layerActions, paintIds, fillOpacity]);
+
+  // ── Pointer ────────────────────────────────────────────────────────────────
+  // Where the pointer is over the artboard. The last position is kept after
+  // the pointer leaves (e.g. to use Edit › Paste) so pasting still lands
+  // where the pointer was; the Info panel's read-out clears on leave.
+  const lastPointerRef = useRef(null);
+  const setCursor = useAppStore(s => s.setCursor);
+  const cellAt = useCallback((pt) => {
+    if (!pt || !gridComputed) return null;
+    const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
+    const col = Math.floor((pt.x - gridOriginX) / cellSize);
+    const row = Math.floor((pt.y - gridOriginY) / cellSize);
+    return col < 0 || row < 0 || col >= cols || row >= rows ? null : { col, row };
+  }, [gridComputed]);
+  const handlePointerMove = useCallback((pt) => {
+    if (pt) lastPointerRef.current = pt;
+    const cell = cellAt(pt);
+    const prev = useAppStore.getState().cursor;
+    if (cell?.col === prev?.col && cell?.row === prev?.row && !!pt === !!prev) return;
+    const block = cell && placedBlocksRef.current.find(b => !b.hidden && b.type !== 'wireframe'
+      && cell.col >= b.gridCol && cell.col < b.gridCol + b.cols && cell.row >= b.gridRow && cell.row < b.gridRow + b.rows);
+    setCursor(pt ? { x: Math.round(pt.x), y: Math.round(pt.y), col: cell?.col ?? null, row: cell?.row ?? null, shape: block?.name ?? null } : null);
+  }, [cellAt, setCursor]);
+  useEffect(() => () => setCursor(null), [setCursor]);
+
+  // ── Clipboard ──────────────────────────────────────────────────────────────
+  // Copied shapes live in the app store so they can be pasted into another
+  // tab. Paste goes under the pointer; if shapes are in the way the user can
+  // replace them or cancel and move the pointer.
+  const setClipboard = useAppStore(s => s.setClipboard);
+  const ask = useAppStore(s => s.ask);
+
+  const clipFrom = useCallback((ids) => {
+    const blocks = placedBlocks.filter(b => ids.has(b.id) && b.type !== 'wireframe');
+    if (!blocks.length) return null;
+    const minC = Math.min(...blocks.map(b => b.gridCol));
+    const minR = Math.min(...blocks.map(b => b.gridRow));
+    const w = Math.max(...blocks.map(b => b.gridCol + b.cols)) - minC;
+    const h = Math.max(...blocks.map(b => b.gridRow + b.rows)) - minR;
+    return {
+      w, h, origin: { col: minC, row: minR },
+      blocks: blocks.map(b => {
+        const copy = { ...b, relCol: b.gridCol - minC, relRow: b.gridRow - minR };
+        delete copy.id; delete copy.locked; delete copy.hidden;
+        return copy;
+      }),
+    };
+  }, [placedBlocks]);
+
+  // Places a clip with its top-left at (col, row), clamped onto the grid.
+  const placeClip = useCallback(async (clip, col, row) => {
+    if (!gridComputed) return;
+    const { cols, rows } = gridComputed;
+    if (clip.w > cols || clip.h > rows) { showToast('Those shapes are bigger than this grid'); return; }
+    col = Math.max(0, Math.min(cols - clip.w, col));
+    row = Math.max(0, Math.min(rows - clip.h, row));
+    const added = clip.blocks.map(({ relCol, relRow, ...b }) => ({ ...b, id: crypto.randomUUID(), gridCol: col + relCol, gridRow: row + relRow }));
+    const blockers = (blocks) => blocks.filter(b => b.type !== 'wireframe' && added.some(n =>
+      b.gridCol < n.gridCol + n.cols && b.gridCol + b.cols > n.gridCol && b.gridRow < n.gridRow + n.rows && b.gridRow + b.rows > n.gridRow));
+
+    let inWay = blockers(placedBlocksRef.current);
+    if (inWay.some(b => b.locked)) { showToast('Locked shapes are in the way — move the pointer or unlock them'); return; }
+    if (inWay.length) {
+      const choice = await ask('pasteOccupied', { count: inWay.length });
+      if (choice !== 'replace') return;
+      inWay = blockers(placedBlocksRef.current); // the document may have changed while asking
+      if (inWay.some(b => b.locked)) { showToast('Locked shapes are in the way — move the pointer or unlock them'); return; }
+    }
+    const current = placedBlocksRef.current;
+    const remove = new Set(inWay.map(b => b.id));
+    pushHistory(current);
+    const next = [...current.filter(b => !remove.has(b.id)), ...added];
+    placedBlocksRef.current = next;
+    setPlacedBlocks(next);
+    syncHistorySize();
+    setSelectedIds(new Set(added.map(b => b.id)));
+  }, [gridComputed, showToast, ask, pushHistory, setPlacedBlocks, syncHistorySize, setSelectedIds]);
+
+  const clipboardActions = useMemo(() => ({
+    copy: () => {
+      const clip = clipFrom(selectedIds);
+      if (!clip) return;
+      setClipboard(clip);
+      showToast(`Copied ${clip.blocks.length} ${clip.blocks.length === 1 ? 'shape' : 'shapes'}`);
+    },
+    cut: () => {
+      const clip = clipFrom(new Set(placedBlocks.filter(b => selectedIds.has(b.id) && !b.locked).map(b => b.id)));
+      if (!clip) return;
+      setClipboard(clip);
+      handleDeleteSelected();
+      showToast(`Cut ${clip.blocks.length} ${clip.blocks.length === 1 ? 'shape' : 'shapes'}`);
+    },
+    // Centred on the cell under the pointer; the middle of the view if the
+    // pointer hasn't been over the artboard yet.
+    paste: () => {
+      const clip = useAppStore.getState().clipboard;
+      if (!clip || !gridComputed) return;
+      let cell = cellAt(lastPointerRef.current);
+      if (!cell && viewportSize) {
+        const { x, y, scale } = viewTransform;
+        cell = cellAt({ x: (viewportSize.width / 2 - x) / scale, y: (viewportSize.height / 2 - y) / scale });
+      }
+      cell ??= { col: clip.origin.col + Math.floor(clip.w / 2), row: clip.origin.row + Math.floor(clip.h / 2) };
+      placeClip(clip, cell.col - Math.floor(clip.w / 2), cell.row - Math.floor(clip.h / 2));
+    },
+    // Copies the selection beside itself (right, else below), without
+    // touching the clipboard.
+    duplicate: () => {
+      const clip = clipFrom(selectedIds);
+      if (!clip || !gridComputed) return;
+      const { col, row } = clip.origin;
+      if (col + clip.w * 2 <= gridComputed.cols) placeClip(clip, col + clip.w, row);
+      else if (row + clip.h * 2 <= gridComputed.rows) placeClip(clip, col, row + clip.h);
+      else placeClip(clip, col + clip.w, row);
+    },
+  }), [clipFrom, placeClip, selectedIds, placedBlocks, setClipboard, showToast, handleDeleteSelected, gridComputed, cellAt, viewportSize, viewTransform]);
+
+  // ── Overlays, rulers & guides (View menu) ──────────────────────────────────
+  const overlayIds = useAppStore(s => s.overlays);
+  const showRulers = useAppStore(s => s.showRulers);
+  const showGuides = useAppStore(s => s.showGuides);
+  // Guides snap to the artboard edges and centre, and to grid cell lines.
+  const snapLines = useMemo(() => {
+    const v = [0, workArea.width / 2, workArea.width];
+    const h = [0, workArea.height / 2, workArea.height];
+    if (gridComputed) {
+      const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
+      for (let c = 0; c <= cols; c++) v.push(gridOriginX + c * cellSize);
+      for (let r = 0; r <= rows; r++) h.push(gridOriginY + r * cellSize);
+    }
+    return { v, h };
+  }, [workArea, gridComputed]);
+  const guideDrag = useGuideDrag({ viewTransform, guides, setGuides, snapLines });
+  // Dragging a new guide out of a ruler shows it even while guides are hidden.
+  const startGuideDrag = useCallback((...args) => {
+    if (!useAppStore.getState().showGuides) useAppStore.getState().setShowGuides(true);
+    guideDrag.start(...args);
+  }, [guideDrag]);
 
   // Hold Space for the Hand tool, whatever tool is active (as in Illustrator).
   useEffect(() => {
@@ -1850,8 +1884,9 @@ const [autoFill] = useDocField('autoFill');
     knotworkThemeColors,
     audioFileSrc, setAudioFileSrc,
     fillActions,
-    colourCtx, layerActions, selectedIds,
+    colourCtx, layerActions, selectedIds, selectionActions,
     actions: {
+      surpriseMe,
       fillGaps: handleFillGaps,
       flipH: handleFlipH,
       flipV: handleFlipV,
@@ -1878,7 +1913,7 @@ const [autoFill] = useDocField('autoFill');
       imageProgress,
       canKnotworkFill: gridComputed !== null,
     },
-  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill, imageProgress]);
+  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill, imageProgress]);
 
   // ── Shell bridge ───────────────────────────────────────────────────────────
   // Menu bar, status bar and app-level shortcuts reach this editor through
@@ -1901,7 +1936,40 @@ const [autoFill] = useDocField('autoFill');
     exportSvg: () => handleExport({ format: 'svg' }),
     toggleShortcuts: () => setShowShortcuts(s => !s),
     buildThumbnail,
-  }), [openExport, selectionActions, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail]);
+    clipboard: clipboardActions,
+    // Generate
+    canFill: !!fillActions[activeFill]?.can,
+    runActiveFill: () => fillActions[activeFill]?.run(),
+    canFillGaps: canShapeFill && placedBlocks.length > 0,
+    fillGaps: handleFillGaps,
+    surpriseMe,
+    clearCanvas: () => {
+      pushHistory(placedBlocks);
+      setPlacedBlocks(placedBlocks.filter(b => b.type === 'wireframe'));
+      setSelectedIds(new Set());
+      syncHistorySize();
+    },
+    flipLayout: (vertical) => (vertical ? handleFlipV() : handleFlipH()),
+    hasLayout: !!activeLayoutId,
+    clearLayout: handleClearLayout,
+    // Colour
+    shuffleColours: handleRandomRerun,
+    saveSwatchesAsLibrary: () => {
+      const name = prompt('Library name', paletteKey || 'My swatches');
+      if (!name) return;
+      useLibraryStore.getState().addLibrary(name, shapeColors.map(c => ({ hex: c.hex, ...(c.name ? { name: c.name } : {}) })));
+      showToast(`Saved library “${name}”`);
+    },
+    // Assets
+    setAllAssets: (on) => setEnabledAssetIds(new Set(on ? ALL_BUILTIN_ASSETS.map(a => a.id) : [])),
+    enableUsedAssets: () => setEnabledAssetIds(new Set(placedBlocks.map(b => b.assetId).filter(Boolean))),
+    // Meander
+    knotworkFill: handleKnotworkFill,
+    knotworkRecolour: handleKnotworkRecolour,
+    // Guides
+    hasGuides: guides.v.length + guides.h.length > 0,
+    clearGuides: () => setGuides({ v: [], h: [] }),
+  }), [openExport, selectionActions, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -1932,9 +2000,11 @@ const [autoFill] = useDocField('autoFill');
           onDeselectAll={handleDeselectAll}
           onMarqueeSelect={handleMarqueeSelect}
           onToolPointer={handleToolPointer}
+          onPointerMove={handlePointerMove}
           onViewportResize={setViewportSize}
           overlay={
             <>
+              {showRulers && <Rulers viewTransform={viewTransform} viewportSize={viewportSize} onStartDrag={startGuideDrag} />}
               {appMode === 'gridBuilder' && (
                 <SelectionToolbar
                   selectedBlocks={selectedBlocks}
@@ -2005,7 +2075,7 @@ const [autoFill] = useDocField('autoFill');
             shapeLibrary={shapeLibrary}
             gridComputed={gridComputed}
             activeTool={activeTool}
-selectedIds={selectedIds}
+            selectedIds={selectedIds}
             onSelect={handleSelectBlock}
             onContextMenu={handleOpenContextMenu}
             colorMode={colorMode}
@@ -2040,6 +2110,11 @@ selectedIds={selectedIds}
             audioDataRef={audioDataRef}
             canvasBg={canvasBg}
           />
+          <Overlays ids={overlayIds} width={workArea.width} height={workArea.height} scale={viewTransform.scale} />
+          {(showGuides || guideDrag.drag) && (
+            <GuideLines guides={guides} drag={guideDrag.drag} onStartDrag={startGuideDrag}
+              interactive={activeTool === 'select'} scale={viewTransform.scale} />
+          )}
         </Canvas>
 
         {audioSettings.enabled && audioSettings.inputSource === 'file' && (
@@ -2057,6 +2132,10 @@ selectedIds={selectedIds}
             y={contextMenu.y}
             onClose={() => setContextMenu(null)}
             items={[
+              { label: 'Cut', shortcut: 'Ctrl+X', action: () => runCommand('edit.cut') },
+              { label: 'Copy', shortcut: 'Ctrl+C', action: () => runCommand('edit.copy') },
+              { label: 'Duplicate', shortcut: 'Ctrl+D', action: () => runCommand('edit.duplicate') },
+              null,
               { label: 'Select Same Colour', action: selectionActions.selectSameColour },
               { label: 'Select Same Shape', action: selectionActions.selectSameShape },
               null,
@@ -2070,6 +2149,7 @@ selectedIds={selectedIds}
               { label: 'Reflect Horizontal', shortcut: 'O', action: () => selectionActions.reflect(false) },
               { label: 'Reflect Vertical', action: () => selectionActions.reflect(true) },
               { label: 'Random Shape', action: handleContextRandomise },
+              { label: 'Random Opacity', action: selectionActions.randomOpacity },
               null,
               { label: 'Hide', action: selectionActions.hide },
               { label: 'Lock', action: selectionActions.lock },

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
+import { useDocumentStore } from '../store/documentStore';
 
 const HISTORY_LIMIT = 100;
 
@@ -20,6 +21,10 @@ const hydrate = (blocks) => blocks.map(b => {
   const asset = assetMap.get(b.assetId);
   return { ...b, svgContent: asset?.svgContent ?? '' };
 });
+
+// An entry is { blocks, fields? }. `fields` holds the values other document
+// fields had before the step (e.g. a Surprise Me fill also changes the fill
+// settings and palette); undoing it puts those back as well.
 
 // Undo/redo stacks live outside React, keyed by document id, so a document
 // keeps its history when its tab is switched away from and back again.
@@ -56,31 +61,42 @@ export function useHistory(docId, placedBlocks, setPlacedBlocks) {
     setHistorySize({ undo: 0, redo: 0 });
   }, [docId]);
 
-  const pushHistory = useCallback((snapshot) => {
+  const pushHistory = useCallback((snapshot, fields) => {
     const stacks = stacksFor(docId);
-    stacks.undo = [...stacks.undo, compress(snapshot)].slice(-HISTORY_LIMIT);
+    stacks.undo = [...stacks.undo, { blocks: compress(snapshot), fields }].slice(-HISTORY_LIMIT);
     stacks.redo = [];
   }, [docId]);
+
+  // Restores an entry, returning the entry that undoes the restore.
+  const restore = useCallback((entry) => {
+    const store = useDocumentStore.getState();
+    const current = store.docs[docId]?.state ?? {};
+    const back = { blocks: compress(placedBlocks) };
+    if (entry.fields) {
+      back.fields = Object.fromEntries(Object.keys(entry.fields).map(k => [k, current[k]]));
+      for (const [k, v] of Object.entries(entry.fields)) store.setField(docId, k, v);
+    }
+    setPlacedBlocks(hydrate(entry.blocks));
+    return back;
+  }, [docId, placedBlocks, setPlacedBlocks]);
 
   const handleUndo = useCallback(() => {
     const stacks = stacksFor(docId);
     if (!stacks.undo.length) return;
     const prev = stacks.undo[stacks.undo.length - 1];
     stacks.undo = stacks.undo.slice(0, -1);
-    stacks.redo = [compress(placedBlocks), ...stacks.redo].slice(0, HISTORY_LIMIT);
-    setPlacedBlocks(hydrate(prev));
+    stacks.redo = [restore(prev), ...stacks.redo].slice(0, HISTORY_LIMIT);
     syncHistorySize();
-  }, [docId, placedBlocks, setPlacedBlocks, syncHistorySize]);
+  }, [docId, restore, syncHistorySize]);
 
   const handleRedo = useCallback(() => {
     const stacks = stacksFor(docId);
     if (!stacks.redo.length) return;
     const next = stacks.redo[0];
     stacks.redo = stacks.redo.slice(1);
-    stacks.undo = [...stacks.undo, compress(placedBlocks)].slice(-HISTORY_LIMIT);
-    setPlacedBlocks(hydrate(next));
+    stacks.undo = [...stacks.undo, restore(next)].slice(-HISTORY_LIMIT);
     syncHistorySize();
-  }, [docId, placedBlocks, setPlacedBlocks, syncHistorySize]);
+  }, [docId, restore, syncHistorySize]);
 
   return { pushHistory, handleUndo, handleRedo, historySize, syncHistorySize, clearHistory };
 }

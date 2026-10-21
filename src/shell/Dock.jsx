@@ -1,11 +1,55 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store/appStore';
+import { commandContext, menuItem } from './commands';
 import styles from './Dock.module.css';
 
 // Illustrator-style panel dock: a column of panel groups, each with tabs
 // along its top. Clicking a tab brings it to the front; double-clicking a
 // tab (or clicking the chevron) collapses the group. `groups` comes from
 // the active mode's registry entry.
+
+// A panel's ☰ menu: its own commands, then Reset Panel Layout.
+function PanelMenu({ panel }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const c = open ? commandContext() : null;
+  const items = open ? [...(panel.menu ?? []), ...(panel.menu?.length ? ['separator'] : []), 'window.resetDock'] : [];
+  return (
+    <span className={styles.panelMenu} ref={ref}>
+      <button className={styles.collapseBtn} onClick={() => setOpen(o => !o)} title={`${panel.title} options`}
+        aria-haspopup="menu" aria-expanded={open}>
+        <svg width="12" height="10" viewBox="0 0 12 10" aria-hidden="true">
+          <path d="M1 1.5h10M1 5h10M1 8.5h10" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+      </button>
+      {open && (
+        <div className={styles.panelMenuDropdown} role="menu">
+          {items.map((id, i) => {
+            if (id === 'separator') return <div key={i} className={styles.panelMenuSeparator} />;
+            const item = menuItem(id, c);
+            return (
+              <button key={id} role="menuitem" className={styles.panelMenuItem} disabled={item.disabled}
+                onClick={() => { setOpen(false); item.onClick(); }}>
+                <span>{item.label}</span>
+                {item.shortcut && <span className={styles.panelMenuShortcut}>{item.shortcut}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </span>
+  );
+}
+
 export function Dock({ groups }) {
   const dock = useAppStore(s => s.dock);
   const updateDockGroup = useAppStore(s => s.updateDockGroup);
@@ -57,6 +101,7 @@ export function Dock({ groups }) {
                   </button>
                 ))}
               </div>
+              {!collapsed && <PanelMenu panel={activeTab} />}
               <button
                 className={styles.collapseBtn}
                 onClick={() => updateDockGroup(group.id, { collapsed: !collapsed })}

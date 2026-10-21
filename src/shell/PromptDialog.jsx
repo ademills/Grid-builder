@@ -15,6 +15,14 @@ const PROMPTS = {
       { value: 'save', label: 'Save', primary: true },
     ],
   }),
+  pasteOccupied: ({ count }) => ({
+    title: `${count} ${count === 1 ? 'shape is' : 'shapes are'} in the way`,
+    body: 'Replace them with the pasted shapes, or cancel, move the pointer to where you want the shapes to go, and paste again.',
+    actions: [
+      { value: 'cancel', label: 'Cancel', cancel: true },
+      { value: 'replace', label: 'Replace', primary: true },
+    ],
+  }),
   quit: ({ count }) => ({
     title: `${count} ${count === 1 ? 'document has' : 'documents have'} unsaved changes`,
     body: 'Quit anyway and lose those changes, or cancel to go back and save them.',

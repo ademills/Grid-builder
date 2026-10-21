@@ -16,6 +16,7 @@ export function PropertiesPanel() {
   const [maxScale, setMaxScale] = useDocField('maxScale');
   const [scaleFreq, setScaleFreq] = useDocField('scaleFreq');
   const [autoFill, setAutoFill] = useDocField('autoFill');
+  const [fillOpacity, setFillOpacity] = useDocSettings('fillOpacity');
   const [canvasBg, setCanvasBg] = useDocField('canvasBg');
   const [bgColor, setBgColor] = useDocField('bgColor');
   const [showTilePreview, setShowTilePreview] = useDocField('showTilePreview');
@@ -124,6 +125,28 @@ export function PropertiesPanel() {
               <span className={styles.sliderVal}>{scaleFreq}%</span>
             </div>
           </div>
+          <div className={styles.formRow}>
+            <span className={styles.label}>Opacity</span>
+            <Toggle value={fillOpacity.random} onChange={v => setFillOpacity({ random: v })}
+              title="Give each shape a random opacity when you fill" />
+            <span className={styles.gridNote} style={{ margin: '0 0 0 8px' }}>{fillOpacity.random ? 'Random' : 'Solid'}</span>
+          </div>
+          {fillOpacity.random && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Range</span>
+              <div className={styles.sliderRow}>
+                <input type="range" className={styles.slider} min={5} max={100} step={5}
+                  value={Math.round(fillOpacity.min * 100)}
+                  onChange={e => { const min = +e.target.value / 100; setFillOpacity({ min, max: Math.max(min, fillOpacity.max) }); }}
+                  title="Lowest opacity" />
+                <input type="range" className={styles.slider} min={5} max={100} step={5}
+                  value={Math.round(fillOpacity.max * 100)}
+                  onChange={e => { const max = +e.target.value / 100; setFillOpacity({ max, min: Math.min(max, fillOpacity.min) }); }}
+                  title="Highest opacity" />
+                <span className={styles.sliderVal}>{Math.round(fillOpacity.min * 100)}–{Math.round(fillOpacity.max * 100)}%</span>
+              </div>
+            </div>
+          )}
           <div className={styles.formRow}>
             <span className={styles.label}>Auto-fill</span>
             <Toggle value={autoFill} onChange={setAutoFill} title="Re-fill the grid automatically whenever grid settings change" />

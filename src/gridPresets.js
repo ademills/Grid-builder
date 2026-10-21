@@ -6,6 +6,11 @@ export const PRESETS = [
   { key: 'square-1080',         label: '1080 × 1080',          width: 1080, height: 1080 },
   { key: 'hd-landscape',        label: '1920 × 1080',          width: 1920, height: 1080 },
   { key: 'hd-portrait',         label: '1080 × 1920 (Story)',  width: 1080, height: 1920 },
+  { key: 'ig-portrait',         label: '1080 × 1350 (4:5)',    width: 1080, height: 1350 },
+  { key: 'a3-portrait',         label: 'A3 Portrait',          width: 842,  height: 1191 },
+  { key: '4k-landscape',        label: '3840 × 2160 (4K)',     width: 3840, height: 2160 },
+  { key: 'phone-wallpaper',     label: '1170 × 2532 (Phone)',  width: 1170, height: 2532 },
+  { key: 'fabric-repeat',       label: '3600 × 3600 (Fabric)', width: 3600, height: 3600 },
   { key: 'custom',              label: 'Custom…',              width: null, height: null },
 ];
 

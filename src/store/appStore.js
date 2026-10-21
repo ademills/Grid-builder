@@ -13,6 +13,21 @@ function saveRecent(list) {
 }
 
 const DOCK_KEY = 'mps-dock';
+const VIEW_KEY = 'mps-view';
+const RECENT_COLOURS_KEY = 'mps-recent-colours';
+const RECENT_COLOURS_LIMIT = 10;
+
+function loadJson(key, fallback) {
+  try { return { ...fallback, ...JSON.parse(localStorage.getItem(key) || '{}') }; }
+  catch { return fallback; }
+}
+
+function saveJson(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ }
+}
+
+// View options shared by every document, like Illustrator's View menu.
+const DEFAULT_VIEW = { overlays: [], showRulers: false, showGuides: true, wheelZooms: false };
 
 function loadDock() {
   try { return { width: 300, groups: {}, ...JSON.parse(localStorage.getItem(DOCK_KEY) || '{}') }; }
@@ -46,6 +61,38 @@ export const useAppStore = create((set, get) => ({
     set({ dock: next });
   },
 
+  resetDock() {
+    const next = { width: 300, groups: {} };
+    saveDock(next);
+    set({ dock: next });
+  },
+
+  // View menu state (persisted). overlays: composition guides shown on the
+  // artboard — ids from components/Overlays.jsx.
+  ...loadJson(VIEW_KEY, DEFAULT_VIEW),
+  setViewOption(changes) {
+    set(changes);
+    const s = get();
+    saveJson(VIEW_KEY, { overlays: s.overlays, showRulers: s.showRulers, showGuides: s.showGuides, wheelZooms: s.wheelZooms });
+  },
+  setOverlays: (overlays) => get().setViewOption({ overlays }),
+  toggleOverlay(id) {
+    const list = get().overlays;
+    get().setViewOption({ overlays: list.includes(id) ? list.filter(o => o !== id) : [...list, id] });
+  },
+  setShowRulers: (showRulers) => get().setViewOption({ showRulers }),
+  setShowGuides: (showGuides) => get().setViewOption({ showGuides }),
+
+  // Copied shapes, shared by every document so they can be pasted into
+  // another tab: { blocks } with positions relative to the copied group's
+  // top-left cell.
+  clipboard: null,
+  setClipboard: (clipboard) => set({ clipboard }),
+
+  // The grid cell and colour under the pointer, for the Info panel.
+  cursor: null,
+  setCursor: (cursor) => set({ cursor }),
+
   activeTool: 'select',
   setActiveTool: (activeTool) => set({ activeTool }),
   // A tool held temporarily (Space → Hand) that wins over activeTool.
@@ -60,6 +107,16 @@ export const useAppStore = create((set, get) => ({
   //   stampAsset   — asset id to stamp, or 'random' (from the enabled shapes)
   toolOptions: { paintHex: '#7b61ff', bucketScope: 'part', wandMatch: 'colour', wandAdd: false, stampAsset: 'random' },
   setToolOption: (changes) => set({ toolOptions: { ...get().toolOptions, ...changes } }),
+
+  // Colours recently picked with the Eyedropper or painted with, newest
+  // first (persisted).
+  recentColours: loadJson(RECENT_COLOURS_KEY, { list: [] }).list,
+  addRecentColour(hex) {
+    const h = hex.toLowerCase();
+    const list = [h, ...get().recentColours.filter(c => c !== h)].slice(0, RECENT_COLOURS_LIMIT);
+    saveJson(RECENT_COLOURS_KEY, { list });
+    set({ recentColours: list });
+  },
 
   // { path, name, mode, thumbnail, openedAt }[] — newest first
   recentFiles: loadRecent(),

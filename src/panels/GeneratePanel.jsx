@@ -3,14 +3,21 @@ import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { FILLS, FILLS_BY_ID } from '../modes/gridBuilder/fills';
 import { LAYOUTS, LAYOUT_CATEGORIES } from '../utils/layouts';
 import { LayoutThumb } from './controls';
+import { DiceIcon } from '../shell/icons';
 import styles from './Panel.module.css';
 
 const GROUPS = [...new Set(FILLS.map(f => f.group))];
 
-function FillSettingsHost({ fill }) {
+// Changing a fill's seed (typing one or ⟳) re-runs that fill with it, for
+// every seeded fill. Undo and Surprise Me change seeds without re-running.
+function FillSettingsHost({ fill, run }) {
   const [settings, setSettings] = useDocSettings(fill.settingsKey);
   const { Settings } = fill;
-  return settings ? <Settings s={settings} set={setSettings} /> : null;
+  const set = (changes) => {
+    setSettings(changes);
+    if ('seed' in changes && run) run({ ...settings, ...changes });
+  };
+  return settings ? <Settings s={settings} set={set} /> : null;
 }
 
 // Grid Pattern fills: pick one, tune it, Fill. Replaces the old Fill and
@@ -55,7 +62,7 @@ export function GeneratePanel() {
             {fill.group === 'Experimental' && (
               <div className={styles.gridNote}>Experimental — this fill may change or be removed.</div>
             )}
-            <FillSettingsHost key={fill.id} fill={fill} />
+            <FillSettingsHost key={fill.id} fill={fill} run={action?.can ? action.run : null} />
           </>
         )}
         {!fill.Settings && (
@@ -69,11 +76,15 @@ export function GeneratePanel() {
       <div className={styles.fillBar}>
         <button
           className={`${styles.actionBtn} ${styles.actionBtnPrimary}`}
-          onClick={action?.run}
+          onClick={() => action?.run()}
           disabled={!action?.can}
         >▶ Fill — {fill.label}</button>
         <button className={styles.actionBtn} onClick={actions.fillGaps} disabled={!status.canFillGaps} title="Fill only the empty cells">
           Gaps
+        </button>
+        <button className={styles.actionBtn} onClick={actions.surpriseMe} disabled={!fillActions.standard?.can}
+          title="Random fill, settings, palette and seed (Ctrl+Shift+R). Keeps the grid size and enabled shapes.">
+          <DiceIcon size={14} /> Surprise
         </button>
       </div>
     </>

@@ -27,6 +27,10 @@ export function createDefaultDocState() {
     maxScale: 1,
     scaleFreq: 0,
     autoFill: false,
+    // Fills give each new shape a random opacity between min and max.
+    fillOpacity: { random: false, min: 0.4, max: 1 },
+    // Ruler guides, in artboard px: v = vertical lines (x), h = horizontal (y).
+    guides: { v: [], h: [] },
     bgColor: '#2d2d2d',
     canvasBg: '#ffffff',
 

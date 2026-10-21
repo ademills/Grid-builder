@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import styles from './Shell.module.css';
 
 // Illustrator-style menu bar. `menus` is [{ label, items }] where each item
-// is { label, shortcut?, onClick, disabled? } | 'separator' | { heading }.
+// is { label, shortcut?, onClick, disabled?, checked? } | 'separator' | { heading }.
 // Once a menu is open, hovering other triggers switches between them.
 export function MenuBar({ menus }) {
   const [openIdx, setOpenIdx] = useState(null);
@@ -48,7 +48,10 @@ export function MenuBar({ menus }) {
                     disabled={item.disabled}
                     onClick={() => { setOpenIdx(null); item.onClick?.(); }}
                   >
-                    <span>{item.label}</span>
+                    <span className={styles.menuItemLabel}>
+                      {item.checked !== undefined && <span className={styles.menuCheck}>{item.checked ? '✓' : ''}</span>}
+                      {item.label}
+                    </span>
                     {item.shortcut && <span className={styles.menuShortcut}>{item.shortcut}</span>}
                   </button>
                 );

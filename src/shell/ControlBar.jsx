@@ -38,6 +38,7 @@ function Segment({ value, options, onChange }) {
 function PaintColour() {
   const paintHex = useAppStore(s => s.toolOptions.paintHex);
   const setToolOption = useAppStore(s => s.setToolOption);
+  const recentColours = useAppStore(s => s.recentColours);
   const [shapeColors] = useDocField('shapeColors');
   const [bgColors] = useDocField('bgColors');
   const { open, setOpen, ref: popRef } = usePopover();
@@ -49,6 +50,18 @@ function PaintColour() {
       </button>
       {open && (
         <div className={styles.popover} style={{ width: 236 }}>
+          {recentColours.length > 0 && (
+            <>
+              <div className={styles.popLabel}>Recent</div>
+              <div className={styles.popSwatches}>
+                {recentColours.map(hex => (
+                  <button key={hex} className={styles.popSwatch} style={{ background: hex }}
+                    title={hex} onClick={() => setToolOption({ paintHex: hex })} />
+                ))}
+              </div>
+              <div className={styles.popLabel}>Document</div>
+            </>
+          )}
           <div className={styles.popSwatches}>
             {[...shapeColors, ...bgColors].map(s => (
               <button key={s.id} className={styles.popSwatch} style={{ background: s.hex }}
