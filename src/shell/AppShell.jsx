@@ -87,7 +87,8 @@ const MENUS = [
     'file.save', 'file.saveAs', 'separator', 'file.export', 'file.exportSvg', 'separator', 'file.close'] },
   { label: 'Edit', items: ['edit.undo', 'edit.redo', 'separator', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate',
     'separator', 'edit.delete'] },
-  { label: 'Object', items: ['object.rotateCw', 'object.rotateCcw', 'object.reflectH', 'object.reflectV', 'separator',
+  { label: 'Object', items: ['object.group', 'object.ungroup', 'separator',
+    'object.rotateCw', 'object.rotateCcw', 'object.reflectH', 'object.reflectV', 'separator',
     'object.paint', 'object.unpin', 'object.randomOpacity', 'object.resetOpacity', 'separator',
     'object.hide', 'object.showAll', 'object.lock', 'object.unlockAll'] },
   { label: 'Select', items: ['select.all', 'select.none', 'separator', 'select.sameColour', 'select.sameShape'] },
@@ -95,10 +96,10 @@ const MENUS = [
     'generate.flipH', 'generate.flipV', 'generate.clearLayout', 'generate.clear', 'separator',
     'meander.fill', 'meander.recolour'] },
   { label: 'View', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', 'view.wheelZooms', 'separator',
-    'view.rulers', 'view.guides', 'view.clearGuides', 'separator', { heading: 'Overlays' },
+    'view.rulers', 'view.guides', 'view.clearGuides', 'view.effects', 'separator', { heading: 'Overlays' },
     'view.overlay.thirds', 'view.overlay.golden', 'view.overlay.centre', 'view.overlay.ig45', 'view.overlay.ig916',
     'view.overlay.none'] },
-  { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.resetDock'] },
+  { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.resetDock'] },
   { label: 'Help', items: ['help.shortcuts'] },
 ];
 

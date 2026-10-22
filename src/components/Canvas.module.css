@@ -118,3 +118,4 @@
 .svg {
   position: relative;
 }
+.container[data-tool="move"] { cursor: move; }

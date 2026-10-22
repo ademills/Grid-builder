@@ -105,7 +105,9 @@ export const useAppStore = create((set, get) => ({
   //   wandMatch    — 'colour' | 'shape' | 'size'
   //   wandAdd      — add to the selection instead of replacing it
   //   stampAsset   — asset id to stamp, or 'random' (from the enabled shapes)
-  toolOptions: { paintHex: '#7b61ff', bucketScope: 'part', wandMatch: 'colour', wandAdd: false, stampAsset: 'random' },
+  //   symmetry     — live symmetry for Stamp / Eraser / Bucket (utils/symmetry.js)
+  //   moveDrop     — Move tool onto occupied cells: 'replace' | 'swap'
+  toolOptions: { paintHex: '#7b61ff', bucketScope: 'part', wandMatch: 'colour', wandAdd: false, stampAsset: 'random', symmetry: 'off', moveDrop: 'replace' },
   setToolOption: (changes) => set({ toolOptions: { ...get().toolOptions, ...changes } }),
 
   // Colours recently picked with the Eyedropper or painted with, newest

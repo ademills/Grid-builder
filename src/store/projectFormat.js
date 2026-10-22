@@ -1,5 +1,6 @@
 import { createDefaultDocState } from './docDefaults';
 import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
+import { mergeEffects } from '../effects/effectDefs';
 
 // Project file format.
 //
@@ -21,7 +22,7 @@ const MERGED_FIELDS = new Set([
   'edgeSettings', 'brightnessSettings', 'noiseSettings', 'geometricSettings', 'halftoneSettings',
   'voronoiSettings', 'spiralSettings', 'flowFieldSettings', 'fractalSettings', 'mondrianSettings',
   'goldenSettings', 'knotworkSettings', 'backdropSettings', 'animSettings', 'audioSettings',
-  'paletteExtractSettings', 'fillOpacity', 'guides',
+  'paletteExtractSettings', 'fillOpacity', 'guides', 'groupNames', 'organicSettings', 'silhouetteSettings',
 ]);
 
 function hydrateBlocks(blocks) {
@@ -92,6 +93,7 @@ export function parseProject(text) {
   }
   state.enabledAssetIds = new Set(fields.enabledAssetIds ?? [...state.enabledAssetIds]);
   state.placedBlocks = hydrateBlocks(state.placedBlocks);
+  state.effects = mergeEffects(fields.effects);
   state.audioSettings = { ...state.audioSettings, enabled: false };
   state.viewTransform = null;
   return { mode, name, state };

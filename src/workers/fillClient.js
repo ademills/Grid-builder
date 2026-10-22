@@ -31,10 +31,10 @@ function getWorker() {
 }
 
 // Resolves to { blocks } (with svgContent) or { error }.
-export function runFillInWorker({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [] }) {
+export function runFillInWorker({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [], maskCells = null }) {
   const id = ++nextId;
   const request = {
-    fillId, settings, grid, maxScale, scaleFreq,
+    fillId, settings, grid, maxScale, scaleFreq, maskCells,
     assets: assets.map(footprint),
     imagePixels: imagePixels ? { data: imagePixels.data, width: imagePixels.width, height: imagePixels.height, scaleX: imagePixels.scaleX, scaleY: imagePixels.scaleY } : null,
     layoutMask: layoutMask ? [...layoutMask] : null,

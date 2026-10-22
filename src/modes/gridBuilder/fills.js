@@ -1,7 +1,7 @@
 import {
   GlitchSettings, StripSettings, MultiStripSettings, EdgeSettings, BrightnessSettings, NoiseSettings,
   GeometricSettings, HalftoneSettings, VoronoiSettings, SpiralSettings, FlowFieldSettings, FractalSettings,
-  MondrianSettings, GoldenSettings,
+  MondrianSettings, GoldenSettings, OrganicSettings, SilhouetteSettings,
 } from '../../panels/fillSettings';
 
 // Every Grid Pattern fill, in Generate-panel order. `settingsKey` is the
@@ -18,6 +18,9 @@ export const FILLS = [
   { id: 'brightness', label: 'Brightness',   group: 'Fills', settingsKey: 'brightnessSettings', Settings: BrightnessSettings, image: 'required' },
   { id: 'noise',      label: 'Noise Field',  group: 'Fills', settingsKey: 'noiseSettings',      Settings: NoiseSettings },
   { id: 'geometric',  label: 'Geometric',    group: 'Fills', settingsKey: 'geometricSettings',  Settings: GeometricSettings },
+  { id: 'organic',    label: 'Organic',      group: 'Fills', settingsKey: 'organicSettings',    Settings: OrganicSettings },
+  // Needs a file loaded first, so Surprise Me skips it.
+  { id: 'silhouette', label: 'Silhouette',   group: 'Fills', settingsKey: 'silhouetteSettings', Settings: SilhouetteSettings, surprise: false },
 
   { id: 'halftone',   label: 'Halftone',     group: 'Experimental', settingsKey: 'halftoneSettings',  Settings: HalftoneSettings },
   { id: 'voronoi',    label: 'Voronoi',      group: 'Experimental', settingsKey: 'voronoiSettings',   Settings: VoronoiSettings },

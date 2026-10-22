@@ -1420,3 +1420,59 @@
 .recentRow .label {
   margin-right: 4px;
 }
+
+/* ── History panel ─────────────────────────────────────── */
+
+.historyRow { cursor: pointer; }
+.historyMarker { width: 10px; flex-shrink: 0; color: var(--chrome-accent); font-size: 10px; }
+.historyStart { color: var(--chrome-text-dim); font-style: italic; }
+.historyFuture .layerName { opacity: 0.4; }
+
+/* ── Layers: manual groups ─────────────────────────────── */
+
+.layerSectionLabel {
+  padding: 8px 10px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--chrome-text-faint);
+}
+.layerGroupIcon { display: flex; width: 18px; justify-content: center; color: var(--chrome-text-dim); flex-shrink: 0; }
+.layerRename {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--chrome-accent);
+  border-radius: 3px;
+  background: var(--chrome-bg);
+  color: var(--chrome-text);
+  font: inherit;
+}
+
+.silhouettePreview {
+  display: block;
+  max-width: 100%;
+  margin: 8px auto;
+  border-radius: 3px;
+  image-rendering: pixelated;
+}
+
+/* ── Effects panel ─────────────────────────────────────── */
+
+.effectBlock {
+  margin: 0 -12px;
+  padding: 0 12px;
+  border-top: 1px solid var(--chrome-border);
+}
+.effectBlockOn { background: rgba(255, 255, 255, 0.025); padding-bottom: 6px; }
+.effectHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}

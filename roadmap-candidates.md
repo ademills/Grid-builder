@@ -933,3 +933,19 @@ Chosen 2026-10-21. **Built and committed 2026-10-21; not released yet** (no tag 
 2. **Canvas tools & view** (tool handlers in `DocumentEditor.jsx`, `Canvas.jsx`, View menu): 3.5 Zoom rectangle + modifier-wheel zoom, 3.6 Eyedropper Alt+click, 7.4 Composition overlays. Add-ons: 3.10 rulers and guides, 6.1 recent colours.
 3. **Panels & generation** (`Dock.jsx`, mode registry, Generate panel): 1.9 Panel ☰ menus → 4.10 Surprise Me. Add-on: 4.12 consistent seed behaviour.
 4. **Shell & files** (`AppShell.jsx`, `fileDrop.js`, Tauri capabilities, `HomeScreen.jsx`): 1.5 Window title, 1.4 Drag a file onto the window, 6.3 Start from a palette on Home. Add-on: 1.15 templates on Home.
+
+---
+
+## Batch 4 (after v1.3.0)
+
+Built 2026-10-22 on branch `feature/batch-4`, **not committed yet**.
+
+- **2.2 History panel**: Properties group › History (and Window › History). Every undo step is named; click a step to jump back or forward. Arrow-key nudges are now undoable (a run of them is one step).
+- **3.1 Move tool (M)**: drag shapes to other cells. Control bar: drops onto shapes Replace or Swap. Alt+drag copies, Shift keeps it straight, Esc cancels. The canvas previews the result while dragging; locked shapes block the drop.
+- **3.8 Live symmetry**: Stamp, Eraser and Paint Bucket get a Symmetry control (↔, ↕, 4-way, radial ×4 on square grids / ×2 otherwise), with axes drawn on the artboard.
+- **3.14 Groups**: Object › Group / Ungroup (Ctrl+G / Ctrl+Shift+G). Clicking a member selects the group; Groups section in Layers (rename by double-click, hide, lock, ungroup). Pasted groups become new groups.
+- **4.11 Locked shapes survive fills**, auto-fill and Clear Canvas; fills pack around them.
+- **4.14 Silhouette fill**: load an SVG or PNG as the fill mask, with fit, size, offset, coverage and a cell preview.
+- **4.17 Organic fill**: Gray-Scott reaction-diffusion (spots, maze, coral, worms, holes, ripples) or life-like cellular automata (Life, HighLife, Day & Night, Caves, Coral, Maze), with mirrored starts.
+- **7.9 Effects panel**: posterise, halftone, photocopy, riso misregistration, chromatic aberration, neon glow, CRT scanlines, grain. WebGL, live on the canvas, applied to PNG/JPEG export (exports with effects render in the webview, up to 16,384 px a side).
+- **8.11 Cleaner SVG**: named Background / Shapes / Layout reference layers, shapes grouped by colour, shape or your groups, named shape groups, no duplicate ids, classes or invisible paths, rounded numbers, optional `<use>` reuse.

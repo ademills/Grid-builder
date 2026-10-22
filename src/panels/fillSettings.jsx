@@ -1,8 +1,38 @@
 // Settings controls for each Generate-panel fill. Carried over from the
 // original sidebar; each takes the fill's settings object `s` and a merging
 // setter `set(changes)`.
-import { Stepper } from './controls';
+import { useEffect, useRef, useState } from 'react';
+import { Stepper, Segmented, Toggle, SeedField, ImagePicker } from './controls';
+import { useEditor } from '../editor/EditorContext';
+import { RD_PRESETS, CA_RULES } from '../utils/organicFill';
+import { silhouetteCoverage, silhouetteCells } from '../utils/silhouetteMask';
 import styles from './Panel.module.css';
+
+function Slider({ label, value, min, max, step, onChange, format = v => v }) {
+  return (
+    <div className={styles.formRow}>
+      <span className={styles.label}>{label}</span>
+      <div className={styles.sliderRow}>
+        <input type="range" className={styles.slider} min={min} max={max} step={step}
+          value={value} onChange={e => onChange(+e.target.value)} />
+        <span className={styles.sliderVal}>{format(value)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ChoiceGrid({ value, options, onChange }) {
+  return (
+    <div className={styles.modeGrid2col}>
+      {Object.entries(options).map(([key, o]) => (
+        <button key={key} className={`${styles.modeBtn} ${value === key ? styles.modeBtnActive : ''}`}
+          onClick={() => onChange(key)}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+const MIRROR_OPTIONS = [{ key: 'off', label: 'Off' }, { key: 'x', label: '↔' }, { key: 'xy', label: '✣' }];
 
 export function GlitchSettings({ s, set }) {
   return (
@@ -993,6 +1023,126 @@ export function GoldenSettings({ s, set }) {
             onClick={() => set({ seed: Math.floor(Math.random() * 0x80000000) })}
           >⟳</button>
         </div>
+      </div>
+    </>
+  );
+}
+
+// Organic: reaction-diffusion (Turing patterns) or a cellular automaton
+// decides which cells fill (utils/organicFill.js).
+export function OrganicSettings({ s, set }) {
+  const rd = s.algorithm !== 'automaton';
+  return (
+    <>
+      <div className={styles.formRow} style={{ marginTop: 8 }}>
+        <span className={styles.label}>Engine</span>
+        <Segmented value={s.algorithm} onChange={v => set({ algorithm: v })} options={[
+          { key: 'reaction', label: 'Reaction-diffusion' },
+          { key: 'automaton', label: 'Cellular automaton' },
+        ]} />
+      </div>
+      {rd ? (
+        <>
+          <div className={styles.formRow}>
+            <span className={styles.label}>Pattern</span>
+            <ChoiceGrid value={s.preset} options={RD_PRESETS} onChange={v => set({ preset: v })} />
+          </div>
+          <Slider label="Feature size" value={s.feature} min={1} max={6} step={0.5} onChange={v => set({ feature: v })} format={v => `${v} cells`} />
+          <Slider label="Growth" value={s.iterations} min={500} max={6000} step={250} onChange={v => set({ iterations: v })} format={v => `${v} steps`} />
+          <Slider label="Threshold" value={s.threshold} min={0.05} max={0.95} step={0.01} onChange={v => set({ threshold: v })} format={v => `${Math.round(v * 100)}%`} />
+        </>
+      ) : (
+        <>
+          <div className={styles.formRow}>
+            <span className={styles.label}>Rule</span>
+            <ChoiceGrid value={s.rule} options={CA_RULES} onChange={v => set({ rule: v })} />
+          </div>
+          <Slider label="Start density" value={s.density} min={0.05} max={0.9} step={0.01} onChange={v => set({ density: v })} format={v => `${Math.round(v * 100)}%`} />
+          <div className={styles.formRow}>
+            <span className={styles.label}>Generations</span>
+            <Stepper value={s.generations} onChange={v => set({ generations: v })} min={0} max={200} />
+          </div>
+          <div className={styles.formRow}>
+            <span className={styles.label}>Wrap edges</span>
+            <Toggle value={s.wrap} onChange={v => set({ wrap: v })} />
+          </div>
+        </>
+      )}
+      <div className={styles.formRow}>
+        <span className={styles.label}>Mirror start</span>
+        <Segmented value={s.symmetry} onChange={v => set({ symmetry: v })} options={MIRROR_OPTIONS} />
+      </div>
+      <div className={styles.formRow}>
+        <span className={styles.label}>Invert</span>
+        <Toggle value={s.invert} onChange={v => set({ invert: v })} />
+      </div>
+      <SeedField value={s.seed} onChange={v => set({ seed: v })} />
+    </>
+  );
+}
+
+// A small map of the cells the silhouette will fill, on the current grid.
+function SilhouettePreview({ s }) {
+  const { gridComputed } = useEditor();
+  const ref = useRef(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    if (!s.src || !gridComputed) return;
+    let cancelled = false;
+    const { cols, rows } = gridComputed;
+    silhouetteCoverage(cols, rows, s).then(cov => {
+      if (cancelled || !ref.current) return;
+      setError(null);
+      const on = new Set(silhouetteCells(cov, cols, rows, s));
+      const cv = ref.current;
+      const k = Math.max(2, Math.floor(220 / Math.max(cols, rows)));
+      cv.width = cols * k; cv.height = rows * k;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#262626';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = '#7b61ff';
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) if (on.has(`${c},${r}`)) ctx.fillRect(c * k + 0.5, r * k + 0.5, k - 1, k - 1);
+    }).catch(err => { if (!cancelled) setError(err.message); });
+    return () => { cancelled = true; };
+  }, [s, gridComputed]);
+  if (!s.src) return null;
+  if (error) return <div className={styles.gridNote}>{error}</div>;
+  return <canvas ref={ref} className={styles.silhouettePreview} title="Cells this fill will use" />;
+}
+
+// Silhouette: an SVG or PNG used as the fill mask (utils/silhouetteMask.js).
+export function SilhouetteSettings({ s, set }) {
+  return (
+    <>
+      <div className={styles.gridNote} style={{ marginTop: 8 }}>
+        Load an SVG or PNG (a logo, an outline). Shapes fill the cells it covers.
+      </div>
+      <ImagePicker src={s.src} onChange={src => set({ src })} alt="Silhouette" />
+      <SilhouettePreview s={s} />
+      <div className={styles.formRow}>
+        <span className={styles.label}>Inside is</span>
+        <Segmented value={s.source} onChange={v => set({ source: v })} options={[
+          { key: 'auto', label: 'Auto', title: 'Opaque parts if the image has transparency, otherwise dark parts' },
+          { key: 'alpha', label: 'Opaque' },
+          { key: 'dark', label: 'Dark' },
+          { key: 'light', label: 'Light' },
+        ]} />
+      </div>
+      <div className={styles.formRow}>
+        <span className={styles.label}>Fit</span>
+        <Segmented value={s.fit} onChange={v => set({ fit: v })} options={[
+          { key: 'contain', label: 'Contain' }, { key: 'cover', label: 'Cover' }, { key: 'stretch', label: 'Stretch' },
+        ]} />
+      </div>
+      <Slider label="Coverage" value={s.threshold} min={0.05} max={0.95} step={0.05} onChange={v => set({ threshold: v })} format={v => `${Math.round(v * 100)}%`} />
+      <Slider label="Size" value={s.scale} min={0.25} max={2} step={0.05} onChange={v => set({ scale: v })} format={v => `${Math.round(v * 100)}%`} />
+      <Slider label="Padding" value={s.padding} min={0} max={0.4} step={0.01} onChange={v => set({ padding: v })} format={v => `${Math.round(v * 100)}%`} />
+      <Slider label="Offset X" value={s.offsetX} min={-0.5} max={0.5} step={0.01} onChange={v => set({ offsetX: v })} format={v => `${Math.round(v * 100)}%`} />
+      <Slider label="Offset Y" value={s.offsetY} min={-0.5} max={0.5} step={0.01} onChange={v => set({ offsetY: v })} format={v => `${Math.round(v * 100)}%`} />
+      <div className={styles.formRow}>
+        <span className={styles.label}>Invert</span>
+        <Toggle value={s.invert} onChange={v => set({ invert: v })} title="Fill around the silhouette instead" />
       </div>
     </>
   );

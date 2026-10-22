@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { expandToGroups } from '../utils/groups';
 
 export function useSelection({
   placedBlocks, setPlacedBlocks,
@@ -69,7 +70,7 @@ export function useSelection({
   const handleContextDelete = useCallback(() => {
     if (!contextMenu) return;
     const id = contextMenu.block.id;
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: 'Delete' });
     setPlacedBlocks(prev => prev.filter(b => b.id !== id));
     setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
     syncHistorySize();
@@ -91,11 +92,11 @@ export function useSelection({
       const bh = b.rows * cellSize;
       return bx < svgX2 && bx + bw > svgX1 && by < svgY2 && by + bh > svgY1;
     });
-    setSelectedIds(new Set(hits.map(b => b.id)));
+    setSelectedIds(expandToGroups(hits.map(b => b.id), placedBlocks));
   }, [gridComputed, viewTransform, placedBlocks]);
 
   const handleDeleteSelected = useCallback(() => {
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: 'Delete' });
     setPlacedBlocks(prev => prev.filter(b => !selectedIds.has(b.id) || b.locked));
     setSelectedIds(new Set());
     syncHistorySize();
@@ -129,7 +130,7 @@ export function useSelection({
 
   const handleFlipH = useCallback(() => {
     if (!gridComputed) return;
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: 'Flip Layout Horizontally' });
     setPlacedBlocks(prev => prev.map(b => ({
       ...b,
       gridCol: gridComputed.cols - b.gridCol - b.cols,
@@ -139,7 +140,7 @@ export function useSelection({
 
   const handleFlipV = useCallback(() => {
     if (!gridComputed) return;
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: 'Flip Layout Vertically' });
     setPlacedBlocks(prev => prev.map(b => ({
       ...b,
       gridRow: gridComputed.rows - b.gridRow - b.rows,

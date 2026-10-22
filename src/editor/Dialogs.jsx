@@ -27,13 +27,16 @@ function Dialog({ title, onClose, children, width }) {
 }
 
 // File → Export As…: format, scale and the options that apply to it.
-export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayout, defaultScale = 1 }) {
+export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayout, hasEffects, defaultScale = 1 }) {
   const [format, setFormat] = useState('svg');
   const [scale, setScale] = useState(defaultScale);
   const [transparent, setTransparent] = useState(true);
   const [photoComposite, setPhotoComposite] = useState(false);
   const [jpegQuality, setJpegQuality] = useState(0.92);
   const [wireframeLayer, setWireframeLayer] = useState(false);
+  const [svgLayers, setSvgLayers] = useState('colour');
+  const [svgReuse, setSvgReuse] = useState(false);
+  const [svgPrecision, setSvgPrecision] = useState(2);
   const outScale = format === 'svg' ? 1 : scale;
 
   return (
@@ -72,6 +75,42 @@ export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayo
               <span className={styles.snapNote}> — too large; {format.toUpperCase()} is limited to {MAX_SIDE[format].toLocaleString()} px a side</span>
             )}
           </div>
+        )}
+
+        {hasEffects && (
+          <div className={styles.gridNote}>
+            {format === 'svg' ? 'Effects are raster-only, so this SVG is exported without them.' : 'Effects are applied (up to 16,384 px a side).'}
+          </div>
+        )}
+
+        {format === 'svg' && (
+          <>
+            <div className={styles.formRow}>
+              <span className={styles.label}>Layers by</span>
+              <div className={styles.modeToggle}>
+                {[['colour', 'Colour'], ['shape', 'Shape'], ['group', 'Groups'], ['none', 'None']].map(([k, label]) => (
+                  <button key={k} className={`${styles.modeBtn} ${svgLayers === k ? styles.modeBtnActive : ''}`}
+                    onClick={() => setSvgLayers(k)}
+                    title={k === 'group' ? 'Your Object › Group groups' : k === 'none' ? 'Every shape directly in one Shapes layer' : undefined}
+                  >{label}</button>
+                ))}
+              </div>
+            </div>
+            <div className={styles.formRow}>
+              <span className={styles.label}>Decimal places</span>
+              <div className={styles.modeToggle}>
+                {[1, 2, 3].map(p => (
+                  <button key={p} className={`${styles.modeBtn} ${svgPrecision === p ? styles.modeBtnActive : ''}`}
+                    onClick={() => setSvgPrecision(p)}>{p}</button>
+                ))}
+              </div>
+            </div>
+            <label className={styles.formRow} style={{ cursor: 'pointer' }}
+              title="Identical shapes are defined once and placed with <use>. Smaller files; Figma imports them less tidily.">
+              <span className={styles.label}>Reuse repeated shapes</span>
+              <input type="checkbox" checked={svgReuse} onChange={e => setSvgReuse(e.target.checked)} />
+            </label>
+          </>
         )}
 
         {format === 'png' && (
@@ -119,6 +158,7 @@ export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayo
               jpegQuality,
               photoComposite,
               includeWireframeLayer: wireframeLayer,
+              svgLayers, svgReuse, svgPrecision,
             });
             onClose();
           }}
@@ -138,7 +178,8 @@ const SHORTCUTS = [
   { keys: 'Ctrl + W', desc: 'Close document' },
   { keys: 'Ctrl + Tab', desc: 'Next document' },
   { group: 'Tools' },
-  { keys: 'V / Y', desc: 'Selection / Magic Wand' },
+  { keys: 'V / M / Y', desc: 'Selection / Move / Magic Wand' },
+  { keys: 'Alt + drag (M)', desc: 'Copy the shapes instead of moving them' },
   { keys: 'S / E', desc: 'Shape Stamp / Eraser (drag to paint)' },
   { keys: 'R / O', desc: 'Rotate / Reflect (Alt: other direction)' },
   { keys: 'K / I', desc: 'Paint Bucket / Eyedropper' },
@@ -154,6 +195,7 @@ const SHORTCUTS = [
   { keys: 'Ctrl + Shift + Z / Ctrl + Y', desc: 'Redo' },
   { keys: 'Ctrl + X / C / V', desc: 'Cut / copy / paste (pastes under the pointer)' },
   { keys: 'Ctrl + D', desc: 'Duplicate beside the selection' },
+  { keys: 'Ctrl + G', desc: 'Group (Shift: ungroup)' },
   { keys: 'Ctrl + Shift + R', desc: 'Surprise Me' },
   { keys: 'Ctrl + A', desc: 'Select all (Shift: deselect)' },
   { keys: 'Shift + click', desc: 'Add block to selection' },

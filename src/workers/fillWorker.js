@@ -15,6 +15,7 @@ import { computeVoronoiMask } from '../utils/voronoiFill';
 import { computeSpiralMask } from '../utils/spiralFill';
 import { computeFlowFieldMask } from '../utils/flowFieldFill';
 import { computeFractalMask } from '../utils/fractalFill';
+import { computeOrganicMask } from '../utils/organicFill';
 import { generateMondrianLayout } from '../utils/mondrianFill';
 import { generateGoldenLayout } from '../utils/goldenFill';
 
@@ -33,33 +34,46 @@ const MASKS = {
   spiral:     { mask: (g, s) => computeSpiralMask(g, s),              empty: 'No cells matched — try adjusting spiral settings.' },
   flowField:  { mask: (g, s) => computeFlowFieldMask(g, s),           empty: 'No cells matched — try adjusting flow field settings.' },
   fractal:    { mask: (g, s) => computeFractalMask(g, s),             empty: 'No cells matched — try adjusting fractal settings.' },
+  organic:    { mask: (g, s) => computeOrganicMask(g, s),             empty: 'The pattern left nothing to fill — try another threshold, density or seed.' },
+  silhouette: { mask: (g, s, px, cells) => new Set(cells ?? []),      empty: 'The silhouette covers no cells — load an image, or lower Coverage.' },
 };
 
-// request = { fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing }
+// Layouts that tile the grid themselves can't pack around shapes, so any
+// of their blocks that would cover a kept shape are dropped.
+function withoutOverlaps(blocks, existing) {
+  if (!existing.length) return blocks;
+  const taken = new Set();
+  for (const b of existing)
+    for (let r = 0; r < b.rows; r++)
+      for (let c = 0; c < b.cols; c++) taken.add(`${b.gridCol + c},${b.gridRow + r}`);
+  return blocks.filter(b => {
+    for (let r = 0; r < b.rows; r++)
+      for (let c = 0; c < b.cols; c++) if (taken.has(`${b.gridCol + c},${b.gridRow + r}`)) return false;
+    return true;
+  });
+}
+
+// request = { fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing, maskCells }
 //   layoutMask — cells of the active layout's grid area (array), or null
-//   existing   — blocks to pack around ('gaps' only)
-function compute({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing }) {
-  if (fillId === 'gaps') {
+//   existing   — blocks to pack around: everything for 'gaps', locked shapes for the rest
+//   maskCells  — cells worked out on the main thread (fills that need the DOM)
+function compute({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [], maskCells }) {
+  if (fillId === 'gaps' || fillId === 'standard') {
     return { blocks: layoutMask
       ? fillMasked(assets, grid, new Set(layoutMask), maxScale, scaleFreq, existing)
       : fillGrid(assets, grid, maxScale, scaleFreq, existing) };
   }
-  if (fillId === 'standard') {
-    return { blocks: layoutMask
-      ? fillMasked(assets, grid, new Set(layoutMask), maxScale, scaleFreq)
-      : fillGrid(assets, grid, maxScale, scaleFreq) };
-  }
-  if (fillId === 'mondrian') return { blocks: generateMondrianLayout(assets, grid, settings) };
-  if (fillId === 'golden') return { blocks: generateGoldenLayout(assets, grid, settings) };
+  if (fillId === 'mondrian') return { blocks: withoutOverlaps(generateMondrianLayout(assets, grid, settings), existing) };
+  if (fillId === 'golden') return { blocks: withoutOverlaps(generateGoldenLayout(assets, grid, settings), existing) };
 
   const def = MASKS[fillId];
   if (!def) return { error: `Unknown fill: ${fillId}` };
   if (def.image && !imagePixels) return { error: 'This fill needs an image loaded in Image colour mode.' };
-  const cells = def.mask(grid, settings, imagePixels);
+  const cells = def.mask(grid, settings, imagePixels, maskCells);
   if (cells.size === 0) return { error: def.empty };
   // Glitch has its own scale settings; the rest use the document's.
   const [ms, sf] = fillId === 'glitch' ? [settings.maxScale, settings.scaleFreq] : [maxScale, scaleFreq];
-  return { blocks: fillMasked(assets, grid, cells, ms, sf) };
+  return { blocks: fillMasked(assets, grid, cells, ms, sf, existing) };
 }
 
 self.onmessage = ({ data }) => {

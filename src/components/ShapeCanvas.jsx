@@ -4,6 +4,8 @@ import { blockSlotColours } from '../utils/blockColours';
 import { wireframeRects } from '../utils/layouts';
 import { makeAnimFrame, FILTER_TYPES } from '../utils/animationFrame';
 import { mapAmplitude, blendHexToward } from '../utils/audioAnalysis';
+import { effectsActive } from '../effects/effectDefs';
+import { createEffectsRenderer } from '../effects/effectsRenderer';
 import styles from './Canvas.module.css';
 
 // Draws the artboard and its shapes with the 2D canvas API instead of one SVG
@@ -281,6 +283,53 @@ function drawShapes(ctx, p, batches, view, dpr) {
   }
 }
 
+// Live raster effects: the background, shapes and image blocks are composited
+// into one canvas, which the effects shader draws onto the visible effects
+// canvas (the other two are hidden while it shows).
+let composite = null;
+function drawEffects(renderer, p, bg, fg, view, dpr, onImage) {
+  composite ??= document.createElement('canvas');
+  if (composite.width !== bg.width) composite.width = bg.width;
+  if (composite.height !== bg.height) composite.height = bg.height;
+  const ctx = composite.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, composite.width, composite.height);
+  ctx.drawImage(bg, 0, 0);
+  ctx.globalCompositeOperation = BLEND(p.blendMode);
+  const cssFilter = fg.style.filter;
+  if (cssFilter && !cssFilter.includes('url(')) ctx.filter = cssFilter;
+  ctx.drawImage(fg, 0, 0);
+  ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Image blocks (e.g. a Meander design) live in the SVG layer, so draw them here too.
+  const k = dpr * view.scale;
+  if (p.gridComputed) {
+    const { cellSize, gridOriginX: gx, gridOriginY: gy } = p.gridComputed;
+    ctx.setTransform(k, 0, 0, k, dpr * view.x, dpr * view.y);
+    for (const b of p.blocks) {
+      if (b.type !== 'image' || b.hidden || !b.imageSrc) continue;
+      const img = loadImage(b.imageSrc, onImage);
+      if (!img) continue;
+      const x = gx + b.gridCol * cellSize, y = gy + b.gridRow * cellSize, w = b.cols * cellSize, h = b.rows * cellSize;
+      const iw = img.naturalWidth || w, ih = img.naturalHeight || h;
+      ctx.save();
+      ctx.globalAlpha = b.opacity ?? 1;
+      ctx.globalCompositeOperation = BLEND(b.blendMode);
+      ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      if (b.imageFit === 'stretch') ctx.drawImage(img, x, y, w, h);
+      else {
+        const s = b.imageFit === 'cover' ? Math.max(w / iw, h / ih) : Math.min(w / iw, h / ih);
+        ctx.drawImage(img, x + (w - iw * s) / 2, y + (h - ih * s) / 2, iw * s, ih * s);
+      }
+      ctx.restore();
+    }
+  }
+  renderer.render(composite, p.effects, {
+    k, off: [dpr * view.x, dpr * view.y], artSize: p.workArea, outW: bg.width, outH: bg.height,
+  });
+}
+
 // Sizes a canvas to the viewport at device resolution and sets the view.
 function prepare(canvas, viewport, view, dpr) {
   const w = Math.max(1, Math.round(viewport.width * dpr)), h = Math.max(1, Math.round(viewport.height * dpr));
@@ -297,6 +346,8 @@ export function ShapeCanvas(props) {
   const { viewportSize, animSettings, blendMode } = props;
   const bgRef = useRef(null);
   const fgRef = useRef(null);
+  const fxRef = useRef(null);
+  const fxRenderer = useRef(undefined); // undefined: not tried yet; null: no WebGL
   const latest = useRef(props);
   const animState = useRef(null); // { frame, flicker } while animating
   const staticKey = useRef(null);  // batches for the current static content
@@ -336,6 +387,16 @@ export function ShapeCanvas(props) {
       batches = staticKey.current.batches;
     }
     drawShapes(fg, p, batches, p.viewTransform, dpr);
+
+    const live = effectsActive(p.effects) && p.effects.preview && fxRef.current;
+    if (live && fxRenderer.current === undefined) {
+      try { fxRenderer.current = createEffectsRenderer(fxRef.current); } catch (err) { console.error(err); fxRenderer.current = null; }
+    }
+    const showFx = live && !!fxRenderer.current;
+    bgRef.current.style.visibility = showFx ? 'hidden' : '';
+    fgRef.current.style.visibility = showFx ? 'hidden' : '';
+    if (fxRef.current) fxRef.current.style.display = showFx ? '' : 'none';
+    if (showFx) drawEffects(fxRenderer.current, p, bgRef.current, fgRef.current, p.viewTransform, dpr, () => setImageTick(t => t + 1));
   };
 
   // Redraw whenever anything drawn changes (React re-renders the editor for
@@ -423,6 +484,7 @@ export function ShapeCanvas(props) {
     <>
       <canvas ref={bgRef} className={styles.layerCanvas} style={{ width: viewportSize.width, height: viewportSize.height }} />
       <canvas ref={fgRef} className={styles.layerCanvas} style={{ width: viewportSize.width, height: viewportSize.height, ...fgStyle }} />
+      <canvas ref={fxRef} className={styles.layerCanvas} style={{ width: viewportSize.width, height: viewportSize.height, display: 'none' }} />
     </>
   );
 }

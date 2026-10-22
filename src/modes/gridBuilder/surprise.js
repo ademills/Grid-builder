@@ -109,6 +109,25 @@ const RANDOM_SETTINGS = {
     depth: int(2, 5),
     invert: chance(0.3),
   }),
+  organic: () => (chance(0.6) ? {
+    algorithm: 'reaction',
+    preset: pick(['spots', 'maze', 'coral', 'worms', 'holes', 'waves']),
+    feature: pick([1.5, 2, 2.5, 3]),
+    iterations: int(1500, 3500),
+    threshold: round(rand(0.35, 0.6), 0.01),
+    symmetry: pick(['off', 'off', 'x', 'xy']),
+    invert: chance(0.2),
+    seed: seed(),
+  } : {
+    algorithm: 'automaton',
+    rule: pick(['cave', 'cave', 'coral', 'maze', 'daynight']),
+    density: round(rand(0.35, 0.55), 0.01),
+    generations: int(4, 14),
+    wrap: chance(0.5),
+    symmetry: pick(['off', 'off', 'x', 'xy']),
+    invert: chance(0.2),
+    seed: seed(),
+  }),
   mondrian: () => ({ minSize: int(1, 4), splitVariance: round(rand(0.1, 0.45), 0.05), seed: seed() }),
   golden: () => ({ minSize: int(1, 3), maxDepth: int(4, 9), alternate: chance(0.7), seed: seed() }),
 };
@@ -117,7 +136,7 @@ const RANDOM_SETTINGS = {
 // without an image when none is loaded. `libraries` are the user's swatch
 // libraries ({ name, swatches: [{ hex }] }).
 export function pickSurprise({ canUseImage, libraries = [] }) {
-  const fills = FILLS.filter(f => f.image !== 'required' || canUseImage);
+  const fills = FILLS.filter(f => f.surprise !== false && (f.image !== 'required' || canUseImage));
   const fill = pick(fills);
   const settings = RANDOM_SETTINGS[fill.id]?.() ?? null;
 

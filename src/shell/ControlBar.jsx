@@ -6,6 +6,7 @@ import { MODE_REGISTRY, TOOLS } from '../modes/registry';
 import { ColorPicker } from '../panels/ColorPicker';
 import { assetThumb } from '../panels/panelUtils';
 import { DiceIcon } from './icons';
+import { SYMMETRY_OPTIONS } from '../utils/symmetry';
 import styles from './ControlBar.module.css';
 
 // Closes a popover on outside click / Escape.
@@ -151,6 +152,16 @@ export function ControlBar({ mode, selectedCount }) {
         </>
       )}
 
+      {tool === 'move' && (
+        <>
+          <span className={styles.label}>Onto shapes</span>
+          <Segment value={options.moveDrop} onChange={v => setToolOption({ moveDrop: v })} options={[
+            { key: 'replace', label: 'Replace', title: 'Shapes you drop onto are removed' },
+            { key: 'swap', label: 'Swap', title: 'Shapes you drop onto move into the cells you left' },
+          ]} />
+        </>
+      )}
+
       {tool === 'stamp' && <><span className={styles.label}>Shape</span><StampShape /></>}
 
       {(tool === 'bucket' || tool === 'eyedropper') && <><span className={styles.label}>Colour</span><PaintColour /></>}
@@ -161,6 +172,13 @@ export function ControlBar({ mode, selectedCount }) {
             { key: 'part', label: 'Clicked part', title: 'Paint only the part you click' },
             { key: 'colour', label: 'Whole colour', title: 'Paint every part of the shape that has the clicked colour' },
           ]} />
+        </>
+      )}
+
+      {(tool === 'stamp' || tool === 'eraser' || tool === 'bucket') && (
+        <>
+          <span className={styles.label}>Symmetry</span>
+          <Segment value={options.symmetry} onChange={v => setToolOption({ symmetry: v })} options={SYMMETRY_OPTIONS} />
         </>
       )}
 

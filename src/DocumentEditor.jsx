@@ -26,7 +26,7 @@ import { ALL_BUILTIN_ASSETS } from './builtinAssets';
 import { useHistory } from './hooks/useHistory';
 import { runFillInWorker } from './workers/fillClient';
 import { fillGrid } from './utils/binPack';
-import { FILLS } from './modes/gridBuilder/fills';
+import { FILLS, FILLS_BY_ID } from './modes/gridBuilder/fills';
 import { pickSurprise } from './modes/gridBuilder/surprise';
 import { useDocumentStore } from './store/documentStore';
 import { useLibraryStore } from './store/libraryStore';
@@ -39,6 +39,14 @@ import { shapeTransform, unTransformUV, rotateBlock } from './utils/blockTransfo
 import { slotAt } from './utils/slotCoverage';
 import { useColorPalette } from './hooks/useColorPalette';
 import { useSelection } from './hooks/useSelection';
+import { groupMembers, groupBlocksTogether, ungroupBlocks, regroupCopies, listGroups } from './utils/groups';
+import { planMove, moveLimits } from './utils/moveBlocks';
+import { symmetricPoints, symmetricPlacements } from './utils/symmetry';
+import { SymmetryAxes, MoveGhost } from './components/ToolOverlays';
+import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
+import { tidySvg } from './utils/svgExport';
+import { effectsActive } from './effects/effectDefs';
+import { applyEffectsToCanvas } from './effects/effectsRenderer';
 import './App.css';
 import styles from './DocumentEditor.module.css';
 
@@ -176,6 +184,7 @@ function buildFlatSvgElement({
   }
 
   const blocksGroup = document.createElementNS(FLAT_SVG_NS, 'g');
+  blocksGroup.setAttribute('data-layer', 'shapes');
   if (layer === 'all' && blendMode && blendMode !== 'normal') {
     blocksGroup.style.mixBlendMode = blendMode;
     blocksGroup.style.isolation = 'isolate';
@@ -183,13 +192,15 @@ function buildFlatSvgElement({
   out.appendChild(blocksGroup);
 
   // Per-block opacity / blend mode, applied to whatever element a block exports as.
-  const withAppearance = (el, block) => {
+  // data-block (its index in placedBlocks) lets the SVG tidy pass name and group it.
+  const withAppearance = (el, block, index) => {
+    el.setAttribute('data-block', String(index));
     if (block.opacity != null && block.opacity < 1) el.setAttribute('opacity', String(block.opacity));
     if (block.blendMode && block.blendMode !== 'normal') el.style.mixBlendMode = block.blendMode;
     return el;
   };
 
-  placedBlocks.forEach(block => {
+  placedBlocks.forEach((block, index) => {
     const imgBx = gridOriginX + block.gridCol * cellSize;
     const imgBy = gridOriginY + block.gridRow * cellSize;
     const imgBw = block.cols * cellSize;
@@ -236,7 +247,7 @@ function buildFlatSvgElement({
           const g = document.createElementNS(FLAT_SVG_NS, 'g');
           g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
           for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
-          blocksGroup.appendChild(withAppearance(g, block));
+          blocksGroup.appendChild(withAppearance(g, block, index));
           return;
         }
         // Fall through to <image> below as a safety net if parsing failed.
@@ -253,7 +264,7 @@ function buildFlatSvgElement({
         block.imageFit === 'cover' ? 'xMidYMid slice'
         : block.imageFit === 'stretch' ? 'none'
         : 'xMidYMid meet');
-      blocksGroup.appendChild(withAppearance(imgEl, block));
+      blocksGroup.appendChild(withAppearance(imgEl, block, index));
       return;
     }
 
@@ -283,7 +294,7 @@ function buildFlatSvgElement({
       div.textContent = block.text ?? '';
       fo.appendChild(div);
       if (block.rotation) fo.setAttribute('transform', `rotate(${block.rotation} ${bx + bw / 2} ${by + bh / 2})`);
-      blocksGroup.appendChild(withAppearance(fo, block));
+      blocksGroup.appendChild(withAppearance(fo, block, index));
       return;
     }
 
@@ -325,7 +336,7 @@ function buildFlatSvgElement({
     const blockT = shapeTransform(block, bx, by, bw, bh);
     g.setAttribute('transform', `${blockT ? `${blockT} ` : ''}translate(${tx},${ty}) scale(${scale})`);
     for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
-    blocksGroup.appendChild(withAppearance(g, block));
+    blocksGroup.appendChild(withAppearance(g, block, index));
   });
 
   // Optional reference layer: the wireframe placeholders, drawn on top of
@@ -362,7 +373,7 @@ function buildFlatSvgElement({
     out.appendChild(refGroup);
   }
 
-  return { svgEl: out, exportW, exportH };
+  return { svgEl: out, exportW, exportH, blocks: placedBlocks };
 }
 
 // Rasterizes a serialized SVG string to a canvas at the given output pixel size.
@@ -597,6 +608,10 @@ export function DocumentEditor({ mode: appMode }) {
 
   const [goldenSettings] = useDocField('goldenSettings');
 
+  const [organicSettings] = useDocField('organicSettings');
+
+  const [silhouetteSettings] = useDocField('silhouetteSettings');
+
   // Predetermined wireframe layouts. The active layout's grid slot becomes a
   // fill mask for the main Fill button; its other slots render as wireframes.
   const [activeLayoutId, setActiveLayoutId] = useDocField('activeLayoutId');
@@ -622,6 +637,7 @@ export function DocumentEditor({ mode: appMode }) {
   const [autoFill] = useDocField('autoFill');
   const [activeFill] = useDocField('activeFill');
   const [guides, setGuides] = useDocField('guides');
+  const [groupNames, setGroupNames] = useDocField('groupNames');
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   // Background image layer (reference / backdrop)
@@ -660,6 +676,10 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Animation
   const [animSettings] = useDocField('animSettings');
+
+  // Raster effects (Effects panel)
+  const [effects] = useDocField('effects');
+  const liveEffects = effectsActive(effects) && effects.preview;
 
   // Audio Reactive Mode
   const [audioSettings] = useDocField('audioSettings');
@@ -782,12 +802,14 @@ export function DocumentEditor({ mode: appMode }) {
   // ── History ────────────────────────────────────────────────────────────────
   const {
     pushHistory,
+    relabelHistory,
     handleUndo: _handleUndo,
     handleRedo: _handleRedo,
+    jumpTo: _jumpTo,
     historySize,
     syncHistorySize,
     clearHistory,
-  } = useHistory(docId, placedBlocks, setPlacedBlocks);
+  } = useHistory(docId, setPlacedBlocks);
 
   // ── Selection ──────────────────────────────────────────────────────────────
   const {
@@ -818,6 +840,11 @@ export function DocumentEditor({ mode: appMode }) {
     _handleRedo();
     setSelectedIds(new Set());
   }, [_handleRedo, setSelectedIds]);
+
+  const jumpToHistory = useCallback((steps) => {
+    _jumpTo(steps);
+    setSelectedIds(new Set());
+  }, [_jumpTo, setSelectedIds]);
 
   // When grid geometry changes: attempt proportional rescale, clear if incompatible
   const prevGridRef = useRef(null);
@@ -885,12 +912,13 @@ export function DocumentEditor({ mode: appMode }) {
     if (!autoFillRef.current || !gridComputed || !activeAssetsRef.current.length) return;
     clearTimeout(autoFillTimerRef.current);
     autoFillTimerRef.current = setTimeout(() => {
-      const blocks = fillGrid(activeAssetsRef.current, gridComputed, maxScale, scaleFreq).map(b => ({
+      const locked = placedBlocksRef.current.filter(b => b.locked && b.type !== 'wireframe');
+      const blocks = fillGrid(activeAssetsRef.current, gridComputed, maxScale, scaleFreq, locked).map(b => ({
         ...b,
         colorSeed: Math.floor(Math.random() * 0x80000000),
         colorOffset: 0,
       }));
-      setPlacedBlocks(blocks);
+      setPlacedBlocks([...locked, ...blocks]);
     }, 150);
     return () => clearTimeout(autoFillTimerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -902,6 +930,9 @@ export function DocumentEditor({ mode: appMode }) {
 
   const selectedIdsRef = useRef(selectedIds);
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+  const pushHistoryRef = useRef(pushHistory);
+  const syncHistorySizeRef = useRef(syncHistorySize);
+  useEffect(() => { pushHistoryRef.current = pushHistory; syncHistorySizeRef.current = syncHistorySize; }, [pushHistory, syncHistorySize]);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -942,6 +973,8 @@ export function DocumentEditor({ mode: appMode }) {
             for (let c = 0; c < b.cols; c++)
               if (occupiedByStill.has(`${b.gridCol + c + dx},${b.gridRow + r + dy}`)) return prev;
 
+        pushHistoryRef.current(prev, { label: 'Nudge', coalesce: true });
+        queueMicrotask(syncHistorySizeRef.current);
         return prev.map(b =>
           selectedIdsRef.current.has(b.id)
             ? { ...b, gridCol: b.gridCol + dx, gridRow: b.gridRow + dy }
@@ -1039,7 +1072,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (result.stale) return;
     if (result.error) { showToast(result.error); return; }
     const current = placedBlocksRef.current;
-    pushHistory(current);
+    pushHistory(current, { label: 'Fill Gaps' });
     setPlacedBlocks([...current, ...result.blocks.map(decorate)]);
     syncHistorySize();
   }, [fillInWorker, pushHistory, setPlacedBlocks, syncHistorySize, decorate, showToast]);
@@ -1049,26 +1082,36 @@ export function DocumentEditor({ mode: appMode }) {
     glitch: glitchSettings, strip: stripSettings, multiStrip: multiStripSettings, edge: edgeSettings,
     brightness: brightnessSettings, noise: noiseSettings, geometric: geometricSettings, halftone: halftoneSettings,
     voronoi: voronoiSettings, spiral: spiralSettings, flowField: flowFieldSettings, fractal: fractalSettings,
-    mondrian: mondrianSettings, golden: goldenSettings,
-  }), [glitchSettings, stripSettings, multiStripSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, halftoneSettings, voronoiSettings, spiralSettings, flowFieldSettings, fractalSettings, mondrianSettings, goldenSettings]);
+    mondrian: mondrianSettings, golden: goldenSettings, organic: organicSettings, silhouette: silhouetteSettings,
+  }), [glitchSettings, stripSettings, multiStripSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, halftoneSettings, voronoiSettings, spiralSettings, flowFieldSettings, fractalSettings, mondrianSettings, goldenSettings, organicSettings, silhouetteSettings]);
 
   // The blocks a fill produces, or { error } when it can't place anything
   // ({ stale } if a newer fill replaced it). `settings` defaults to the
   // fill's saved settings.
+  // Locked shapes (Layers panel) survive every fill; the fill packs around them.
   const computeFill = useCallback(async (fillId, settings = fillSettingsById[fillId]) => {
-    const result = await fillInWorker(fillId, settings);
+    const locked = placedBlocksRef.current.filter(b => b.locked && b.type !== 'wireframe');
+    // The silhouette is rasterised here (it needs the DOM); the worker packs its cells.
+    let maskCells = null;
+    if (fillId === 'silhouette') {
+      if (!settings?.src) return { error: 'Load an SVG or PNG in the Silhouette settings first.' };
+      try {
+        const cov = await silhouetteCoverage(gridComputed.cols, gridComputed.rows, settings);
+        maskCells = silhouetteCells(cov, gridComputed.cols, gridComputed.rows, settings);
+      } catch (err) {
+        return { error: err.message };
+      }
+    }
+    const result = await fillInWorker(fillId, settings, { existing: locked, maskCells });
     if (result.error || result.stale) return result;
-    if (fillId === 'mondrian' || fillId === 'golden') {
-      // These layouts set their own colour seeds.
-      return { blocks: result.blocks.map(b => ({ ...b, ...randomOpacity() })) };
-    }
-    const shapes = result.blocks.map(decorate);
+    // Mondrian and Golden Ratio set their own colour seeds.
+    const shapes = fillId === 'mondrian' || fillId === 'golden'
+      ? result.blocks.map(b => ({ ...b, ...randomOpacity() }))
+      : result.blocks.map(decorate);
     // The standard fill keeps the active layout's wireframe placeholders.
-    if (fillId === 'standard' && layoutGridMask) {
-      return { blocks: [...placedBlocksRef.current.filter(b => b.type === 'wireframe'), ...shapes] };
-    }
-    return { blocks: shapes };
-  }, [fillInWorker, fillSettingsById, decorate, randomOpacity, layoutGridMask]);
+    const wireframes = fillId === 'standard' && layoutGridMask ? placedBlocksRef.current.filter(b => b.type === 'wireframe') : [];
+    return { blocks: [...wireframes, ...locked, ...shapes] };
+  }, [fillInWorker, fillSettingsById, decorate, randomOpacity, layoutGridMask, gridComputed]);
 
   // Runs a fill as one undoable step. `fields` are document fields the
   // caller changed alongside it, so undo restores those too.
@@ -1076,7 +1119,7 @@ export function DocumentEditor({ mode: appMode }) {
     const result = await computeFill(fillId, settings);
     if (result.stale) return false;
     if (result.error) { showToast(result.error); return false; }
-    pushHistory(placedBlocksRef.current, fields);
+    pushHistory(placedBlocksRef.current, { label: `Fill — ${FILLS_BY_ID[fillId]?.label ?? fillId}`, fields });
     setPlacedBlocks(result.blocks);
     syncHistorySize();
     return true;
@@ -1115,7 +1158,7 @@ export function DocumentEditor({ mode: appMode }) {
         ...(fill.settingsKey ? { [fill.settingsKey]: merged } : {}),
       };
       const before = Object.fromEntries(Object.keys(next).map(k => [k, now[k]]));
-      pushHistory(placedBlocksRef.current, before);
+      pushHistory(placedBlocksRef.current, { label: `Surprise Me — ${fill.label}`, fields: before });
       for (const [k, v] of Object.entries(next)) useDocumentStore.getState().setField(docId, k, v);
       setPlacedBlocks(result.blocks);
       syncHistorySize();
@@ -1175,7 +1218,7 @@ export function DocumentEditor({ mode: appMode }) {
     setKnotworkSettings(nextSettings);
     const block = buildKnotworkBlock({ ...nextSettings, ...knotworkThemeColors });
     if (!block) return;
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: 'Generate' });
     setPlacedBlocks([block]);
     syncHistorySize();
   }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
@@ -1197,7 +1240,7 @@ export function DocumentEditor({ mode: appMode }) {
     knotRegenTimer.current = setTimeout(() => {
       const block = buildKnotworkBlock({ ...knotworkSettings, ...knotworkThemeColors });
       if (!block) return;
-      pushHistory(placedBlocksRef.current);
+      pushHistory(placedBlocksRef.current, { label: 'Swatch Change' });
       setPlacedBlocks([block]);
       syncHistorySize();
     }, 120);
@@ -1219,7 +1262,7 @@ export function DocumentEditor({ mode: appMode }) {
     const themeColors = { fg: activePalette[0] ?? '#8a1f11', bg: color, palette: activePalette.length ? activePalette : ['#8a1f11'] };
     const block = buildKnotworkBlock({ ...knotworkSettings, ...themeColors });
     if (!block) return;
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: 'Paper Colour' });
     setPlacedBlocks([block]);
     syncHistorySize();
   }, [gridComputed, knotworkSettings, activePalette, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
@@ -1236,7 +1279,7 @@ export function DocumentEditor({ mode: appMode }) {
     setKnotworkSettings(nextSettings);
     const block = buildKnotworkBlock({ ...nextSettings, ...knotworkThemeColors });
     if (!block) return;
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: 'Recolour Strands' });
     setPlacedBlocks([block]);
     syncHistorySize();
   }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
@@ -1247,7 +1290,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (!gridComputed) return;
     const layout = LAYOUTS.find(l => l.id === layoutId);
     if (!layout) return;
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: `Layout — ${layout.name}` });
     setActiveLayoutId(layoutId);
     setPlacedBlocks(buildWireframeBlocks(layout, gridComputed));
     syncHistorySize();
@@ -1255,11 +1298,18 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Clear the active layout: remove wireframes and disarm the mask (shapes stay).
   const handleClearLayout = useCallback(() => {
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label: 'Clear Layout' });
     setActiveLayoutId(null);
     setPlacedBlocks(prev => prev.filter(b => b.type !== 'wireframe'));
     syncHistorySize();
   }, [placedBlocks, pushHistory, syncHistorySize]);
+
+  // What the colour modes need to resolve any block's colours — the Layers
+  // panel uses it to group blocks by what's actually on screen.
+  const colourCtx = useMemo(() => ({
+    colorMode, palette: activePalette, bgOptions: activeBgColors, gridComputed,
+    gradientSettings: activeGradientSettings, meshSettings, randomReverseEnabled, swatchMap,
+  }), [colorMode, activePalette, activeBgColors, gridComputed, activeGradientSettings, meshSettings, randomReverseEnabled, swatchMap]);
 
   // ── Export ─────────────────────────────────────────────────────────────────
 
@@ -1271,6 +1321,9 @@ export function DocumentEditor({ mode: appMode }) {
       jpegQuality = 0.92,
       photoComposite = false,
       includeWireframeLayer = false,
+      svgLayers = 'colour',
+      svgReuse = false,
+      svgPrecision = 2,
     } = options;
     if (!placedBlocks.length || !gridComputed) return;
 
@@ -1289,7 +1342,16 @@ export function DocumentEditor({ mode: appMode }) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
     if (format === 'svg') {
-      const { svgEl } = buildFlatSvgElement(commonBuildArgs);
+      const { svgEl, blocks } = buildFlatSvgElement(commonBuildArgs);
+      const names = new Map([...shapeColors, ...bgColors].filter(c => c.name).map(c => [c.hex.toLowerCase(), c.name]));
+      tidySvg(svgEl, blocks, {
+        groupBy: svgLayers, reuse: svgReuse, precision: svgPrecision,
+        title: useDocumentStore.getState().docs[docId]?.name,
+        // Image mode colours come from the photo, so the tidy pass reads them from the SVG instead.
+        colourOf: colorMode === 'image' ? null : (b) => (b.type ? null : dominantColour(blockColourBreakdown(b, colourCtx))),
+        colourName: (hex) => names.get(hex) ?? null,
+        groupNames,
+      });
       const svgString = new XMLSerializer().serializeToString(svgEl);
       const filename = `grid-layout-${timestamp}.svg`;
       if (isTauri) {
@@ -1318,9 +1380,13 @@ export function DocumentEditor({ mode: appMode }) {
     const filename = `grid-layout-${timestamp}.${extension}`;
     const transparentBg = format === 'png' && transparentBackground;
 
+    // Raster effects run on the GPU in the webview, so with any effect on the
+    // image is rendered there (up to the canvas limit) rather than in Rust.
+    const withEffects = effectsActive(effects);
+
     // Desktop: rendered in Rust (src-tauri/src/raster.rs) — no canvas size
     // cap, flat memory use, and the UI stays responsive while it renders.
-    if (isTauri) {
+    if (isTauri && !withEffects) {
       const path = await tauriSaveDialog({
         title: 'Export Image',
         defaultPath: filename,
@@ -1342,7 +1408,7 @@ export function DocumentEditor({ mode: appMode }) {
     }
 
     if (targetW > MAX_CANVAS_DIMENSION || targetH > MAX_CANVAS_DIMENSION) {
-      alert(`Export dimensions (${targetW}×${targetH}px) exceed the ${MAX_CANVAS_DIMENSION}px canvas limit. Reduce the export scale.`);
+      alert(`Export dimensions (${targetW}×${targetH}px) exceed the ${MAX_CANVAS_DIMENSION}px canvas limit${withEffects ? ' for exports with effects' : ''}. Reduce the export scale.`);
       return;
     }
 
@@ -1353,7 +1419,9 @@ export function DocumentEditor({ mode: appMode }) {
     try {
       const { svgEl } = buildFlatSvgElement({ ...commonBuildArgs, layer: transparentBg ? 'shapes' : 'all' });
       const svgString = new XMLSerializer().serializeToString(svgEl);
-      const finalCanvas = await rasterizeSvgToCanvas(svgString, targetW, targetH, supersample);
+      if (withEffects) useAppStore.getState().showToast(`Exporting ${targetW} × ${targetH} px with effects…`);
+      let finalCanvas = await rasterizeSvgToCanvas(svgString, targetW, targetH, supersample);
+      if (withEffects) finalCanvas = applyEffectsToCanvas(finalCanvas, effects, workArea);
       const blob = await canvasToBlob(finalCanvas, mimeType, format === 'jpeg' ? jpegQuality : undefined);
       if (isTauri) {
         const path = await tauriSaveDialog({
@@ -1369,7 +1437,7 @@ export function DocumentEditor({ mode: appMode }) {
     } catch (err) {
       alert('Export failed: ' + err.message);
     }
-  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap, shapeColors, bgColors, docId, colourCtx, groupNames, effects]);
 
   // Full-canvas data URI for the Meander single-motif tile preview --
   // same buildFlatSvgElement path handleExport uses, so the preview always
@@ -1419,17 +1487,10 @@ export function DocumentEditor({ mode: appMode }) {
   // Blocks to outline on the canvas while a Layers row is hovered.
   const [layerHighlight, setLayerHighlight] = useState(null);
 
-  // What the colour modes need to resolve any block's colours — the Layers
-  // panel uses it to group blocks by what's actually on screen.
-  const colourCtx = useMemo(() => ({
-    colorMode, palette: activePalette, bgOptions: activeBgColors, gridComputed,
-    gradientSettings: activeGradientSettings, meshSettings, randomReverseEnabled, swatchMap,
-  }), [colorMode, activePalette, activeBgColors, gridComputed, activeGradientSettings, meshSettings, randomReverseEnabled, swatchMap]);
-
   // Applies `fn` to the given blocks as one undoable step.
-  const updateBlocks = useCallback((ids, fn) => {
+  const updateBlocks = useCallback((ids, fn, label) => {
     const idSet = ids instanceof Set ? ids : new Set(ids);
-    pushHistory(placedBlocks);
+    pushHistory(placedBlocks, { label });
     setPlacedBlocks(prev => prev.map(b => (idSet.has(b.id) ? fn(b) : b)));
     syncHistorySize();
   }, [placedBlocks, pushHistory, setPlacedBlocks, syncHistorySize]);
@@ -1456,8 +1517,8 @@ export function DocumentEditor({ mode: appMode }) {
   const layerActions = useMemo(() => ({
     highlight: setLayerHighlight,
     select: (ids) => setSelectedIds(new Set(placedBlocks.filter(b => ids.includes(b.id) && !b.hidden && !b.locked).map(b => b.id))),
-    setHidden: (ids, hidden) => { updateBlocks(ids, b => ({ ...b, hidden })); if (hidden) deselect(ids); },
-    setLocked: (ids, locked) => { updateBlocks(ids, b => ({ ...b, locked })); if (locked) deselect(ids); },
+    setHidden: (ids, hidden) => { updateBlocks(ids, b => ({ ...b, hidden }), hidden ? 'Hide' : 'Show'); if (hidden) deselect(ids); },
+    setLocked: (ids, locked) => { updateBlocks(ids, b => ({ ...b, locked }), locked ? 'Lock' : 'Unlock'); if (locked) deselect(ids); },
     // Pin every visible part of these blocks that's currently `fromHex` to a
     // swatch (an id, or a hex to find/create one for).
     pinColour: (ids, fromHex, swatch) => {
@@ -1469,14 +1530,22 @@ export function DocumentEditor({ mode: appMode }) {
         const slotPins = { ...(b.slotPins ?? {}) };
         for (const s of entry.slots) slotPins[s] = swatchId;
         return { ...b, slotPins };
-      });
+      }, 'Recolour Layer');
     },
     clearPins: (ids) => updateBlocks(ids, b => {
       if (!b.slotPins) return b;
       const next = { ...b };
       delete next.slotPins;
       return next;
-    }),
+    }, 'Unpin Colours'),
+    ungroup: (groupId) => {
+      const ids = placedBlocks.filter(b => b.groupId === groupId).map(b => b.id);
+      if (!ids.length) return;
+      pushHistory(placedBlocks, { label: 'Ungroup' });
+      setPlacedBlocks(ungroupBlocks(placedBlocks, ids));
+      syncHistorySize();
+    },
+    renameGroup: (groupId, name) => setGroupNames(prev => ({ ...prev, [groupId]: name })),
     // Meander: replace one colour throughout the generated design. Lasts
     // until the design is regenerated.
     replaceDesignColour: (fromHex, toHex) => {
@@ -1486,9 +1555,9 @@ export function DocumentEditor({ mode: appMode }) {
       const svg = decodeURIComponent(target.imageSrc.slice(comma + 1));
       const next = svg.replace(new RegExp(`="${fromHex}"`, 'gi'), `="${toHex}"`);
       if (next === svg) return;
-      updateBlocks([target.id], b => ({ ...b, imageSrc: `${b.imageSrc.slice(0, comma + 1)}${encodeURIComponent(next)}` }));
+      updateBlocks([target.id], b => ({ ...b, imageSrc: `${b.imageSrc.slice(0, comma + 1)}${encodeURIComponent(next)}` }), 'Replace Colour');
     },
-  }), [placedBlocks, setSelectedIds, updateBlocks, deselect, ensureSwatch, colourCtx]);
+  }), [placedBlocks, setSelectedIds, updateBlocks, deselect, ensureSwatch, colourCtx, pushHistory, setPlacedBlocks, syncHistorySize, setGroupNames]);
 
   // ── Editing tools ──────────────────────────────────────────────────────────
   // Canvas reports clicks/drags for every non-navigation tool here, in
@@ -1519,8 +1588,8 @@ export function DocumentEditor({ mode: appMode }) {
   }, []);
 
   // Places the Stamp tool's shape at the hit cell (or, replacing, swaps the
-  // shape under it for one of the same footprint). Returns the new block
-  // list, or null when nothing fits there.
+  // shape under it for one of the same footprint). Returns { next, block }
+  // — the new block list and the placed block — or null when nothing fits.
   const stampAt = useCallback((blocks, hit, replace) => {
     if (!gridComputed) return null;
     const pool = toolOptions.stampAsset === 'random'
@@ -1543,8 +1612,114 @@ export function DocumentEditor({ mode: appMode }) {
       cols: asset.cols ?? 1, rows: asset.rows ?? 1, gridCol: col, gridRow: row,
       colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
     };
-    return target ? blocks.map(b => (b.id === target.id ? block : b)) : [...blocks, block];
+    return { next: target ? blocks.map(b => (b.id === target.id ? block : b)) : [...blocks, block], block };
   }, [gridComputed, toolOptions.stampAsset, activeAssets]);
+
+  // Live symmetry (control bar): the grid positions mirroring an artboard
+  // point, and the visible block (with u, v inside it) at each.
+  const symmetricHits = useCallback((pt, blocks) => {
+    const mode = useAppStore.getState().toolOptions.symmetry;
+    if (!gridComputed || !pt || mode === 'off') return [];
+    const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
+    return symmetricPoints(mode, (pt.x - gridOriginX) / cellSize, (pt.y - gridOriginY) / cellSize, cols, rows)
+      .map(([x, y]) => hitTest({ x: gridOriginX + x * cellSize, y: gridOriginY + y * cellSize }, blocks))
+      .filter(Boolean);
+  }, [gridComputed, hitTest]);
+
+  // Stamps at the hit cell and at every symmetric position. Copies use the
+  // same shape and colour seed, mirrored or turned to match. Returns
+  // { next, count } or null.
+  const stampSymmetric = useCallback((blocks, hit, replace) => {
+    const res = stampAt(blocks, hit, replace);
+    if (!res) return null;
+    let { next } = res;
+    let count = 1;
+    const mode = useAppStore.getState().toolOptions.symmetry;
+    const overlaps = (a, b) => a.gridCol < b.gridCol + b.cols && a.gridCol + a.cols > b.gridCol && a.gridRow < b.gridRow + b.rows && a.gridRow + a.rows > b.gridRow;
+    for (const place of symmetricPlacements(mode, res.block, gridComputed.cols, gridComputed.rows)) {
+      const copy = { ...res.block, ...place, id: crypto.randomUUID() };
+      if (replace) {
+        const target = next.find(b => !b.locked && !b.type && b.gridCol === copy.gridCol && b.gridRow === copy.gridRow && b.cols === copy.cols && b.rows === copy.rows);
+        if (target) { next = next.map(b => (b.id === target.id ? copy : b)); count++; }
+      } else if (!next.some(b => overlaps(b, copy))) {
+        next = [...next, copy];
+        count++;
+      }
+    }
+    return { next, count };
+  }, [stampAt, gridComputed]);
+
+  // ── Move tool ──────────────────────────────────────────────────────────────
+  // Drag shapes to other cells. While dragging, the canvas shows the result
+  // of dropping there (movePreview); Escape cancels.
+  const moveDrag = useRef(null);
+  const [movePreview, setMovePreview] = useState(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || !moveDrag.current) return;
+      moveDrag.current = null;
+      setMovePreview(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const handleMovePointer = useCallback((phase, pt) => {
+    if (!gridComputed) return;
+    const blocks = placedBlocksRef.current;
+    const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
+    const cellOf = (p) => ({ col: Math.floor((p.x - gridOriginX) / cellSize), row: Math.floor((p.y - gridOriginY) / cellSize) });
+
+    if (phase === 'down') {
+      const block = hitTest(pt, blocks)?.block;
+      if (!block || block.type === 'wireframe') { if (!pt.shiftKey) setSelectedIds(new Set()); return; }
+      if (block.locked) { showToast('That shape is locked (Layers panel)'); return; }
+      // Drag the selection if the shape is in it, otherwise the shape (and its group).
+      let ids;
+      if (selectedIdsRef.current.has(block.id)) {
+        ids = new Set(blocks.filter(b => selectedIdsRef.current.has(b.id) && !b.locked && b.type !== 'wireframe').map(b => b.id));
+      } else {
+        ids = new Set(groupMembers(block, blocks));
+        setSelectedIds(ids);
+      }
+      moveDrag.current = { ids, start: cellOf(pt), dc: 0, dr: 0, copy: false, plan: null, limits: moveLimits(blocks, ids, cols, rows) };
+      return;
+    }
+
+    const drag = moveDrag.current;
+    if (!drag) return;
+    if (phase === 'move') {
+      const cell = cellOf(pt);
+      let dc = cell.col - drag.start.col, dr = cell.row - drag.start.row;
+      if (pt.shiftKey) { if (Math.abs(dc) >= Math.abs(dr)) dr = 0; else dc = 0; }
+      const { minDc, maxDc, minDr, maxDr } = drag.limits;
+      dc = Math.max(minDc, Math.min(maxDc, dc));
+      dr = Math.max(minDr, Math.min(maxDr, dr));
+      const copy = !!pt.altKey;
+      if (dc === drag.dc && dr === drag.dr && copy === drag.copy) return;
+      Object.assign(drag, { dc, dr, copy });
+      drag.plan = dc || dr ? planMove(blocks, drag.ids, dc, dr, gridComputed, useAppStore.getState().toolOptions.moveDrop, copy) : null;
+      setMovePreview(drag.plan);
+      return;
+    }
+
+    // Up: drop (or, if the pointer left the canvas, cancel).
+    moveDrag.current = null;
+    setMovePreview(null);
+    const plan = drag.plan;
+    if (!pt || !plan) return;
+    if (!plan.ok) {
+      showToast(plan.reason === 'locked' ? 'Locked shapes are in the way — unlock them or drop somewhere else'
+        : plan.reason === 'swap' ? 'Not enough room to swap here — drop somewhere else, or switch to Replace'
+        : 'The shapes can’t go there');
+      return;
+    }
+    pushHistory(blocks, { label: drag.copy ? 'Copy' : 'Move' });
+    placedBlocksRef.current = plan.blocks;
+    setPlacedBlocks(plan.blocks);
+    syncHistorySize();
+    setSelectedIds(new Set(plan.movedIds));
+  }, [gridComputed, hitTest, setSelectedIds, showToast, pushHistory, setPlacedBlocks, syncHistorySize]);
 
   // Pins the main colour of each block to `hex` (Object › Paint, Eyedropper Alt+click).
   const addRecentColour = useAppStore(s => s.addRecentColour);
@@ -1560,7 +1735,7 @@ export function DocumentEditor({ mode: appMode }) {
       const slotPins = { ...(b.slotPins ?? {}) };
       for (const s of main.slots) slotPins[s] = swatchId;
       return { ...b, slotPins };
-    });
+    }, 'Paint');
   }, [ensureSwatch, updateBlocks, colourCtx, addRecentColour]);
 
   const handleToolPointer = useCallback(async (phase, pt) => {
@@ -1568,22 +1743,33 @@ export function DocumentEditor({ mode: appMode }) {
     const tool = toolOverride ?? chosen;
     const blocks = placedBlocksRef.current;
 
+    if (tool === 'move') { handleMovePointer(phase, pt); return; }
     if (phase === 'up') { toolDrag.current = null; return; }
     const hit = hitTest(pt, blocks);
 
-    // Drag tools: Stamp and Eraser paint across cells, one undo step per drag.
+    // Drag tools: Stamp and Eraser paint across cells, one undo step per
+    // drag, repeated at the symmetric positions when symmetry is on.
     if (tool === 'stamp' || tool === 'eraser') {
-      if (phase === 'down') toolDrag.current = { visited: new Set(), pushed: false };
+      if (phase === 'down') toolDrag.current = { visited: new Set(), pushed: false, count: 0 };
       const drag = toolDrag.current;
       if (!drag || !hit) return;
       const key = `${hit.col},${hit.row}`;
       if (drag.visited.has(key)) return;
       drag.visited.add(key);
-      let next = null;
-      if (tool === 'stamp') next = stampAt(blocks, hit, pt.altKey);
-      else if (hit.block && !hit.block.locked) next = blocks.filter(b => b.id !== hit.block.id);
+      let next = null, count = 0;
+      if (tool === 'stamp') {
+        const res = stampSymmetric(blocks, hit, pt.altKey);
+        if (res) ({ next, count } = res);
+      } else {
+        const gone = new Set([hit, ...symmetricHits(pt, blocks)]
+          .map(h => h.block).filter(b => b && !b.locked).map(b => b.id));
+        if (gone.size) { next = blocks.filter(b => !gone.has(b.id)); count = gone.size; }
+      }
       if (!next) return;
-      if (!drag.pushed) { pushHistory(blocks); drag.pushed = true; }
+      const label = tool === 'stamp' ? 'Stamp' : 'Erase';
+      if (!drag.pushed) { pushHistory(blocks, { label }); drag.pushed = true; }
+      drag.count += count;
+      if (drag.count > 1) relabelHistory(`${label} ×${drag.count}`);
       placedBlocksRef.current = next;
       setPlacedBlocks(next);
       syncHistorySize();
@@ -1630,33 +1816,42 @@ export function DocumentEditor({ mode: appMode }) {
     if (block.locked) { showToast('That shape is locked (Layers panel)'); return; }
 
     if (tool === 'bucket') {
-      const slot = await slotUnder(block, hit.u, hit.v);
-      if (slot < 0) return;
-      const from = blockSlotColours(block, colourCtx)?.[slot]?.toLowerCase();
+      // The clicked part, plus the matching part at each symmetric position.
+      const parts = new Map(); // block id → { slot, from }
+      for (const h of [hit, ...symmetricHits(pt, blocks)]) {
+        const b = h.block;
+        if (!b || b.locked || b.type || parts.has(b.id)) continue;
+        const slot = await slotUnder(b, h.u, h.v);
+        if (slot >= 0) parts.set(b.id, { slot, from: blockSlotColours(b, colourCtx)?.[slot]?.toLowerCase() });
+      }
+      const primary = parts.get(block.id);
+      if (!primary) return;
       const swatchId = ensureSwatch(toolOptions.paintHex);
       addRecentColour(toolOptions.paintHex);
       const wholeColour = pt.altKey || toolOptions.bucketScope === 'colour';
       // Shift: paint that colour in every unlocked shape, like recolouring a Layers group.
-      const targets = pt.shiftKey ? blocks.filter(b => !b.locked && !b.type).map(b => b.id) : [block.id];
+      const targets = pt.shiftKey ? blocks.filter(b => !b.locked && !b.type).map(b => b.id) : [...parts.keys()];
       updateBlocks(targets, b => {
         const slotPins = { ...(b.slotPins ?? {}) };
-        if (b.id === block.id && !wholeColour && !pt.shiftKey) {
-          slotPins[slot] = swatchId;
+        const part = parts.get(b.id);
+        if (part && !wholeColour && !pt.shiftKey) {
+          slotPins[part.slot] = swatchId;
         } else {
+          const from = (!pt.shiftKey && part?.from) || primary.from;
           const entry = blockColourBreakdown(b, colourCtx).find(e => e.hex.toLowerCase() === from);
           if (!entry) return b;
           for (const s of entry.slots) slotPins[s] = swatchId;
         }
         return { ...b, slotPins };
-      });
+      }, 'Paint Bucket');
       return;
     }
 
-    if (tool === 'rotate') { updateBlocks([block.id], b => rotateBlock(b, !pt.altKey)); return; }
+    if (tool === 'rotate') { updateBlocks([block.id], b => rotateBlock(b, !pt.altKey), 'Rotate'); return; }
     if (tool === 'reflect') {
-      updateBlocks([block.id], b => (pt.altKey ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }));
+      updateBlocks([block.id], b => (pt.altKey ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }), 'Reflect');
     }
-  }, [hitTest, stampAt, pushHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour]);
+  }, [hitTest, stampSymmetric, symmetricHits, handleMovePointer, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour]);
 
   // Actions on the current selection, shared by the task bar, the right-click
   // menu and the Object / Select menus. Locked shapes are never edited.
@@ -1672,7 +1867,7 @@ export function DocumentEditor({ mode: appMode }) {
       selectSameShape: () => selectMatching(b => b.assetId ?? b.type),
       paint: () => paintIds(editable(), toolOptions.paintHex),
       // Info panel edits: `changes` is merged into every editable selected block.
-      setProps: (changes) => updateBlocks(editable(), b => ({ ...b, ...changes })),
+      setProps: (changes) => updateBlocks(editable(), b => ({ ...b, ...changes }), 'Edit Properties'),
       // Swap the shape, keeping position and appearance. Only blocks with the
       // same footprint change; colour pins are dropped (slots differ per shape).
       setShape: (asset) => updateBlocks(editable(), b => {
@@ -1680,24 +1875,41 @@ export function DocumentEditor({ mode: appMode }) {
         const next = { ...b, assetId: asset.id, name: asset.name, svgContent: asset.svgContent };
         delete next.slotPins;
         return next;
-      }),
+      }, 'Change Shape'),
       randomOpacity: () => {
         const { min, max } = fillOpacity?.random ? fillOpacity : { min: 0.4, max: 1 };
-        updateBlocks(editable(), b => ({ ...b, opacity: Math.round((min + Math.random() * (max - min)) * 100) / 100 }));
+        updateBlocks(editable(), b => ({ ...b, opacity: Math.round((min + Math.random() * (max - min)) * 100) / 100 }), 'Random Opacity');
       },
       resetAppearance: () => updateBlocks(editable(), b => {
         const next = { ...b };
         delete next.opacity;
         delete next.blendMode;
         return next;
-      }),
-      rotate: (clockwise = true) => updateBlocks(editable(), b => (b.type ? b : rotateBlock(b, clockwise))),
-      reflect: (vertical = false) => updateBlocks(editable(), b => (b.type ? b : vertical ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX })),
+      }, 'Reset Appearance'),
+      rotate: (clockwise = true) => updateBlocks(editable(), b => (b.type ? b : rotateBlock(b, clockwise)), 'Rotate'),
+      reflect: (vertical = false) => updateBlocks(editable(), b => (b.type ? b : vertical ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }), 'Reflect'),
       hide: () => layerActions.setHidden(editable(), true),
       lock: () => layerActions.setLocked(editable(), true),
       unpin: () => layerActions.clearPins(editable()),
+      group: () => {
+        const ids = editable().filter(id => placedBlocks.find(b => b.id === id)?.type !== 'wireframe');
+        if (ids.length < 2) { showToast('Select two or more shapes to group'); return; }
+        const { blocks, groupId } = groupBlocksTogether(placedBlocks, ids);
+        pushHistory(placedBlocks, { label: 'Group' });
+        setPlacedBlocks(blocks);
+        syncHistorySize();
+        const n = listGroups(blocks, groupNames).length;
+        setGroupNames(prev => ({ ...prev, [groupId]: `Group ${n}` }));
+      },
+      ungroup: () => {
+        const ids = [...selectedIds];
+        if (!placedBlocks.some(b => selectedIds.has(b.id) && b.groupId)) { showToast('Nothing selected is grouped'); return; }
+        pushHistory(placedBlocks, { label: 'Ungroup' });
+        setPlacedBlocks(ungroupBlocks(placedBlocks, ids));
+        syncHistorySize();
+      },
     };
-  }, [placedBlocks, selectedIds, setSelectedIds, colourCtx, toolOptions.paintHex, updateBlocks, layerActions, paintIds, fillOpacity]);
+  }, [placedBlocks, selectedIds, setSelectedIds, colourCtx, toolOptions.paintHex, updateBlocks, layerActions, paintIds, fillOpacity, showToast, pushHistory, setPlacedBlocks, syncHistorySize, groupNames, setGroupNames]);
 
   // ── Pointer ────────────────────────────────────────────────────────────────
   // Where the pointer is over the artboard. The last position is kept after
@@ -1725,17 +1937,29 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Selection tool clicks and right-clicks on the canvas. Shapes are drawn on
   // a canvas, so the shape is found from the grid cell under the pointer.
+  // A grouped shape selects (or, with Shift, toggles) its whole group.
+  const selectWithGroup = useCallback((block, addToSelection) => {
+    const members = groupMembers(block, placedBlocksRef.current);
+    setSelectedIds(prev => {
+      if (!addToSelection) return new Set(members);
+      const next = new Set(prev);
+      const on = prev.has(block.id);
+      for (const id of members) on ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, [setSelectedIds]);
   const handleSelectAt = useCallback((pt, addToSelection) => {
     const block = hitTest(pt, placedBlocksRef.current)?.block;
-    if (block && !block.locked && !block.type) handleSelectBlock(block.id, addToSelection);
+    if (block && !block.locked && !block.type) selectWithGroup(block, addToSelection);
     else if (!addToSelection) handleDeselectAll();
-  }, [hitTest, handleSelectBlock, handleDeselectAll]);
+  }, [hitTest, selectWithGroup, handleDeselectAll]);
   const handleContextMenuAt = useCallback((pt, x, y) => {
     const block = hitTest(pt, placedBlocksRef.current)?.block;
     if (!block || block.locked || block.type) return false;
+    if (!selectedIdsRef.current.has(block.id)) selectWithGroup(block, false);
     handleOpenContextMenu(block, x, y);
     return true;
-  }, [hitTest, handleOpenContextMenu]);
+  }, [hitTest, handleOpenContextMenu, selectWithGroup]);
 
   // ── Clipboard ──────────────────────────────────────────────────────────────
   // Copied shapes live in the app store so they can be pasted into another
@@ -1751,24 +1975,26 @@ export function DocumentEditor({ mode: appMode }) {
     const minR = Math.min(...blocks.map(b => b.gridRow));
     const w = Math.max(...blocks.map(b => b.gridCol + b.cols)) - minC;
     const h = Math.max(...blocks.map(b => b.gridRow + b.rows)) - minR;
+    const names = Object.fromEntries(blocks.filter(b => b.groupId && groupNames[b.groupId]).map(b => [b.groupId, groupNames[b.groupId]]));
     return {
-      w, h, origin: { col: minC, row: minR },
+      w, h, origin: { col: minC, row: minR }, groupNames: names,
       blocks: blocks.map(b => {
         const copy = { ...b, relCol: b.gridCol - minC, relRow: b.gridRow - minR };
         delete copy.id; delete copy.locked; delete copy.hidden;
         return copy;
       }),
     };
-  }, [placedBlocks]);
+  }, [placedBlocks, groupNames]);
 
   // Places a clip with its top-left at (col, row), clamped onto the grid.
-  const placeClip = useCallback(async (clip, col, row) => {
+  const placeClip = useCallback(async (clip, col, row, label = 'Paste') => {
     if (!gridComputed) return;
     const { cols, rows } = gridComputed;
     if (clip.w > cols || clip.h > rows) { showToast('Those shapes are bigger than this grid'); return; }
     col = Math.max(0, Math.min(cols - clip.w, col));
     row = Math.max(0, Math.min(rows - clip.h, row));
-    const added = clip.blocks.map(({ relCol, relRow, ...b }) => ({ ...b, id: crypto.randomUUID(), gridCol: col + relCol, gridRow: row + relRow }));
+    const { blocks: copies, renamed } = regroupCopies(clip.blocks);
+    const added = copies.map(({ relCol, relRow, ...b }) => ({ ...b, id: crypto.randomUUID(), gridCol: col + relCol, gridRow: row + relRow }));
     const blockers = (blocks) => blocks.filter(b => b.type !== 'wireframe' && added.some(n =>
       b.gridCol < n.gridCol + n.cols && b.gridCol + b.cols > n.gridCol && b.gridRow < n.gridRow + n.rows && b.gridRow + b.rows > n.gridRow));
 
@@ -1782,13 +2008,20 @@ export function DocumentEditor({ mode: appMode }) {
     }
     const current = placedBlocksRef.current;
     const remove = new Set(inWay.map(b => b.id));
-    pushHistory(current);
+    pushHistory(current, { label });
     const next = [...current.filter(b => !remove.has(b.id)), ...added];
     placedBlocksRef.current = next;
     setPlacedBlocks(next);
     syncHistorySize();
     setSelectedIds(new Set(added.map(b => b.id)));
-  }, [gridComputed, showToast, ask, pushHistory, setPlacedBlocks, syncHistorySize, setSelectedIds]);
+    if (renamed.size) {
+      setGroupNames(prev => {
+        const out = { ...prev };
+        for (const [from, to] of renamed) if (clip.groupNames?.[from]) out[to] = `${clip.groupNames[from]} copy`;
+        return out;
+      });
+    }
+  }, [gridComputed, showToast, ask, pushHistory, setPlacedBlocks, syncHistorySize, setSelectedIds, setGroupNames]);
 
   const clipboardActions = useMemo(() => ({
     copy: () => {
@@ -1823,9 +2056,9 @@ export function DocumentEditor({ mode: appMode }) {
       const clip = clipFrom(selectedIds);
       if (!clip || !gridComputed) return;
       const { col, row } = clip.origin;
-      if (col + clip.w * 2 <= gridComputed.cols) placeClip(clip, col + clip.w, row);
-      else if (row + clip.h * 2 <= gridComputed.rows) placeClip(clip, col, row + clip.h);
-      else placeClip(clip, col + clip.w, row);
+      if (col + clip.w * 2 <= gridComputed.cols) placeClip(clip, col + clip.w, row, 'Duplicate');
+      else if (row + clip.h * 2 <= gridComputed.rows) placeClip(clip, col, row + clip.h, 'Duplicate');
+      else placeClip(clip, col + clip.w, row, 'Duplicate');
     },
   }), [clipFrom, placeClip, selectedIds, placedBlocks, setClipboard, showToast, handleDeleteSelected, gridComputed, cellAt, viewportSize, viewTransform]);
 
@@ -1879,6 +2112,7 @@ export function DocumentEditor({ mode: appMode }) {
     audioFileSrc, setAudioFileSrc,
     fillActions,
     colourCtx, layerActions, selectedIds, selectionActions,
+    history: { ...historySize, jumpTo: jumpToHistory },
     actions: {
       surpriseMe,
       fillGaps: handleFillGaps,
@@ -1907,7 +2141,7 @@ export function DocumentEditor({ mode: appMode }) {
       imageProgress: null,
       canKnotworkFill: gridComputed !== null,
     },
-  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
+  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
 
   // ── Shell bridge ───────────────────────────────────────────────────────────
   // Menu bar, status bar and app-level shortcuts reach this editor through
@@ -1938,8 +2172,9 @@ export function DocumentEditor({ mode: appMode }) {
     fillGaps: handleFillGaps,
     surpriseMe,
     clearCanvas: () => {
-      pushHistory(placedBlocks);
-      setPlacedBlocks(placedBlocks.filter(b => b.type === 'wireframe'));
+      pushHistory(placedBlocks, { label: 'Clear Canvas' });
+      // Locked shapes stay, as they do through fills.
+      setPlacedBlocks(placedBlocks.filter(b => b.type === 'wireframe' || b.locked));
       setSelectedIds(new Set());
       syncHistorySize();
     },
@@ -2009,7 +2244,7 @@ export function DocumentEditor({ mode: appMode }) {
               backdropSettings={backdropSettings}
               gridComputed={gridComputed}
               gridSettings={gridSettings}
-              blocks={placedBlocks}
+              blocks={movePreview?.ok ? movePreview.blocks : placedBlocks}
               colourCtx={colourCtx}
               imagePixels={imagePixels}
               colourRemap={imageColourRemap}
@@ -2017,6 +2252,7 @@ export function DocumentEditor({ mode: appMode }) {
               animSettings={animSettings}
               audioSettings={audioSettings}
               audioDataRef={audioDataRef}
+              effects={effects}
             />
           }
           overlay={
@@ -2064,7 +2300,7 @@ export function DocumentEditor({ mode: appMode }) {
               ShapeCanvas (the underlay). This SVG layer holds image blocks,
               selection outlines and overlays. */}
           <PlacedBlocks
-            placedBlocks={placedBlocks}
+            placedBlocks={movePreview?.ok ? movePreview.blocks : placedBlocks}
             visibleRect={visibleRect}
             gridComputed={gridComputed}
             activeTool={activeTool}
@@ -2073,9 +2309,14 @@ export function DocumentEditor({ mode: appMode }) {
             onContextMenu={handleOpenContextMenu}
             blendMode={blendMode}
             highlightIds={layerHighlight}
+            hideImages={liveEffects}
           />
           <AnimationLayer animSettings={animSettings} />
           <Overlays ids={overlayIds} width={workArea.width} height={workArea.height} scale={viewTransform.scale} />
+          {(activeTool === 'stamp' || activeTool === 'eraser' || activeTool === 'bucket') && (
+            <SymmetryAxes mode={toolOptions.symmetry} gridComputed={gridComputed} />
+          )}
+          <MoveGhost plan={movePreview} gridComputed={gridComputed} />
           {(showGuides || guideDrag.drag) && (
             <GuideLines guides={guides} drag={guideDrag.drag} onStartDrag={startGuideDrag}
               interactive={activeTool === 'select'} scale={viewTransform.scale} />
@@ -2100,6 +2341,9 @@ export function DocumentEditor({ mode: appMode }) {
               { label: 'Cut', shortcut: 'Ctrl+X', action: () => runCommand('edit.cut') },
               { label: 'Copy', shortcut: 'Ctrl+C', action: () => runCommand('edit.copy') },
               { label: 'Duplicate', shortcut: 'Ctrl+D', action: () => runCommand('edit.duplicate') },
+              null,
+              { label: 'Group', shortcut: 'Ctrl+G', action: selectionActions.group },
+              placedBlocks.some(b => selectedIds.has(b.id) && b.groupId) && { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', action: selectionActions.ungroup },
               null,
               { label: 'Select Same Colour', action: selectionActions.selectSameColour },
               { label: 'Select Same Shape', action: selectionActions.selectSameShape },
@@ -2135,6 +2379,7 @@ export function DocumentEditor({ mode: appMode }) {
           workArea={workArea}
           hasBackdrop={!!backdropSrc}
           hasLayout={!!activeLayoutId}
+          hasEffects={effectsActive(effects)}
           defaultScale={appMode === 'knotwork' ? 2 : 1}
         />
       )}

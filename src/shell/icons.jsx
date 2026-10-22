@@ -10,6 +10,12 @@ export const SelectIcon = (p) => (
   <Icon {...p}><path d="M5 3l10 6.5-4.6 1.2L8 15z" fill="currentColor" stroke="none" /></Icon>
 );
 
+export const MoveIcon = (p) => (
+  <Icon {...p}>
+    <path d="M10 2.5v15M2.5 10h15M10 2.5L7.8 4.7M10 2.5l2.2 2.2M10 17.5l-2.2-2.2M10 17.5l2.2-2.2M2.5 10l2.2-2.2M2.5 10l2.2 2.2M17.5 10l-2.2-2.2M17.5 10l-2.2 2.2" />
+  </Icon>
+);
+
 export const HandIcon = (p) => (
   <Icon {...p}>
     <path d="M7 10V4.5a1.2 1.2 0 012.4 0V9M9.4 9V3.5a1.2 1.2 0 012.4 0V9M11.8 9V4.5a1.2 1.2 0 012.4 0v6.2c0 3-2 5.3-5 5.3-2 0-3.2-1-4.3-2.6L3.5 10.7a1.2 1.2 0 012-1.3L7 11" />

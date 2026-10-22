@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDocField } from '../store/useDocField';
 import { useEditor } from '../editor/EditorContext';
 import { groupBlocks, designColours } from '../utils/layers';
+import { listGroups } from '../utils/groups';
 import { loadSlotCoverage, getSlotCoverage } from '../utils/slotCoverage';
 import { isShapeBlock } from '../utils/blockColours';
 import { EyeIcon, LockIcon, PinIcon, ChevronIcon } from '../shell/icons';
@@ -70,6 +71,63 @@ function RowToggles({ hidden, locked, onHidden, onLocked, mixedHidden, mixedLock
   );
 }
 
+// Manual groups (Object › Group): select, hide, lock, rename, ungroup.
+function GroupsSection({ blocks, selectedIds, layerActions }) {
+  const [groupNames] = useDocField('groupNames');
+  const [editing, setEditing] = useState(null);
+  const groups = useMemo(() => listGroups(blocks, groupNames), [blocks, groupNames]);
+  if (!groups.length) return null;
+  return (
+    <div className={styles.layerList} style={{ paddingBottom: 0 }} onMouseLeave={() => layerActions.highlight(null)}>
+      <div className={styles.layerSectionLabel}>Groups</div>
+      {groups.map(g => {
+        const allHidden = g.hiddenCount === g.ids.length;
+        const allLocked = g.lockedCount === g.ids.length;
+        const selected = g.ids.filter(id => selectedIds.has(id)).length;
+        return (
+          <div key={g.id}
+            className={`${styles.layerRow} ${styles.layerGroupRow} ${selected ? styles.layerRowSelected : ''}`}
+            onMouseEnter={() => layerActions.highlight(new Set(g.ids))}
+            onClick={() => layerActions.select(g.ids)}
+            onDoubleClick={() => setEditing(g.id)}
+            title="Click to select · double-click to rename"
+          >
+            <span className={styles.layerGroupIcon} aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <rect x="1.5" y="1.5" width="11" height="11" rx="1" strokeDasharray="2 1.5" />
+                <rect x="4" y="4" width="3" height="3" fill="currentColor" stroke="none" />
+                <rect x="7.5" y="7" width="3" height="3" fill="currentColor" stroke="none" />
+              </svg>
+            </span>
+            {editing === g.id ? (
+              <input className={styles.layerRename} defaultValue={g.name} autoFocus spellCheck={false}
+                onClick={e => e.stopPropagation()}
+                onBlur={e => { layerActions.renameGroup(g.id, e.target.value.trim() || g.name); setEditing(null); }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') setEditing(null);
+                  e.stopPropagation();
+                }} />
+            ) : (
+              <span className={styles.layerName}>{g.name}</span>
+            )}
+            <span className={styles.layerCount}>{selected ? `${selected}/` : ''}{g.ids.length}</span>
+            <button className={styles.layerRecolour} onClick={e => { e.stopPropagation(); layerActions.ungroup(g.id); }}
+              title="Ungroup">✕</button>
+            <RowToggles
+              hidden={allHidden} locked={allLocked}
+              mixedHidden={g.hiddenCount > 0 && !allHidden} mixedLocked={g.lockedCount > 0 && !allLocked}
+              onHidden={() => layerActions.setHidden(g.ids, !allHidden)}
+              onLocked={() => layerActions.setLocked(g.ids, !allLocked)}
+            />
+          </div>
+        );
+      })}
+      <div className={styles.layerSectionLabel}>Layers</div>
+    </div>
+  );
+}
+
 // Layers for Grid Pattern: every placed shape, grouped by its dominant
 // colour (or shape / size). Hide, lock, select, and recolour whole groups —
 // recolouring pins the matching parts to a document swatch, so they keep
@@ -134,9 +192,11 @@ export function LayersPanel() {
         ]} />
       </div>
       <div className={styles.layerSummary}>
-        {groups.length} {groups.length === 1 ? 'group' : 'groups'} · {shapeCount} shapes
-        {by === 'colour' && ' · drag a swatch onto a group to recolour it'}
+        {groups.length} {groups.length === 1 ? 'layer' : 'layers'} · {shapeCount} shapes
+        {by === 'colour' && ' · drag a swatch onto a layer to recolour it'}
       </div>
+
+      <GroupsSection blocks={placedBlocks} selectedIds={selectedIds} layerActions={layerActions} />
 
       <div className={styles.layerList} onMouseLeave={() => layerActions.highlight(null)}>
         {groups.map(g => {

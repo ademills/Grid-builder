@@ -1,6 +1,7 @@
 import { PALETTES, PALETTE_KEYS } from '../utils/colorize';
 import { DEFAULT_ENABLED_IDS } from '../builtinAssets';
 import { ANIM_DEFAULTS } from '../components/AnimationLayer';
+import { createDefaultEffects } from '../effects/effectDefs';
 
 // Every piece of per-document state the editor reads via useDocField().
 // Anything not listed here is either app-level (tools, swatch libraries,
@@ -81,6 +82,15 @@ export function createDefaultDocState() {
       targetZone: 'lights', lowPoint: 0.33, highPoint: 0.66, invert: false, softEdge: 0, seed: randomSeed(),
     },
     noiseSettings: { scale: 0.2, threshold: 0.5, octaves: 1, invert: false, seed: randomSeed() },
+    organicSettings: {
+      algorithm: 'reaction', preset: 'maze', feature: 2, iterations: 2500, threshold: 0.5,
+      rule: 'cave', density: 0.45, generations: 8, wrap: false,
+      symmetry: 'off', invert: false, seed: randomSeed(),
+    },
+    silhouetteSettings: {
+      src: null, fit: 'contain', padding: 0.05, threshold: 0.5, source: 'auto',
+      scale: 1, offsetX: 0, offsetY: 0, invert: false,
+    },
     geometricSettings: {
       patternType: 'stripes', phase: 0,
       angle: 45, stripeWidth: 2, gapWidth: 2,
@@ -120,10 +130,15 @@ export function createDefaultDocState() {
     // Assets & content
     enabledAssetIds: new Set(DEFAULT_ENABLED_IDS),
     placedBlocks: [],
+    // Names of manual groups (Object › Group), by group id — see utils/groups.js.
+    groupNames: {},
 
     // Image layers
     backdropSrc: null,
     backdropSettings: { mode: 'reference', opacity: 0.5, fit: 'contain', tintColour: '#000000', tintOpacity: 0 },
+
+    // Raster effects (Effects panel) — see effects/effectDefs.js.
+    effects: createDefaultEffects(),
 
     // Animation & audio
     animSettings: ANIM_DEFAULTS,

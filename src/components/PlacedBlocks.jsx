@@ -72,17 +72,36 @@ const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSele
 
 export const PlacedBlocks = memo(function PlacedBlocks({
   placedBlocks, visibleRect, gridComputed, activeTool,
-  selectedIds, onSelect, onContextMenu, blendMode, highlightIds,
+  selectedIds, onSelect, onContextMenu, blendMode, highlightIds, hideImages = false,
 }) {
   // Image and text blocks, culled to the visible area.
   const content = useMemo(() => {
     if (!gridComputed) return [];
     return placedBlocks
-      .filter(b => !b.hidden && (b.type === 'image' || b.type === 'text'))
+      // With live effects on, image blocks are drawn (with the effects) by ShapeCanvas.
+      .filter(b => !b.hidden && ((b.type === 'image' && !hideImages) || b.type === 'text'))
       .map(block => ({ block, box: blockBox(block, gridComputed) }))
       .filter(({ box }) => !visibleRect || (box.x + box.w >= visibleRect.left && box.x <= visibleRect.right
         && box.y + box.h >= visibleRect.top && box.y <= visibleRect.bottom));
-  }, [placedBlocks, gridComputed, visibleRect]);
+  }, [placedBlocks, gridComputed, visibleRect, hideImages]);
+
+  // A dashed box around each group with a selected member (Object › Group).
+  const groupBoxes = useMemo(() => {
+    if (!gridComputed || !selectedIds?.size) return [];
+    const boxes = new Map();
+    for (const b of placedBlocks) {
+      if (!b.groupId || b.hidden) continue;
+      let g = boxes.get(b.groupId);
+      if (!g) boxes.set(b.groupId, g = { c0: Infinity, r0: Infinity, c1: -Infinity, r1: -Infinity, selected: false });
+      g.c0 = Math.min(g.c0, b.gridCol); g.r0 = Math.min(g.r0, b.gridRow);
+      g.c1 = Math.max(g.c1, b.gridCol + b.cols); g.r1 = Math.max(g.r1, b.gridRow + b.rows);
+      if (selectedIds.has(b.id)) g.selected = true;
+    }
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    return [...boxes].filter(([, g]) => g.selected).map(([id, g]) => ({
+      id, x: gridOriginX + g.c0 * cellSize, y: gridOriginY + g.r0 * cellSize, w: (g.c1 - g.c0) * cellSize, h: (g.r1 - g.r0) * cellSize,
+    }));
+  }, [placedBlocks, gridComputed, selectedIds]);
 
   // Outlines and badges: only the few blocks that need one.
   const marked = useMemo(() => {
@@ -113,6 +132,10 @@ export const PlacedBlocks = memo(function PlacedBlocks({
         </g>
       )}
       <g pointerEvents="none" data-noexport="true">
+        {groupBoxes.map(g => (
+          <rect key={g.id} x={g.x} y={g.y} width={g.w} height={g.h} fill="none" stroke="#7c3aed"
+            strokeWidth={1.25} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+        ))}
         {marked.map(({ block, box: { x, y, w, h } }) => (
           <g key={block.id}>
             {selectedIds?.has(block.id) && (
