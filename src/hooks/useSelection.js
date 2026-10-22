@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { expandToGroups } from '../utils/groups';
+import { vectorBounds } from '../utils/meanderBlocks';
 
 export function useSelection({
   placedBlocks, setPlacedBlocks,
@@ -86,10 +87,9 @@ export function useSelection({
     const svgY2 = (y2 - panY) / scale;
     const hits = placedBlocks.filter(b => {
       if (b.hidden || b.locked) return false; // see Layers panel
-      const bx = gridOriginX + b.gridCol * cellSize;
-      const by = gridOriginY + b.gridRow * cellSize;
-      const bw = b.cols * cellSize;
-      const bh = b.rows * cellSize;
+      const box = { x: gridOriginX + b.gridCol * cellSize, y: gridOriginY + b.gridRow * cellSize, w: b.cols * cellSize, h: b.rows * cellSize };
+      // Vector blocks (Meander strands) span the whole grid; use the strand's own bounds.
+      const { x: bx, y: by, w: bw, h: bh } = b.type === 'vector' ? vectorBounds(b, box) : box;
       return bx < svgX2 && bx + bw > svgX1 && by < svgY2 && by + bh > svgY1;
     });
     setSelectedIds(expandToGroups(hits.map(b => b.id), placedBlocks));

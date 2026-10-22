@@ -5,6 +5,7 @@ import { wireframeRects } from '../utils/layouts';
 import { makeAnimFrame, FILTER_TYPES } from '../utils/animationFrame';
 import { mapAmplitude, blendHexToward } from '../utils/audioAnalysis';
 import { effectsActive } from '../effects/effectDefs';
+import { vectorFit } from '../utils/meanderBlocks';
 import { createEffectsRenderer } from '../effects/effectsRenderer';
 import styles from './Canvas.module.css';
 
@@ -26,6 +27,7 @@ const isShape = (b) => !b.type && !b.hidden;
 // cached per block object.
 const slotCache = new WeakMap();   // block → { ctx, colours }
 const imageCache = new WeakMap();  // block → { pixels, remap, colours }
+const vectorPaths = new WeakMap(); // vector block → Path2D
 
 function slotColoursFor(block, colourCtx) {
   const hit = slotCache.get(block);
@@ -302,16 +304,30 @@ function drawEffects(renderer, p, bg, fg, view, dpr, onImage) {
   ctx.filter = 'none';
   ctx.globalCompositeOperation = 'source-over';
 
-  // Image blocks (e.g. a Meander design) live in the SVG layer, so draw them here too.
+  // Image and vector blocks (e.g. Meander strands) live in the SVG layer, so draw them here too.
   const k = dpr * view.scale;
   if (p.gridComputed) {
     const { cellSize, gridOriginX: gx, gridOriginY: gy } = p.gridComputed;
     ctx.setTransform(k, 0, 0, k, dpr * view.x, dpr * view.y);
     for (const b of p.blocks) {
-      if (b.type !== 'image' || b.hidden || !b.imageSrc) continue;
+      if (b.hidden) continue;
+      const x = gx + b.gridCol * cellSize, y = gy + b.gridRow * cellSize, w = b.cols * cellSize, h = b.rows * cellSize;
+      if (b.type === 'vector') {
+        let path = vectorPaths.get(b);
+        if (!path) vectorPaths.set(b, path = new Path2D(b.d));
+        const { s, tx, ty } = vectorFit(b, { x, y, w, h });
+        ctx.save();
+        ctx.globalAlpha = b.opacity ?? 1;
+        ctx.globalCompositeOperation = BLEND(b.blendMode);
+        ctx.transform(s, 0, 0, s, tx, ty);
+        ctx.fillStyle = b.fill;
+        ctx.fill(path);
+        ctx.restore();
+        continue;
+      }
+      if (b.type !== 'image' || !b.imageSrc) continue;
       const img = loadImage(b.imageSrc, onImage);
       if (!img) continue;
-      const x = gx + b.gridCol * cellSize, y = gy + b.gridRow * cellSize, w = b.cols * cellSize, h = b.rows * cellSize;
       const iw = img.naturalWidth || w, ih = img.naturalHeight || h;
       ctx.save();
       ctx.globalAlpha = b.opacity ?? 1;

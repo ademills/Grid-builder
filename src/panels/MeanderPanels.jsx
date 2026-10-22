@@ -5,6 +5,46 @@ import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
 import { Stepper } from './controls';
 import styles from './Panel.module.css';
+import { meanderCornerSettings } from '../utils/knotworkCompose';
+
+// Strand corner radii (see meanderCornerSettings): end caps as a share of
+// a full semicircle, bends as a share of the cell. While linked, the outer
+// bend follows the inner one plus the strand width, so bends keep an even
+// thickness; dragging either slider moves both.
+function CornerControls({ settings, onChange }) {
+  const { capRoundness, innerRadius, outerRadius, bendLinked } = meanderCornerSettings(settings);
+  const width = settings.strandWidthRatio;
+  const outer = bendLinked ? innerRadius + width : outerRadius;
+  const pct = v => `${Math.round(v * 100)}%`;
+  const slider = (label, value, max, set, title) => (
+    <div className={styles.formRow} title={title}>
+      <span className={styles.label}>{label}</span>
+      <div className={styles.sliderRow}>
+        <input type="range" className={styles.slider} min={0} max={max} step={0.01} value={value}
+          onChange={e => set(+e.target.value)} />
+        <span className={styles.sliderVal}>{pct(value)}</span>
+      </div>
+    </div>
+  );
+  // Every change writes all four fields, so a pre-v1.4.1 document's single
+  // roundness is replaced by the equivalent explicit values on first edit.
+  const commit = patch => onChange({ capRoundness, innerRadius, outerRadius: outer, bendLinked, ...patch });
+  return (
+    <>
+      {slider('End caps', capRoundness, 1, v => commit({ capRoundness: v }), '100% = semicircle, 0% = square')}
+      {slider('Inner bend', innerRadius, 1, v => commit(bendLinked ? { innerRadius: v, outerRadius: v + width } : { innerRadius: v }), 'Radius on the inside of each bend, as a share of the cell')}
+      {slider('Outer bend', outer, 2, v => commit(bendLinked ? { innerRadius: Math.max(0, v - width), outerRadius: Math.max(v, width) } : { outerRadius: v }), 'Radius on the outside of each bend, as a share of the cell')}
+      <div className={styles.formRow}>
+        <span className={styles.label}>Link bends</span>
+        <button
+          className={`${styles.modeBtn} ${bendLinked ? styles.modeBtnActive : ''}`}
+          onClick={() => commit({ bendLinked: !bendLinked })}
+          title="Keep outer = inner + strand width, so bends stay an even width"
+        >{bendLinked ? 'On' : 'Off'}</button>
+      </div>
+    </>
+  );
+}
 
 // Meander generator: walker, symmetry, strand shape, word seeding. Markup
 // carried over from the original Meander sidebar.
@@ -75,15 +115,7 @@ export function MeanderPanel() {
         </div>
       </div>
 
-      <div className={styles.formRow}>
-        <span className={styles.label}>Roundness</span>
-        <div className={styles.sliderRow}>
-          <input type="range" className={styles.slider} min={0} max={1} step={0.05}
-            value={knotworkSettings.roundness}
-            onChange={e => onKnotworkSettingsChange({ roundness: +e.target.value })} />
-          <span className={styles.sliderVal}>{Math.round(knotworkSettings.roundness * 100)}%</span>
-        </div>
-      </div>
+      <CornerControls settings={knotworkSettings} onChange={onKnotworkSettingsChange} />
 
       <div className={styles.formRow}>
         <span className={styles.label}>Width jitter</span>

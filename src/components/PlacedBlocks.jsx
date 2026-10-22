@@ -1,9 +1,11 @@
 import { useMemo, memo } from 'react';
+import { vectorTransform } from '../utils/meanderBlocks';
 
 // The SVG part of the placed blocks. Shape blocks and layout wireframes are
 // drawn by ShapeCanvas; this layer draws what the canvas doesn't:
-//   - image and text blocks (e.g. a generated Meander design), with their
-//     own click / right-click handling
+//   - image, text and vector blocks (e.g. Meander strands), with their own
+//     click / right-click handling -- vector blocks hit-test on the path
+//     itself rather than their footprint
 //   - selection outlines, Layers-panel hover outlines and colour-lock badges
 
 function blockBox(block, { cellSize, gridOriginX, gridOriginY }) {
@@ -15,7 +17,7 @@ function blockBox(block, { cellSize, gridOriginX, gridOriginY }) {
   };
 }
 
-const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSelect, onContextMenu }) {
+const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSelect, onContextMenu, ghost }) {
   const { x, y, w, h } = box;
   // Locked blocks (Layers panel) can't be selected or edited on the canvas.
   const interactive = activeTool === 'select' && !block.locked;
@@ -31,8 +33,12 @@ const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSele
         onContextMenu?.(block, e.clientX, e.clientY);
       }}
     >
-      <rect x={x} y={y} width={w} height={h} fill="transparent" style={{ pointerEvents: 'all' }} />
-      {block.type === 'text' ? (
+      {block.type !== 'vector' && <rect x={x} y={y} width={w} height={h} fill="transparent" style={{ pointerEvents: 'all' }} />}
+      {block.type === 'vector' ? (
+        // ghost: live effects draw the strand on the canvas; this copy only catches clicks.
+        <path d={block.d} fill={block.fill} fillOpacity={ghost ? 0 : undefined} transform={vectorTransform(block, box)}
+          style={{ pointerEvents: 'fill' }} />
+      ) : block.type === 'text' ? (
         <foreignObject x={x} y={y} width={w} height={h} style={{ pointerEvents: 'none', overflow: 'visible' }}
           transform={block.rotation ? `rotate(${block.rotation} ${x + w / 2} ${y + h / 2})` : undefined}>
           <div
@@ -79,7 +85,7 @@ export const PlacedBlocks = memo(function PlacedBlocks({
     if (!gridComputed) return [];
     return placedBlocks
       // With live effects on, image blocks are drawn (with the effects) by ShapeCanvas.
-      .filter(b => !b.hidden && ((b.type === 'image' && !hideImages) || b.type === 'text'))
+      .filter(b => !b.hidden && ((b.type === 'image' && !hideImages) || b.type === 'text' || b.type === 'vector'))
       .map(block => ({ block, box: blockBox(block, gridComputed) }))
       .filter(({ box }) => !visibleRect || (box.x + box.w >= visibleRect.left && box.x <= visibleRect.right
         && box.y + box.h >= visibleRect.top && box.y <= visibleRect.bottom));
@@ -127,7 +133,7 @@ export const PlacedBlocks = memo(function PlacedBlocks({
         >
           {content.map(({ block, box }) => (
             <ContentBlock key={block.id} block={block} box={box} activeTool={activeTool}
-              onSelect={onSelect} onContextMenu={onContextMenu} />
+              onSelect={onSelect} onContextMenu={onContextMenu} ghost={hideImages && block.type === 'vector'} />
           ))}
         </g>
       )}
@@ -138,11 +144,19 @@ export const PlacedBlocks = memo(function PlacedBlocks({
         ))}
         {marked.map(({ block, box: { x, y, w, h } }) => (
           <g key={block.id}>
-            {selectedIds?.has(block.id) && (
+            {selectedIds?.has(block.id) && block.type === 'vector' && (
+              <path d={block.d} transform={vectorTransform(block, { x, y, w, h })}
+                fill="rgba(124,58,237,0.12)" stroke="#7c3aed" strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+            )}
+            {selectedIds?.has(block.id) && block.type !== 'vector' && (
               <rect x={x} y={y} width={w} height={h}
                 fill="rgba(124,58,237,0.07)" stroke="#7c3aed" strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
             )}
-            {highlightIds?.has(block.id) && !selectedIds?.has(block.id) && (
+            {highlightIds?.has(block.id) && !selectedIds?.has(block.id) && block.type === 'vector' && (
+              <path d={block.d} transform={vectorTransform(block, { x, y, w, h })}
+                fill="none" stroke="#7b61ff" strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+            )}
+            {highlightIds?.has(block.id) && !selectedIds?.has(block.id) && block.type !== 'vector' && (
               <rect x={x} y={y} width={w} height={h}
                 fill="none" stroke="#7b61ff" strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
             )}

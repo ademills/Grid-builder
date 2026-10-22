@@ -284,9 +284,139 @@ export function LayersPanel() {
   );
 }
 
-// Layers for Meander: the colours in the generated design. Replacing one
-// rewrites it throughout the design until the next Generate / Recolour.
+// Layers for Meander: every strand and dot is its own layer, grouped by
+// colour. Groups and single strands can be selected, recoloured, hidden and
+// locked; colour changes last until the next Generate / Recolour / swatch
+// edit (reshaping with the shape sliders keeps them).
 export function MeanderLayersPanel() {
+  const { layerActions, selectedIds } = useEditor();
+  const [placedBlocks] = useDocField('placedBlocks');
+  const [shapeColors] = useDocField('shapeColors');
+  const [open, setOpen] = useState(() => new Set());
+  const [recolouring, setRecolouring] = useState(null);
+
+  const vectors = placedBlocks.filter(b => b.type === 'vector');
+  const cores = placedBlocks.filter(b => b.type === 'image' && b.meanderKey);
+  const groups = useMemo(() => {
+    const m = new Map();
+    for (const b of placedBlocks) {
+      if (b.type !== 'vector') continue;
+      const hex = b.fill.toLowerCase();
+      if (!m.has(hex)) m.set(hex, { hex, items: [] });
+      m.get(hex).items.push(b);
+    }
+    return [...m.values()].sort((a, b) => b.items.length - a.items.length);
+  }, [placedBlocks]);
+  const swatchName = useMemo(() => {
+    const m = new Map();
+    for (const s of shapeColors) if (!m.has(s.hex.toLowerCase())) m.set(s.hex.toLowerCase(), s.name || null);
+    return m;
+  }, [shapeColors]);
+  const hexOf = swatch => (swatch.startsWith('#') ? swatch : shapeColors.find(s => s.id === swatch)?.hex);
+
+  if (!vectors.length) return <LegacyMeanderLayers />;
+
+  const toggleOpen = key => setOpen(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+  const itemRow = (block, chip) => (
+    <div
+      key={block.id}
+      className={`${styles.layerRow} ${styles.layerItemRow} ${selectedIds.has(block.id) ? styles.layerRowSelected : ''} ${block.hidden ? styles.layerRowHidden : ''}`}
+      onMouseEnter={() => layerActions.highlight(new Set([block.id]))}
+      onClick={e => layerActions.select(e.shiftKey ? [...new Set([...selectedIds, block.id])] : [block.id])}
+    >
+      {chip && <span className={styles.layerChips}><span className={styles.layerMiniChip} style={{ background: chip }} /></span>}
+      <span className={styles.layerName}>{block.name}</span>
+      <RowToggles
+        hidden={!!block.hidden} locked={!!block.locked}
+        onHidden={() => layerActions.setHidden([block.id], !block.hidden)}
+        onLocked={() => layerActions.setLocked([block.id], !block.locked)}
+      />
+    </div>
+  );
+
+  const strandCount = vectors.filter(b => b.meanderKey?.startsWith('s')).length;
+  return (
+    <>
+      <div className={styles.layerSummary}>
+        {strandCount} strands · {vectors.length - strandCount} dots · {groups.length} colours
+      </div>
+      <div className={styles.layerList} onMouseLeave={() => layerActions.highlight(null)}>
+        {groups.map(g => {
+          const ids = g.items.map(b => b.id);
+          const hiddenCount = g.items.filter(b => b.hidden).length;
+          const lockedCount = g.items.filter(b => b.locked).length;
+          const allHidden = hiddenCount === g.items.length, allLocked = lockedCount === g.items.length;
+          const selectedInGroup = ids.filter(id => selectedIds.has(id)).length;
+          const name = swatchName.get(g.hex) ?? null;
+          const isOpen = open.has(g.hex);
+          return (
+            <div key={g.hex} className={styles.layerGroup}>
+              <div
+                className={`${styles.layerRow} ${styles.layerGroupRow} ${selectedInGroup ? styles.layerRowSelected : ''}`}
+                onMouseEnter={() => layerActions.highlight(new Set(ids))}
+                onClick={() => layerActions.select(ids)}
+                title="Click to select every strand in this colour"
+              >
+                <button className={styles.layerChevron} onClick={e => { e.stopPropagation(); toggleOpen(g.hex); }} aria-expanded={isOpen}>
+                  <ChevronIcon open={isOpen} />
+                </button>
+                <span className={styles.layerChip} style={{ background: g.hex }} />
+                <span className={styles.layerName}>{name ? <>{name} <span className={styles.layerHex}>{g.hex}</span></> : g.hex}</span>
+                <span className={styles.layerCount}>{selectedInGroup ? `${selectedInGroup}/` : ''}{g.items.length}</span>
+                <button className={styles.layerRecolour} onClick={e => { e.stopPropagation(); setRecolouring(r => (r === g.hex ? null : g.hex)); }}
+                  title="Replace this colour">⇄</button>
+                <RowToggles
+                  hidden={allHidden} locked={allLocked}
+                  mixedHidden={hiddenCount > 0 && !allHidden} mixedLocked={lockedCount > 0 && !allLocked}
+                  onHidden={() => layerActions.setHidden(ids, !allHidden)}
+                  onLocked={() => layerActions.setLocked(ids, !allLocked)}
+                />
+              </div>
+              {recolouring === g.hex && (
+                <SwatchStrip swatches={shapeColors} onPick={swatch => {
+                  const hex = hexOf(swatch);
+                  if (hex) layerActions.replaceDesignColour(g.hex, hex);
+                  setRecolouring(null);
+                }} />
+              )}
+              {isOpen && g.items.map(b => itemRow(b, null))}
+            </div>
+          );
+        })}
+        {cores.map(b => itemRow(b, null))}
+      </div>
+
+      {selectedIds.size > 0 && (
+        <>
+          <div className={styles.fillBar}>
+            <span className={styles.layerSummary} style={{ padding: 0, flex: 1, alignSelf: 'center' }}>{selectedIds.size} selected</span>
+            <button className={styles.actionBtn} onClick={() => setRecolouring(r => (r === 'selection' ? null : 'selection'))}>Recolour</button>
+            <button className={styles.actionBtn} onClick={() => layerActions.setHidden([...selectedIds], true)}>Hide</button>
+            <button className={styles.actionBtn} onClick={() => layerActions.setLocked([...selectedIds], true)}>Lock</button>
+          </div>
+          {recolouring === 'selection' && (
+            <SwatchStrip swatches={shapeColors} onPick={swatch => {
+              const hex = hexOf(swatch);
+              if (hex) layerActions.setFill([...selectedIds], hex);
+              setRecolouring(null);
+            }} />
+          )}
+        </>
+      )}
+      <div className={styles.gridNote} style={{ padding: '8px 12px' }}>
+        Colour changes last until you Generate or Recolour again. The shape sliders keep them.
+      </div>
+    </>
+  );
+}
+
+// Designs made before v1.4.1 are a single image: list its colours, each
+// replaceable throughout the design.
+function LegacyMeanderLayers() {
   const { layerActions } = useEditor();
   const [placedBlocks] = useDocField('placedBlocks');
   const [canvasBg] = useDocField('canvasBg');

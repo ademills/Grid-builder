@@ -114,7 +114,9 @@ export function createDefaultDocState() {
       density: 1, straightBias: 15, wallDensity: 0,
       symmetryMode: 'none', kaleidoscopeFold: 4,
       strandWidthRatio: 0.86,
-      showTerminalDots: false, roundness: 1,
+      showTerminalDots: false,
+      // Corner radii (fractions of the cell; see meanderCornerSettings).
+      capRoundness: 1, innerRadius: 0.07, outerRadius: 0.93, bendLinked: true,
       seed: randomSeed(), colorSeed: 0,
       seedWord: '',
       inkMode: 'palette',

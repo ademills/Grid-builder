@@ -15,7 +15,8 @@ import { GuideLines, Rulers } from './components/RulersGuides';
 import { useGuideDrag } from './hooks/useGuideDrag';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { extractPalette } from './utils/kmeans';
-import { composeKnotworkSvg } from './utils/knotworkCompose';
+import { composeKnotworkLayers } from './utils/knotworkCompose';
+import { buildMeanderBlocks, carryMeanderEdits, isMeanderBlock, vectorTransform } from './utils/meanderBlocks';
 import { LAYOUTS, computeGridMask, buildWireframeBlocks, wireframeRects } from './utils/layouts';
 import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift } from './utils/colorize';
 import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
@@ -265,6 +266,16 @@ function buildFlatSvgElement({
         : block.imageFit === 'stretch' ? 'none'
         : 'xMidYMid meet');
       blocksGroup.appendChild(withAppearance(imgEl, block, index));
+      return;
+    }
+
+    // Meander strands / dots: a plain filled path.
+    if (block.type === 'vector') {
+      const path = document.createElementNS(FLAT_SVG_NS, 'path');
+      path.setAttribute('d', block.d);
+      path.setAttribute('fill', block.fill);
+      path.setAttribute('transform', vectorTransform(block, { x: bx, y: by, w: bw, h: bh }));
+      blocksGroup.appendChild(withAppearance(path, block, index));
       return;
     }
 
@@ -1174,7 +1185,7 @@ export function DocumentEditor({ mode: appMode }) {
     fg: activePalette[0] ?? '#8a1f11',
     bg: canvasBg,
     palette: activePalette.length ? activePalette : ['#8a1f11'],
-    // Only wired through when inkMode is 'image' -- composeKnotworkSvg
+    // Only wired through when inkMode is 'image' -- composeKnotworkLayers
     // ignores these otherwise. backdropPixels is the same buffer the
     // Palette Extractor already samples from (loaded whenever backdropSrc
     // changes), reused here rather than re-downsampling the image again.
@@ -1182,25 +1193,30 @@ export function DocumentEditor({ mode: appMode }) {
     imageFit: backdropSettings.fit,
   }), [activePalette, canvasBg, knotworkSettings.inkMode, backdropPixels, backdropSettings.fit]);
 
-  // Builds a placed image block for the given knotwork settings, confined
-  // to the grid's own inset footprint (same cols/rows/border the preview
-  // shows) so the generated pattern lines up with what was previewed
-  // before hitting Fill, rather than bleeding past the border to the page
-  // edges.
-  const buildKnotworkBlock = useCallback((fullSettings) => {
+  // Builds the placed blocks for the given knotwork settings -- one vector
+  // block per strand / dot, plus any centre-motif layers -- confined to the
+  // grid's own inset footprint (same cols/rows/border the preview shows) so
+  // the generated pattern lines up with what was previewed before hitting
+  // Fill, rather than bleeding past the border to the page edges.
+  const buildKnotworkBlocks = useCallback((fullSettings) => {
     if (!gridComputed) return null;
     const localGrid = { cols: gridComputed.cols, rows: gridComputed.rows, cellSize: 100, gridOriginX: 0, gridOriginY: 0 };
-    const svgMarkup = composeKnotworkSvg(localGrid, fullSettings);
-    const dataUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
-    return {
-      id: crypto.randomUUID(),
-      type: 'image',
-      gridCol: 0,
-      gridRow: 0,
-      cols: gridComputed.cols, rows: gridComputed.rows,
-      imageSrc: dataUri, imageFit: 'contain',
-    };
+    return buildMeanderBlocks(composeKnotworkLayers(localGrid, fullSettings), gridComputed);
   }, [gridComputed]);
+
+  // Rebuilds the current design in place (same seed, so same layout),
+  // carrying each strand's layer edits across -- including its colour when
+  // keepFill, i.e. when only the shape changed. Old single-image designs
+  // (before v1.4.1) are simply replaced.
+  const regenerateKnotwork = useCallback((fullSettings, label, { keepFill }) => {
+    const prev = placedBlocksRef.current;
+    if (!prev.length) return;
+    const blocks = buildKnotworkBlocks(fullSettings);
+    if (!blocks) return;
+    pushHistory(prev, { label });
+    setPlacedBlocks(carryMeanderEdits(blocks, prev, { keepFill }));
+    syncHistorySize();
+  }, [buildKnotworkBlocks, pushHistory, setPlacedBlocks, syncHistorySize]);
 
   // Randomises the seed on every press rather than reusing whatever was
   // last set, so each click of Fill gives a fresh variation without
@@ -1216,12 +1232,13 @@ export function DocumentEditor({ mode: appMode }) {
     const letterArrangementSeed = Math.floor(Math.random() * 0x80000000);
     const nextSettings = { ...knotworkSettings, seed, letterArrangementSeed };
     setKnotworkSettings(nextSettings);
-    const block = buildKnotworkBlock({ ...nextSettings, ...knotworkThemeColors });
-    if (!block) return;
+    const blocks = buildKnotworkBlocks({ ...nextSettings, ...knotworkThemeColors });
+    if (!blocks) return;
     pushHistory(placedBlocks, { label: 'Generate' });
-    setPlacedBlocks([block]);
+    setPlacedBlocks(blocks);
+    setSelectedIds(new Set());
     syncHistorySize();
-  }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
+  }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlocks, placedBlocks, pushHistory, syncHistorySize, setSelectedIds]);
 
   // Swatch edits (or a library applied from the Swatches panel) re-render the
   // current Meander design in place -- same seed, so the same layout with the
@@ -1238,34 +1255,47 @@ export function DocumentEditor({ mode: appMode }) {
     if (appMode !== 'knotwork' || !placedBlocksRef.current.length) return;
     clearTimeout(knotRegenTimer.current);
     knotRegenTimer.current = setTimeout(() => {
-      const block = buildKnotworkBlock({ ...knotworkSettings, ...knotworkThemeColors });
-      if (!block) return;
-      pushHistory(placedBlocksRef.current, { label: 'Swatch Change' });
-      setPlacedBlocks([block]);
-      syncHistorySize();
+      regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'Swatch Change', { keepFill: false });
     }, 120);
     return () => clearTimeout(knotRegenTimer.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [knotPaletteSig]);
 
-  // Same immediate-preview behaviour as handleKnotworkPaletteSelect, for the
-  // canvas background colour itself -- the knotwork block bakes bg into its
-  // own SVG (background rect, terminal dots) at generation time, so without
-  // this it stays stale until the next Fill even though the live page rect
-  // underneath (Canvas.jsx) already shows the new colour -- exactly the
-  // "why is there still a white shape on top" mismatch that motivated this.
-  // Takes the new colour as a param rather than reading canvasBg from the
-  // closure, since setCanvasBg's update isn't visible synchronously here.
+  // Shape settings (strand width, corner radii, terminal dots...) reshape the
+  // current design in place -- same seed, same layout, and every strand keeps
+  // its colour, visibility and lock. Layout settings (density, walls,
+  // symmetry, word...) still wait for the next Fill. Debounced like the
+  // palette above so a slider drag rebuilds once it settles.
+  const knotShapeSig = [
+    knotworkSettings.strandWidthRatio, knotworkSettings.capRoundness, knotworkSettings.innerRadius,
+    knotworkSettings.outerRadius, knotworkSettings.bendLinked, knotworkSettings.showTerminalDots,
+    knotworkSettings.widthJitter, knotworkSettings.tension,
+  ].join('|');
+  const knotShapeRef = useRef(null);
+  const knotShapeTimer = useRef(null);
+  useEffect(() => {
+    const prev = knotShapeRef.current;
+    knotShapeRef.current = knotShapeSig;
+    if (prev === null || prev === knotShapeSig) return;
+    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock)) return;
+    clearTimeout(knotShapeTimer.current);
+    knotShapeTimer.current = setTimeout(() => {
+      regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'Reshape Strands', { keepFill: true });
+    }, 60);
+    return () => clearTimeout(knotShapeTimer.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [knotShapeSig]);
+
+  // The paper colour shows through between strands by itself; only the
+  // centre motif bakes it in (the gaps in its interlace), so that gets
+  // rebuilt. Strand colours are left as they are. Takes the new colour as a
+  // param rather than reading canvasBg from the closure, since
+  // setCanvasBg's update isn't visible synchronously here.
   const handleKnotworkCanvasBgChange = useCallback((color) => {
     setCanvasBg(color);
-    if (!gridComputed || placedBlocks.length === 0) return;
-    const themeColors = { fg: activePalette[0] ?? '#8a1f11', bg: color, palette: activePalette.length ? activePalette : ['#8a1f11'] };
-    const block = buildKnotworkBlock({ ...knotworkSettings, ...themeColors });
-    if (!block) return;
-    pushHistory(placedBlocks, { label: 'Paper Colour' });
-    setPlacedBlocks([block]);
-    syncHistorySize();
-  }, [gridComputed, knotworkSettings, activePalette, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
+    if (!gridComputed || !placedBlocks.length) return;
+    regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors, bg: color }, 'Paper Colour', { keepFill: true });
+  }, [gridComputed, knotworkSettings, knotworkThemeColors, placedBlocks.length, regenerateKnotwork, setCanvasBg]);
 
   // Reassigns which strand gets which palette colour without touching the
   // knot layout itself -- a fresh colorSeed reshuffles the strand-to-colour
@@ -1277,12 +1307,8 @@ export function DocumentEditor({ mode: appMode }) {
     const colorSeed = Math.floor(Math.random() * 0x80000000) || 1;
     const nextSettings = { ...knotworkSettings, colorSeed };
     setKnotworkSettings(nextSettings);
-    const block = buildKnotworkBlock({ ...nextSettings, ...knotworkThemeColors });
-    if (!block) return;
-    pushHistory(placedBlocks, { label: 'Recolour Strands' });
-    setPlacedBlocks([block]);
-    syncHistorySize();
-  }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlock, placedBlocks, pushHistory, syncHistorySize]);
+    regenerateKnotwork({ ...nextSettings, ...knotworkThemeColors }, 'Recolour Strands', { keepFill: false });
+  }, [gridComputed, knotworkSettings, knotworkThemeColors, placedBlocks.length, regenerateKnotwork, setKnotworkSettings]);
 
   // Apply a predetermined layout: drop its wireframe placeholders and arm the
   // grid-area mask (used by the main Fill button). Starts from a clean canvas.
@@ -1546,16 +1572,25 @@ export function DocumentEditor({ mode: appMode }) {
       syncHistorySize();
     },
     renameGroup: (groupId, name) => setGroupNames(prev => ({ ...prev, [groupId]: name })),
-    // Meander: replace one colour throughout the generated design. Lasts
-    // until the design is regenerated.
+    // Meander: replace one colour throughout the generated design -- every
+    // strand/dot filled with it, and the centre motif's markup. Lasts until
+    // the design is regenerated with new colours.
     replaceDesignColour: (fromHex, toHex) => {
-      const target = placedBlocks.find(b => b.type === 'image' && b.imageSrc?.startsWith('data:image/svg+xml'));
-      if (!target) return;
-      const comma = target.imageSrc.indexOf(',');
-      const svg = decodeURIComponent(target.imageSrc.slice(comma + 1));
-      const next = svg.replace(new RegExp(`="${fromHex}"`, 'gi'), `="${toHex}"`);
-      if (next === svg) return;
-      updateBlocks([target.id], b => ({ ...b, imageSrc: `${b.imageSrc.slice(0, comma + 1)}${encodeURIComponent(next)}` }), 'Replace Colour');
+      const from = fromHex.toLowerCase();
+      const recolourSvg = (src) => {
+        const comma = src.indexOf(',');
+        const svg = decodeURIComponent(src.slice(comma + 1));
+        return `${src.slice(0, comma + 1)}${encodeURIComponent(svg.replace(new RegExp(`="${fromHex}"`, 'gi'), `="${toHex}"`))}`;
+      };
+      const ids = placedBlocks.filter(b => (b.type === 'vector' && b.fill?.toLowerCase() === from)
+        || (b.type === 'image' && b.imageSrc?.startsWith('data:image/svg+xml') && recolourSvg(b.imageSrc) !== b.imageSrc)).map(b => b.id);
+      if (!ids.length) return;
+      updateBlocks(ids, b => (b.type === 'vector' ? { ...b, fill: toHex } : { ...b, imageSrc: recolourSvg(b.imageSrc) }), 'Replace Colour');
+    },
+    // Meander: recolour individual strands/dots (skips locked ones).
+    setFill: (ids, hex) => {
+      const targets = placedBlocks.filter(b => ids.includes(b.id) && b.type === 'vector' && !b.locked).map(b => b.id);
+      if (targets.length) updateBlocks(targets, b => ({ ...b, fill: hex }), 'Recolour');
     },
   }), [placedBlocks, setSelectedIds, updateBlocks, deselect, ensureSwatch, colourCtx, pushHistory, setPlacedBlocks, syncHistorySize, setGroupNames]);
 

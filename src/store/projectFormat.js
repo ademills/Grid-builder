@@ -1,6 +1,7 @@
 import { createDefaultDocState } from './docDefaults';
 import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
 import { mergeEffects } from '../effects/effectDefs';
+import { meanderCornerSettings } from '../utils/knotworkCompose';
 
 // Project file format.
 //
@@ -87,6 +88,12 @@ export function parseProject(text) {
   if (!['gridBuilder', 'knotwork'].includes(mode)) mode = 'gridBuilder';
 
   const state = createDefaultDocState(mode);
+  // Meander documents before v1.4.1 had one shared roundness; turn it into
+  // the corner radii that reproduce it before defaults would replace it.
+  const knot = fields.knotworkSettings;
+  if (knot && knot.capRoundness == null && knot.roundness != null) {
+    fields = { ...fields, knotworkSettings: { ...knot, ...meanderCornerSettings(knot) } };
+  }
   for (const key of Object.keys(state)) {
     if (fields[key] === undefined) continue;
     state[key] = MERGED_FIELDS.has(key) ? { ...state[key], ...fields[key] } : fields[key];
