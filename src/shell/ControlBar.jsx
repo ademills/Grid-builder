@@ -4,9 +4,10 @@ import { useDocField } from '../store/useDocField';
 import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
 import { MODE_REGISTRY, TOOLS } from '../modes/registry';
 import { ColorPicker } from '../panels/ColorPicker';
+import { SwatchColourField } from '../panels/SwatchColourField';
 import { assetThumb } from '../panels/panelUtils';
 import { DiceIcon } from './icons';
-import { SYMMETRY_OPTIONS } from '../utils/symmetry';
+import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY } from '../utils/symmetry';
 import styles from './ControlBar.module.css';
 
 // Closes a popover on outside click / Escape.
@@ -76,6 +77,31 @@ function PaintColour() {
   );
 }
 
+// The selection's fill: shows its colour (or Mixed) and sets it from a
+// swatch or any colour. Picker drags apply once the colour settles.
+function SelectionFill() {
+  const fill = useAppStore(s => s.editorStatus?.selectionFill ?? null);
+  const fillSelection = useAppStore(s => s.editorCommands?.fillSelection);
+  const [draft, setDraft] = useState(null);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  if (!fill || !fillSelection) return null;
+  const shown = draft ?? (fill === 'mixed' ? '#808080' : fill);
+  const onChange = (hex, swatchId) => {
+    clearTimeout(timer.current);
+    if (swatchId) { setDraft(null); fillSelection(hex, swatchId); return; }
+    setDraft(hex);
+    timer.current = setTimeout(() => { fillSelection(hex); setDraft(null); }, 250);
+  };
+  return (
+    <>
+      <span className={styles.label}>Fill</span>
+      <SwatchColourField value={shown} label={!draft && fill === 'mixed' ? 'Mixed' : undefined} onChange={onChange}
+        title="Fill the selection — a document swatch or any colour" />
+    </>
+  );
+}
+
 // Stamp shape chooser: random from the enabled shapes, or one shape.
 function StampShape() {
   const stampAsset = useAppStore(s => s.toolOptions.stampAsset);
@@ -138,6 +164,7 @@ export function ControlBar({ mode, selectedCount }) {
       <span className={styles.sep} />
 
       {tool === 'select' && <span className={styles.hint}>{selectedCount ? `${selectedCount} selected` : 'Click or drag on the canvas to select shapes'}</span>}
+      {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionFill />}
 
       {tool === 'wand' && (
         <>
@@ -178,7 +205,8 @@ export function ControlBar({ mode, selectedCount }) {
       {(tool === 'stamp' || tool === 'eraser' || tool === 'bucket') && (
         <>
           <span className={styles.label}>Symmetry</span>
-          <Segment value={options.symmetry} onChange={v => setToolOption({ symmetry: v })} options={SYMMETRY_OPTIONS} />
+          <Segment value={normaliseSymmetry(options.symmetry)} onChange={v => setToolOption({ symmetry: v })}
+            options={symmetryOptions(TOOL_SYMMETRY).map(m => ({ key: m.key, label: m.icon, title: m.title }))} />
         </>
       )}
 

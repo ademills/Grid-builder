@@ -3,10 +3,10 @@ import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { ImagePicker, Segmented, Stepper, Toggle } from './controls';
 import styles from './Panel.module.css';
 
-// Reference / backdrop image shown behind the artboard. In Meander the same
-// image can also supply the strand colours.
+// Reference / backdrop image shown behind the artboard. In Meander and
+// Linework the same image can also supply the line colours.
 export function ImagePanel() {
-  const { mode } = useEditor();
+  const { mode, linework } = useEditor();
   const [backdropSrc, setBackdropSrc] = useDocField('backdropSrc');
   const [settings, setSettings] = useDocSettings('backdropSettings');
   const [knotworkSettings, setKnotworkSettings] = useDocSettings('knotworkSettings');
@@ -60,6 +60,16 @@ export function ImagePanel() {
                 value={knotworkSettings.inkMode === 'image'}
                 onChange={on => setKnotworkSettings({ inkMode: on ? 'image' : 'palette' })}
                 title="Sample strand colour from this image instead of the palette"
+              />
+            </div>
+          )}
+          {mode === 'linework' && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Ink from image</span>
+              <Toggle
+                value={!!linework.settings.inkFromImage}
+                onChange={on => linework.update({ inkFromImage: on }, 'Ink from Image')}
+                title="Colour each line group from this image instead of the palette"
               />
             </div>
           )}

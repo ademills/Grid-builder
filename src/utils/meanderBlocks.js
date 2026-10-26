@@ -1,19 +1,30 @@
-// Turns a composed Meander design (composeKnotworkLayers) into placed
-// blocks: one `vector` block per strand / single-cell dot, so each is its
-// own selectable layer, plus locked `image` blocks for the centre motif
-// drawn under and over the strands.
+// Generated vector layers, shared by the generator modes (Meander, Linework).
 //
 // A vector block is { type: 'vector', d, fill, viewW, viewH, bounds } on
 // the usual grid footprint; `d` is in the design's own units (viewW x
-// viewH), scaled uniformly into the footprint. `meanderKey` identifies
-// which strand/dot (or core layer) a block came from, so regenerating with
-// the same seed can carry each one's edits across.
+// viewH), scaled uniformly into the footprint. Optional: `fillSwatch` (the
+// document swatch its colour is pinned to -- Paint Bucket, Layers recolour),
+// `fillFixed` (a colour picked outside the swatches, kept as it is)
+// and `blur` (a soft-edged layer such as a plate's shadow, in design units).
+//
+// `meanderKey` (Meander) or `genKey` (Linework) identifies which part of the
+// design a block came from, so regenerating with the same seed can carry
+// each one's edits across.
+//
+// buildMeanderBlocks turns a composed Meander design (composeKnotworkLayers)
+// into one block per strand / single-cell dot, plus locked `image` blocks
+// for the centre motif drawn under and over the strands.
 
 const svgUri = (markup, w, h) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${markup}</svg>`)}`;
 
 export function isMeanderBlock(block) {
   return block.meanderKey != null;
+}
+
+const genKeyOf = (b) => b.meanderKey ?? b.genKey;
+export function isGeneratedBlock(block) {
+  return genKeyOf(block) != null;
 }
 
 export function buildMeanderBlocks(layers, gridComputed) {
@@ -36,23 +47,35 @@ export function buildMeanderBlocks(layers, gridComputed) {
   ];
 }
 
-// Copies each previous block's layer edits onto its counterpart (same
-// meanderKey) in a freshly built design: id (so selection survives),
-// visibility, lock, appearance and group -- and its fill too when keepFill,
-// i.e. when only the shape changed rather than the colours.
-export function carryMeanderEdits(next, prev, { keepFill }) {
-  const byKey = new Map(prev.filter(isMeanderBlock).map(b => [b.meanderKey, b]));
+// Copies each previous block's layer edits onto its counterpart (same key)
+// in a freshly built design: id (so selection survives), visibility, lock,
+// appearance and group -- its fill too when keepFill, i.e. when only the
+// shape changed rather than the colours. A fill pinned to a swatch always
+// carries across, taking the swatch's current colour (swatchMap: id → hex).
+export function carryGeneratedEdits(next, prev, { keepFill, swatchMap = {} }) {
+  const byKey = new Map(prev.filter(isGeneratedBlock).map(b => [genKeyOf(b), b]));
   return next.map(b => {
-    const old = byKey.get(b.meanderKey);
+    const old = byKey.get(genKeyOf(b));
     if (!old) return b;
     const out = { ...b, id: old.id };
     for (const k of ['hidden', 'locked', 'opacity', 'blendMode', 'groupId']) {
       if (old[k] !== undefined) out[k] = old[k];
     }
-    if (keepFill && old.type === 'vector' && b.type === 'vector') out.fill = old.fill;
+    if (old.type === 'vector' && b.type === 'vector') {
+      if (old.fillSwatch) {
+        out.fillSwatch = old.fillSwatch;
+        out.fill = swatchMap[old.fillSwatch] ?? old.fill;
+      } else if (old.fillFixed) {
+        out.fillFixed = true;
+        out.fill = old.fill;
+      } else if (keepFill) {
+        out.fill = old.fill;
+      }
+    }
     return out;
   });
 }
+export const carryMeanderEdits = carryGeneratedEdits;
 
 // Uniform scale + offset that fits a vector block's design units into a
 // footprint box (the same 'contain' fit image blocks use).
@@ -75,4 +98,32 @@ export function vectorBounds(block, box) {
   if (!block.bounds) return box;
   const { s, tx, ty } = vectorFit(block, box);
   return { x: tx + block.bounds.x * s, y: ty + block.bounds.y * s, w: block.bounds.w * s, h: block.bounds.h * s };
+}
+
+// ── Hit testing ──────────────────────────────────────────────────────────────
+// Vector layers overlap (they all share the grid footprint), so tools find
+// them by their actual shape rather than the cell under the pointer.
+
+const hitPaths = new WeakMap(); // block → Path2D
+let hitCtx = null;
+
+export function vectorPath(block) {
+  let p = hitPaths.get(block);
+  if (!p) hitPaths.set(block, p = new Path2D(block.d));
+  return p;
+}
+
+// The topmost visible vector block whose shape contains artboard point `pt`.
+export function vectorAt(pt, blocks, gridComputed) {
+  if (!pt || !gridComputed) return null;
+  hitCtx ??= document.createElement('canvas').getContext('2d');
+  const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.type !== 'vector' || b.hidden || b.blur) continue;
+    const box = { x: gridOriginX + b.gridCol * cellSize, y: gridOriginY + b.gridRow * cellSize, w: b.cols * cellSize, h: b.rows * cellSize };
+    const { s, tx, ty } = vectorFit(b, box);
+    if (hitCtx.isPointInPath(vectorPath(b), (pt.x - tx) / s, (pt.y - ty) / s)) return b;
+  }
+  return null;
 }

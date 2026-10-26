@@ -11,7 +11,8 @@ import styles from './Panel.module.css';
 // palette-based modes draw from (edited in the Swatches panel). Markup
 // carried over from the old sidebar's Colour view.
 export function ColourPanel() {
-  const { actions, status } = useEditor();
+  const { actions, status, mode } = useEditor();
+  const linework = mode === 'linework';
   const imageProgress = status.imageProgress;
   const openSwatches = useAppStore(s => s.showDockTab);
   const [colorMode, setColorMode] = useDocField('colorMode');
@@ -82,7 +83,7 @@ export function ColourPanel() {
           <span className={styles.label}>Mode</span>
           <div className={styles.modeToggle}>
             {[
-              { key: 'none',     label: 'None' },
+              { key: 'none',     label: linework ? 'Single' : 'None' },
               { key: 'uniform',  label: 'Uniform' },
               { key: 'random',   label: 'Random' },
               { key: 'gradient', label: 'Gradient' },
@@ -97,7 +98,14 @@ export function ColourPanel() {
           </div>
         </div>
 
-        {colorMode === 'uniform' && (
+        {linework && (
+          <div className={styles.gridNote} style={{ marginTop: 6 }}>
+            Single: every line takes the ink colour (Theme tab). Uniform cycles the palette over the line groups;
+            Random, Gradient, Mesh and Image colour each group by where it sits.
+          </div>
+        )}
+
+        {colorMode === 'uniform' && !linework && (
           <>
             <div className={styles.formRow} style={{ marginTop: 6 }}>
               <span className={styles.label}>Reverse</span>
@@ -158,7 +166,7 @@ export function ColourPanel() {
             <button
               className={styles.modeBtn}
               style={{ flex: 'none', padding: '3px 12px', fontSize: 12 }}
-              onClick={actions.randomRerun}
+              onClick={linework ? actions.lineworkRecolour : actions.randomRerun}
               title="Re-randomise all block colour seeds"
             >↺ Shuffle</button>
           </div>

@@ -3,7 +3,8 @@ import { hashSeed } from '../utils/textSeed';
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
-import { Stepper } from './controls';
+import { Stepper, SeedField, SymmetrySelect } from './controls';
+import { MEANDER_SYMMETRY } from '../utils/symmetry';
 import styles from './Panel.module.css';
 import { meanderCornerSettings } from '../utils/knotworkCompose';
 
@@ -86,16 +87,8 @@ export function MeanderPanel() {
 
       <div className={styles.formRow}>
         <span className={styles.label}>Symmetry</span>
-        <select className={styles.select} value={knotworkSettings.symmetryMode}
-          onChange={e => onKnotworkSettingsChange({ symmetryMode: e.target.value })}>
-          <option value="none">None</option>
-          <option value="mirror-x">Mirror X</option>
-          <option value="mirror-y">Mirror Y</option>
-          <option value="mirror-both">Mirror Both</option>
-          <option value="rotate2">Rotate 2</option>
-          <option value="rotate4">Rotate 4</option>
-          <option value="kaleidoscope">Kaleidoscope</option>
-        </select>
+        <SymmetrySelect value={knotworkSettings.symmetryMode} keys={MEANDER_SYMMETRY}
+          onChange={v => onKnotworkSettingsChange({ symmetryMode: v })} />
       </div>
 
       {knotworkSettings.symmetryMode === 'kaleidoscope' && (
@@ -264,17 +257,7 @@ export function MeanderPanel() {
       )}
 
 
-      <div className={styles.formRow}>
-        <span className={styles.label}>Seed</span>
-        <div className={styles.sliderRow}>
-          <input type="number" className={styles.numberInput} style={{ flex: 1 }}
-            value={knotworkSettings.seed}
-            onChange={e => onKnotworkSettingsChange({ seed: +e.target.value || 0, seedWord: '' })} />
-          <button className={styles.actionBtn} title="Randomise seed"
-            onClick={() => onKnotworkSettingsChange({ seed: Math.floor(Math.random() * 0x80000000), seedWord: '' })}
-          >⟳</button>
-        </div>
-      </div>
+      <SeedField value={knotworkSettings.seed} onChange={seed => onKnotworkSettingsChange({ seed, seedWord: '' })} />
     </div>
 
     <div className={styles.fillBar}>

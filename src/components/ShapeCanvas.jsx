@@ -320,6 +320,7 @@ function drawEffects(renderer, p, bg, fg, view, dpr, onImage) {
         ctx.globalAlpha = b.opacity ?? 1;
         ctx.globalCompositeOperation = BLEND(b.blendMode);
         ctx.transform(s, 0, 0, s, tx, ty);
+        if (b.blur > 0) ctx.filter = `blur(${b.blur * s * k}px)`;
         ctx.fillStyle = b.fill;
         ctx.fill(path);
         ctx.restore();

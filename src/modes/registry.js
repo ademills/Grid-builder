@@ -1,6 +1,6 @@
 import {
   SelectIcon, MoveIcon, HandIcon, ZoomIcon, WandIcon, EyedropperIcon, BucketIcon, StampIcon, EraserIcon, RotateIcon, ReflectIcon,
-  GridModeMark, MeanderModeMark,
+  GridModeMark, MeanderModeMark, LineworkModeMark,
 } from '../shell/icons';
 import { PropertiesPanel } from '../panels/PropertiesPanel';
 import { InfoPanel } from '../panels/InfoPanel';
@@ -9,10 +9,11 @@ import { EffectsPanel } from '../panels/EffectsPanel';
 import { GeneratePanel, LayoutsPanel } from '../panels/GeneratePanel';
 import { ColourPanel } from '../panels/ColourPanel';
 import { SwatchesPanel } from '../panels/SwatchesPanel';
-import { LayersPanel, MeanderLayersPanel } from '../panels/LayersPanel';
+import { LayersPanel, MeanderLayersPanel, LineworkLayersPanel } from '../panels/LayersPanel';
 import { AssetsPanel } from '../panels/AssetsPanel';
 import { ImagePanel, AnimationPanel, AudioPanel } from '../panels/MediaPanels';
 import { MeanderPanel, MeanderThemePanel } from '../panels/MeanderPanels';
+import { LineworkPanel, LineworkThemePanel } from '../panels/LineworkPanels';
 
 // Everything the shell needs to know about a mode: how it's presented on
 // the home screen and tabs, which tools appear in the tool bar, and how its
@@ -78,7 +79,7 @@ export const MODE_REGISTRY = {
     description: 'Seeded meander walker with symmetry, word-seeded designs, image-sampled colour and seamless tiling.',
     accent: '#e0a33a',
     mark: MeanderModeMark,
-    tools: ['select', 'hand', 'zoom'],
+    tools: ['select', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
     dock: [
       { id: 'properties', panels: [
         { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },
@@ -96,4 +97,32 @@ export const MODE_REGISTRY = {
   },
 };
 
-export const MODE_ORDER = ['gridBuilder', 'knotwork'];
+MODE_REGISTRY.linework = {
+  id: 'linework',
+  label: 'Linework',
+  tagline: 'Generate monoline geometric and circuit art',
+  description: 'Greek-key spirals, nested triangles, hatching and parallel circuit routing, with symmetry, diamond grids and stacked plates.',
+  accent: '#2f8fe3',
+  mark: LineworkModeMark,
+  tools: ['select', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
+  dock: [
+    { id: 'properties', panels: [
+      { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },
+      { id: 'layers', title: 'Layers', component: LineworkLayersPanel, menu: ['object.showAll', 'object.unlockAll'] },
+      { id: 'history', title: 'History', component: HistoryPanel, menu: ['edit.undo', 'edit.redo'] },
+    ], grow: 3 },
+    { id: 'linework', panels: [
+      { id: 'linework', title: 'Linework', component: LineworkPanel, menu: ['linework.reseed', 'linework.surprise', 'linework.recolour'] },
+      { id: 'layouts', title: 'Layouts', component: LayoutsPanel, menu: ['generate.clearLayout'] },
+    ], grow: 5 },
+    { id: 'colour', panels: [
+      { id: 'theme', title: 'Theme', component: LineworkThemePanel, menu: ['linework.recolour', 'colour.saveSwatches'] },
+      { id: 'colour', title: 'Colour', component: ColourPanel },
+      { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
+    ], grow: 2 },
+    { id: 'effects', panels: [{ id: 'effects', title: 'Effects', component: EffectsPanel, menu: ['view.effects', 'file.export'] }], defaultCollapsed: true, grow: 2 },
+    { id: 'image', panels: [{ id: 'image', title: 'Image', component: ImagePanel }], defaultCollapsed: true },
+  ],
+};
+
+export const MODE_ORDER = ['gridBuilder', 'knotwork', 'linework'];

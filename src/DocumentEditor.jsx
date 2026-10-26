@@ -16,8 +16,8 @@ import { useGuideDrag } from './hooks/useGuideDrag';
 import { PRESETS, computeGrid, getValidCols } from './gridPresets';
 import { extractPalette } from './utils/kmeans';
 import { composeKnotworkLayers } from './utils/knotworkCompose';
-import { buildMeanderBlocks, carryMeanderEdits, isMeanderBlock, vectorTransform } from './utils/meanderBlocks';
-import { LAYOUTS, computeGridMask, buildWireframeBlocks, wireframeRects } from './utils/layouts';
+import { buildMeanderBlocks, carryGeneratedEdits, isMeanderBlock, vectorTransform, vectorAt } from './utils/meanderBlocks';
+import { LAYOUTS, computeGridMask, computeLayoutRegions, buildWireframeBlocks, wireframeRects } from './utils/layouts';
 import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift } from './utils/colorize';
 import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -42,10 +42,15 @@ import { useColorPalette } from './hooks/useColorPalette';
 import { useSelection } from './hooks/useSelection';
 import { groupMembers, groupBlocksTogether, ungroupBlocks, regroupCopies, listGroups } from './utils/groups';
 import { planMove, moveLimits } from './utils/moveBlocks';
-import { symmetricPoints, symmetricPlacements } from './utils/symmetry';
+import { symmetricPoints, symmetricPlacements, normaliseSymmetry } from './utils/symmetry';
 import { SymmetryAxes, MoveGhost } from './components/ToolOverlays';
 import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
 import { tidySvg } from './utils/svgExport';
+import { composeLinework, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL } from './utils/linework/compose';
+import { colourItems as lineworkColours } from './utils/linework/colour';
+import { pathD, contoursBounds } from './utils/linework/geometry';
+import { computeLineworkMask } from './modes/linework/masks';
+import { LINEWORK_PRESETS, mergeLineworkSettings, newPlate } from './modes/linework/settings';
 import { effectsActive } from './effects/effectDefs';
 import { applyEffectsToCanvas } from './effects/effectsRenderer';
 import './App.css';
@@ -269,12 +274,24 @@ function buildFlatSvgElement({
       return;
     }
 
-    // Meander strands / dots: a plain filled path.
+    // Generated strands / line groups: a plain filled path (blurred for a soft shadow).
     if (block.type === 'vector') {
       const path = document.createElementNS(FLAT_SVG_NS, 'path');
       path.setAttribute('d', block.d);
       path.setAttribute('fill', block.fill);
       path.setAttribute('transform', vectorTransform(block, { x: bx, y: by, w: bw, h: bh }));
+      if (block.blur > 0) {
+        let defs = out.querySelector('defs');
+        if (!defs) { defs = document.createElementNS(FLAT_SVG_NS, 'defs'); out.insertBefore(defs, out.firstChild); }
+        const filter = document.createElementNS(FLAT_SVG_NS, 'filter');
+        filter.setAttribute('id', `blur-${index}`);
+        for (const [k, v] of [['x', '-25%'], ['y', '-25%'], ['width', '150%'], ['height', '150%']]) filter.setAttribute(k, v);
+        const blur = document.createElementNS(FLAT_SVG_NS, 'feGaussianBlur');
+        blur.setAttribute('stdDeviation', String(block.blur));
+        filter.appendChild(blur);
+        defs.appendChild(filter);
+        path.setAttribute('filter', `url(#blur-${index})`);
+      }
       blocksGroup.appendChild(withAppearance(path, block, index));
       return;
     }
@@ -857,6 +874,14 @@ export function DocumentEditor({ mode: appMode }) {
     setSelectedIds(new Set());
   }, [_jumpTo, setSelectedIds]);
 
+  // Vector layers pinned to a swatch follow edits to that swatch.
+  useEffect(() => {
+    const stale = (b) => b.fillSwatch && swatchMap[b.fillSwatch] && swatchMap[b.fillSwatch] !== b.fill;
+    if (!placedBlocksRef.current.some(stale)) return;
+    setPlacedBlocks(prev => prev.map(b => (stale(b) ? { ...b, fill: swatchMap[b.fillSwatch] } : b)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [swatchMap]);
+
   // When grid geometry changes: attempt proportional rescale, clear if incompatible
   const prevGridRef = useRef(null);
   const placedBlocksRef = useRef(placedBlocks);
@@ -867,6 +892,8 @@ export function DocumentEditor({ mode: appMode }) {
     prevGridRef.current = gridComputed;
 
     if (!gridComputed) { setPlacedBlocks(p => (p.length ? [] : p)); return; }
+    // Linework regenerates itself for the new grid (see the Linework section).
+    if (appMode === 'linework') return;
     if (!prev || !placedBlocksRef.current.length) return;
     if (prev.cols === gridComputed.cols && prev.rows === gridComputed.rows) return;
 
@@ -1214,9 +1241,9 @@ export function DocumentEditor({ mode: appMode }) {
     const blocks = buildKnotworkBlocks(fullSettings);
     if (!blocks) return;
     pushHistory(prev, { label });
-    setPlacedBlocks(carryMeanderEdits(blocks, prev, { keepFill }));
+    setPlacedBlocks(carryGeneratedEdits(blocks, prev, { keepFill, swatchMap }));
     syncHistorySize();
-  }, [buildKnotworkBlocks, pushHistory, setPlacedBlocks, syncHistorySize]);
+  }, [buildKnotworkBlocks, pushHistory, setPlacedBlocks, syncHistorySize, swatchMap]);
 
   // Randomises the seed on every press rather than reusing whatever was
   // last set, so each click of Fill gives a fresh variation without
@@ -1293,9 +1320,9 @@ export function DocumentEditor({ mode: appMode }) {
   // setCanvasBg's update isn't visible synchronously here.
   const handleKnotworkCanvasBgChange = useCallback((color) => {
     setCanvasBg(color);
-    if (!gridComputed || !placedBlocks.length) return;
+    if (appMode !== 'knotwork' || !gridComputed || !placedBlocks.length) return;
     regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors, bg: color }, 'Paper Colour', { keepFill: true });
-  }, [gridComputed, knotworkSettings, knotworkThemeColors, placedBlocks.length, regenerateKnotwork, setCanvasBg]);
+  }, [appMode, gridComputed, knotworkSettings, knotworkThemeColors, placedBlocks.length, regenerateKnotwork, setCanvasBg]);
 
   // Reassigns which strand gets which palette colour without touching the
   // knot layout itself -- a fresh colorSeed reshuffles the strand-to-colour
@@ -1309,6 +1336,237 @@ export function DocumentEditor({ mode: appMode }) {
     setKnotworkSettings(nextSettings);
     regenerateKnotwork({ ...nextSettings, ...knotworkThemeColors }, 'Recolour Strands', { keepFill: false });
   }, [gridComputed, knotworkSettings, knotworkThemeColors, placedBlocks.length, regenerateKnotwork, setKnotworkSettings]);
+
+  // ── Linework ───────────────────────────────────────────────────────────────
+  // The design is rebuilt whenever its settings, the grid or the colours
+  // change, carrying each layer's edits (visibility, lock, pinned colour)
+  // across. Every generated block carries a signature of what it was built
+  // from, so undo — which restores blocks and settings together — doesn't
+  // trigger a rebuild. Settings changes are undoable steps; colour and grid
+  // changes just recolour / refit, as they do in the other modes.
+  const [lineworkSettingsRaw, setLineworkSettings] = useDocField('lineworkSettings');
+  const lineworkSettings = useMemo(() => mergeLineworkSettings(lineworkSettingsRaw), [lineworkSettingsRaw]);
+  const isLinework = appMode === 'linework';
+  const lineworkRoles = useMemo(() => {
+    const hexOf = (id) => (id && swatchMap[id]) || null;
+    return {
+      ink: hexOf(lineworkSettings.inkSwatch) ?? activePalette[0] ?? '#111111',
+      ground: hexOf(lineworkSettings.groundSwatch) ?? canvasBg,
+      shadow: hexOf(lineworkSettings.shadowSwatch) ?? '#000000',
+    };
+  }, [lineworkSettings.inkSwatch, lineworkSettings.groundSwatch, lineworkSettings.shadowSwatch, swatchMap, activePalette, canvasBg]);
+
+  // Silhouette masks are rasterised asynchronously; cached per grid size.
+  const [silhouetteTick, setSilhouetteTick] = useState(0);
+  const silhouetteCache = useRef(new Map());
+  const maskCache = useRef(new Map());
+  const lineworkMaskFor = useCallback((settings) => (li, cols, rows) => {
+    const cfg = settings.layers[li];
+    if (!cfg?.mask || cfg.mask === 'none' || !gridComputed) return null;
+    if (cfg.mask === 'silhouette') {
+      const s = silhouetteSettings;
+      if (!s?.src) return null;
+      const key = `${JSON.stringify(s)}|${cols}x${rows}`;
+      const hit = silhouetteCache.current.get(key);
+      if (hit && hit !== 'pending') return hit;
+      if (!hit) {
+        silhouetteCache.current.set(key, 'pending');
+        silhouetteCoverage(cols, rows, s)
+          .then(cov => { silhouetteCache.current.set(key, silhouetteCells(cov, cols, rows, s)); setSilhouetteTick(t => t + 1); })
+          .catch(() => silhouetteCache.current.delete(key));
+      }
+      return null;
+    }
+    const fillSettings = fillSettingsById[cfg.mask];
+    const key = `${cfg.mask}|${cols}x${rows}|${cfg.seed}|${JSON.stringify(cfg.mask === 'word' ? settings.word : fillSettings)}|${!!imagePixels}`;
+    if (maskCache.current.has(key)) return maskCache.current.get(key);
+    const mask = computeLineworkMask(cfg.mask, {
+      cols, rows, realGrid: gridComputed, settings: fillSettings, imagePixels, word: settings.word, seed: cfg.seed,
+    });
+    if (maskCache.current.size > 40) maskCache.current.clear();
+    maskCache.current.set(key, mask);
+    return mask;
+  }, [gridComputed, fillSettingsById, imagePixels, silhouetteSettings]);
+
+  // Everything a Linework design is built from, hashed.
+  const lineworkSig = useMemo(() => {
+    if (!isLinework || !gridComputed) return null;
+    const masks = lineworkSettings.layers.map(l => (l.mask && l.mask !== 'none' && l.mask !== 'word'
+      ? (l.mask === 'silhouette' ? silhouetteSettings : fillSettingsById[l.mask]) : null));
+    const str = JSON.stringify([
+      lineworkSettings, gridComputed.cols, gridComputed.rows, colorMode, activePalette, lineworkRoles,
+      colorMode === 'gradient' ? activeGradientSettings : null, colorMode === 'mesh' ? meshSettings : null,
+      colorMode === 'image' ? imageSrc : null,
+      lineworkSettings.inkFromImage ? [backdropSrc, backdropSettings.fit, !!backdropPixels] : null,
+      masks, silhouetteTick, !!imagePixels, activeLayoutId,
+    ]);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619) >>> 0;
+    return `${h.toString(36)}-${str.length.toString(36)}`;
+  }, [isLinework, gridComputed, lineworkSettings, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imageSrc, backdropSrc, backdropSettings.fit, backdropPixels, fillSettingsById, silhouetteSettings, silhouetteTick, imagePixels, activeLayoutId]);
+
+  const buildLineworkBlocks = useCallback((settings, sig) => {
+    if (!gridComputed) return null;
+    const { cols, rows, cellSize, gridOriginX, gridOriginY } = gridComputed;
+    // With a page layout active, the design fills the layout's grid areas.
+    const areas = activeLayout
+      ? computeLayoutRegions(activeLayout, gridComputed).filter(r => r.role === 'grid').map(({ x, y, w, h }) => ({ x, y, w, h }))
+      : null;
+    const { width, height, items } = composeLinework(settings, { cols, rows }, {
+      maskFor: lineworkMaskFor(settings), baseGround: !!settings.groundSwatch, areas,
+    });
+    const fills = lineworkColours(items, {
+      colorMode, palette: activePalette, ...lineworkRoles,
+      gradient: activeGradientSettings, mesh: meshSettings, imagePixels,
+      toArtboard: (x, y) => [gridOriginX + (x / LINEWORK_CELL) * cellSize, gridOriginY + (y / LINEWORK_CELL) * cellSize],
+      backdropPixels, backdropFit: backdropSettings.fit, inkFromImage: settings.inkFromImage,
+      colourSeed: settings.colourSeed, width, height, layers: settings.layers,
+    });
+    const footprint = { gridCol: 0, gridRow: 0, cols, rows };
+    return items.map((it, i) => ({
+      id: crypto.randomUUID(), type: 'vector', ...footprint,
+      d: pathD(it.contours), fill: fills[i], viewW: width, viewH: height,
+      bounds: contoursBounds(it.contours) ?? undefined,
+      name: it.name, genKey: it.key, genSig: sig, lwLayer: it.layerId, lwKind: it.kind,
+      ...(it.blur ? { blur: it.blur } : {}),
+      ...(it.opacity != null && it.opacity < 1 ? { opacity: it.opacity } : {}),
+      ...(it.layer > 0 ? { groupId: `linework-plate-${it.layerId}` } : {}),
+    }));
+  }, [gridComputed, activeLayout, lineworkMaskFor, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imagePixels, backdropPixels, backdropSettings.fit]);
+
+  const lineworkLast = useRef(null);   // the settings the current blocks were built from
+  const lineworkLabel = useRef(null);  // history label for the next settings change
+  useEffect(() => {
+    if (!lineworkSig) return;
+    if (placedBlocksRef.current.find(b => b.genSig)?.genSig === lineworkSig) {
+      lineworkLast.current = lineworkSettings;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const next = buildLineworkBlocks(lineworkSettings, lineworkSig);
+      if (!next) return;
+      const prev = lineworkLast.current;
+      const changed = prev && JSON.stringify(prev) !== JSON.stringify(lineworkSettings);
+      if (changed) {
+        const label = lineworkLabel.current ?? 'Linework Settings';
+        pushHistory(placedBlocksRef.current, { label, fields: { lineworkSettings: prev }, coalesce: !lineworkLabel.current });
+      }
+      lineworkLabel.current = null;
+      // Layout wireframes stay; the generated layers are replaced.
+      const wireframes = placedBlocksRef.current.filter(b => b.type === 'wireframe');
+      const blocks = [...wireframes, ...carryGeneratedEdits(next, placedBlocksRef.current, { keepFill: false, swatchMap })];
+      placedBlocksRef.current = blocks;
+      setPlacedBlocks(blocks);
+      lineworkLast.current = lineworkSettings;
+      if (changed) syncHistorySize();
+      // Each plate is a named group (selects together, moves together).
+      const plateNames = Object.fromEntries(lineworkSettings.layers.slice(1).map(l => [`linework-plate-${l.id}`, l.name]));
+      if (Object.entries(plateNames).some(([id, name]) => groupNames[id] !== name)) {
+        setGroupNames(names => ({ ...names, ...plateNames }));
+      }
+    }, 40);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineworkSig]);
+
+  // Settings edits from the Linework panel; `label` names a one-off step
+  // (a preset, a new seed) instead of the coalesced "Linework Settings".
+  const updateLinework = useCallback((changes, label = null) => {
+    lineworkLabel.current = label;
+    setLineworkSettings(prev => {
+      const base = mergeLineworkSettings(prev);
+      return typeof changes === 'function' ? changes(base) : { ...base, ...changes };
+    });
+  }, [setLineworkSettings]);
+
+  // The layer the Linework panel is editing; picked there or in Layers.
+  const [lineworkEditLayer, setLineworkEditLayer] = useState('base');
+
+  // Plates: added on top, removed, reordered (bottom → top) and renamed.
+  const lineworkPlates = useMemo(() => ({
+    add: () => {
+      const plate = newPlate(lineworkSettings.layers);
+      updateLinework(s => ({ ...s, layers: [...s.layers, plate] }), 'Add Plate');
+      setLineworkEditLayer(plate.id);
+    },
+    remove: (id) => {
+      updateLinework(s => ({ ...s, layers: s.layers.filter(l => l.id !== id) }), 'Delete Plate');
+      setLineworkEditLayer(cur => (cur === id ? 'base' : cur));
+    },
+    move: (id, dir) => {
+      const layers = lineworkSettings.layers;
+      const i = layers.findIndex(l => l.id === id), j = i + dir;
+      if (i < 1 || j < 1 || j >= layers.length) return;
+      updateLinework(s => {
+        const next = [...s.layers];
+        [next[i], next[j]] = [next[j], next[i]];
+        return { ...s, layers: next };
+      }, dir > 0 ? 'Bring Plate Forward' : 'Send Plate Backward');
+    },
+    rename: (id, name) => {
+      if (!name || lineworkSettings.layers.find(l => l.id === id)?.name === name) return;
+      updateLinework(s => ({ ...s, layers: s.layers.map(l => (l.id === id ? { ...l, name } : l)) }), 'Rename Plate');
+    },
+  }), [lineworkSettings.layers, updateLinework]);
+
+  const reseedLinework = useCallback(() => {
+    updateLinework(s => ({ ...s, layers: s.layers.map(l => ({ ...l, seed: Math.floor(Math.random() * 0x80000000) })) }), 'New Seed');
+  }, [updateLinework]);
+
+  const recolourLinework = useCallback(() => {
+    updateLinework(s => ({ ...s, colourSeed: Math.floor(Math.random() * 0x80000000) || 1 }), 'Shuffle Colours');
+  }, [updateLinework]);
+
+  // A preset sets the design, its colours (ink and shadow as the document
+  // swatches, ground as the canvas) and the column count.
+  const applyLineworkPreset = useCallback((name) => {
+    const preset = LINEWORK_PRESETS.find(pr => pr.name === name);
+    if (!preset) return;
+    const [ink, ground, shadow] = preset.colours;
+    const tag = crypto.randomUUID().slice(0, 4);
+    const swatches = [ink, shadow].map((hex, i) => ({ id: `lw-${tag}-${i}`, hex, enabled: i === 0, source: 'palette' }));
+    useDocumentStore.getState().setField(docId, 'paletteKey', preset.name);
+    setShapeColors(swatches);
+    setCanvasBg(ground);
+    if (preset.cols) setGridSettings(g => ({ ...g, cols: preset.cols }));
+    updateLinework(s => mergeLineworkSettings({
+      ...s, ...preset.settings, inkSwatch: null, groundSwatch: null, shadowSwatch: swatches[1].id,
+      layers: preset.settings.layers.map(l => ({ ...l })),
+    }), `Preset — ${preset.name}`);
+  }, [docId, setShapeColors, setCanvasBg, setGridSettings, updateLinework]);
+
+  // Surprise Me: a random preset's colours with a random design and seeds.
+  const surpriseLinework = useCallback(() => {
+    const r = Math.random, pick = (a) => a[Math.floor(r() * a.length)];
+    applyLineworkPreset(pick(LINEWORK_PRESETS).name);
+    const style = r() < 0.6 ? 'angular' : 'circuit';
+    const allFills = ['spiral', 'rings', 'split2', 'split4', 'hatch', 'chevron'];
+    const fills = () => [...allFills].sort(() => r() - 0.5).slice(0, 1 + Math.floor(r() * 3));
+    const layer = (l, over) => ({
+      ...l, style, seed: Math.floor(r() * 0x80000000), mask: 'none',
+      sym: style === 'circuit' ? pick(['mirror-both', 'mirror-x', 'none']) : pick(['mirror-both', 'mirror-diag', 'mirror-diag', 'rotate4']),
+      tile: pick([1, 2, 2, 3, 4]), fills: fills(), triFill: pick(['spiral', 'rings', 'mix']), orient: pick(['uniform', 'random']),
+      subdiv: pick([0, 0, 0.2, 0.4]), bundle: pick([1, 1, 2]), straight: 0.4 + r() * 0.4, weave: pick(['off', 'alternate']),
+      ...over,
+    });
+    const nPlates = pick([0, 1, 1, 2, 2, 3]);
+    updateLinework(s => {
+      let size = (gridComputed?.cols ?? 12) * pick([0.55, 0.65, 0.7]);
+      const layers = [layer(s.layers[0], { frame: 0 })];
+      for (let i = 1; i <= nPlates; i++) {
+        layers.push(layer(newPlate(layers), {
+          size: Math.round(size * 2) / 2, shape: pick(['square', 'diamond']), ox: 0, oy: 0,
+          shadow: pick(['soft', 'soft', 'hard', 'none']), depth: 0.15 + r() * 0.25, rim: pick([0, 0, 0.1, 0.15]),
+          scale: pick([1, 1, 0.75, 0.5]), edgeExit: 0,
+        }));
+        size *= pick([0.5, 0.6]);
+      }
+      return {
+        ...s, orientation: r() < 0.5 ? 'diamond' : 'square',
+        linesPerCell: pick([2, 3, 3, 4, 5]), lineRatio: pick([0.3, 0.45, 0.55, 0.65]), layers,
+      };
+    }, 'Surprise Me');
+  }, [applyLineworkPreset, updateLinework, gridComputed]);
 
   // Apply a predetermined layout: drop its wireframe placeholders and arm the
   // grid-area mask (used by the main Fill button). Starts from a clean canvas.
@@ -1585,12 +1843,16 @@ export function DocumentEditor({ mode: appMode }) {
       const ids = placedBlocks.filter(b => (b.type === 'vector' && b.fill?.toLowerCase() === from)
         || (b.type === 'image' && b.imageSrc?.startsWith('data:image/svg+xml') && recolourSvg(b.imageSrc) !== b.imageSrc)).map(b => b.id);
       if (!ids.length) return;
-      updateBlocks(ids, b => (b.type === 'vector' ? { ...b, fill: toHex } : { ...b, imageSrc: recolourSvg(b.imageSrc) }), 'Replace Colour');
+      const fillSwatch = ensureSwatch(toHex);
+      updateBlocks(ids, b => (b.type === 'vector' ? { ...b, fill: toHex, fillSwatch } : { ...b, imageSrc: recolourSvg(b.imageSrc) }), 'Replace Colour');
     },
-    // Meander: recolour individual strands/dots (skips locked ones).
+    // Vector layers: recolour individual strands / line groups (skips locked
+    // ones). The colour is pinned to a swatch, so it survives regenerating.
     setFill: (ids, hex) => {
       const targets = placedBlocks.filter(b => ids.includes(b.id) && b.type === 'vector' && !b.locked).map(b => b.id);
-      if (targets.length) updateBlocks(targets, b => ({ ...b, fill: hex }), 'Recolour');
+      if (!targets.length) return;
+      const fillSwatch = ensureSwatch(hex);
+      updateBlocks(targets, b => ({ ...b, fill: hex, fillSwatch }), 'Recolour');
     },
   }), [placedBlocks, setSelectedIds, updateBlocks, deselect, ensureSwatch, colourCtx, pushHistory, setPlacedBlocks, syncHistorySize, setGroupNames]);
 
@@ -1654,7 +1916,7 @@ export function DocumentEditor({ mode: appMode }) {
   // point, and the visible block (with u, v inside it) at each.
   const symmetricHits = useCallback((pt, blocks) => {
     const mode = useAppStore.getState().toolOptions.symmetry;
-    if (!gridComputed || !pt || mode === 'off') return [];
+    if (!gridComputed || !pt || normaliseSymmetry(mode) === 'none') return [];
     const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
     return symmetricPoints(mode, (pt.x - gridOriginX) / cellSize, (pt.y - gridOriginY) / cellSize, cols, rows)
       .map(([x, y]) => hitTest({ x: gridOriginX + x * cellSize, y: gridOriginY + y * cellSize }, blocks))
@@ -1763,6 +2025,7 @@ export function DocumentEditor({ mode: appMode }) {
     addRecentColour(hex);
     const swatchId = ensureSwatch(hex);
     updateBlocks(ids, b => {
+      if (b.type === 'vector') return { ...b, fill: hex, fillSwatch: swatchId };
       if (b.type) return b;
       const breakdown = blockColourBreakdown(b, colourCtx);
       const main = breakdown.find(e => e.hex === dominantColour(breakdown));
@@ -1813,6 +2076,53 @@ export function DocumentEditor({ mode: appMode }) {
 
     if (phase !== 'down') return;
     const block = hit?.block;
+
+    // Vector layers (generated designs) overlap on the grid, so they're
+    // found by their shape rather than the cell under the pointer.
+    const vec = (tool === 'wand' || tool === 'eyedropper' || tool === 'bucket') ? vectorAt(pt, blocks, gridComputed) : null;
+    if (vec) {
+      if (tool === 'wand') {
+        const target = vec.fill.toLowerCase();
+        const ids = blocks.filter(b => b.type === 'vector' && !b.hidden && !b.locked && b.fill.toLowerCase() === target).map(b => b.id);
+        setSelectedIds(prev => (pt.shiftKey || toolOptions.wandAdd ? new Set([...prev, ...ids]) : new Set(ids)));
+        return;
+      }
+      if (tool === 'eyedropper') {
+        const hex = vec.fill;
+        setToolOption({ paintHex: hex });
+        addRecentColour(hex);
+        const targets = pt.altKey ? blocks.filter(b => selectedIdsRef.current.has(b.id) && !b.locked && (!b.type || b.type === 'vector')).map(b => b.id) : [];
+        if (targets.length) {
+          paintIds(targets, hex);
+          showToast(`Painted ${targets.length} ${targets.length === 1 ? 'layer' : 'layers'} ${hex}`);
+        } else {
+          showToast(`Picked ${hex}`);
+        }
+        return;
+      }
+      if (vec.locked) { showToast('That layer is locked (Layers panel)'); return; }
+      // Paint Bucket: the clicked layer and the layer at each symmetric
+      // position -- or, for whole colour (Alt / Shift), every layer in that colour.
+      let targets;
+      if (pt.altKey || pt.shiftKey || toolOptions.bucketScope === 'colour') {
+        const from = vec.fill.toLowerCase();
+        targets = blocks.filter(b => b.type === 'vector' && !b.locked && !b.hidden && b.fill.toLowerCase() === from).map(b => b.id);
+      } else {
+        const ids = new Set([vec.id]);
+        const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
+        const mode = useAppStore.getState().toolOptions.symmetry;
+        for (const [x, y] of symmetricPoints(mode, (pt.x - gridOriginX) / cellSize, (pt.y - gridOriginY) / cellSize, cols, rows)) {
+          const b = vectorAt({ x: gridOriginX + x * cellSize, y: gridOriginY + y * cellSize }, blocks, gridComputed);
+          if (b && !b.locked) ids.add(b.id);
+        }
+        targets = [...ids];
+      }
+      const hex = toolOptions.paintHex;
+      addRecentColour(hex);
+      const fillSwatch = ensureSwatch(hex);
+      updateBlocks(targets, b => ({ ...b, fill: hex, fillSwatch }), 'Paint Bucket');
+      return;
+    }
 
     if (tool === 'wand') {
       if (!block) { if (!pt.shiftKey) setSelectedIds(new Set()); return; }
@@ -1886,7 +2196,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (tool === 'reflect') {
       updateBlocks([block.id], b => (pt.altKey ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }), 'Reflect');
     }
-  }, [hitTest, stampSymmetric, symmetricHits, handleMovePointer, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour]);
+  }, [hitTest, stampSymmetric, symmetricHits, handleMovePointer, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
 
   // Actions on the current selection, shared by the task bar, the right-click
   // menu and the Object / Select menus. Locked shapes are never edited.
@@ -1896,7 +2206,7 @@ export function DocumentEditor({ mode: appMode }) {
       const keys = new Set(placedBlocks.filter(b => selectedIds.has(b.id)).map(keyOf));
       setSelectedIds(new Set(placedBlocks.filter(b => !b.hidden && !b.locked && keys.has(keyOf(b))).map(b => b.id)));
     };
-    const colourKey = (b) => (b.type ? `type:${b.type}` : dominantColour(blockColourBreakdown(b, colourCtx)));
+    const colourKey = (b) => (b.type === 'vector' ? b.fill?.toLowerCase() : b.type ? `type:${b.type}` : dominantColour(blockColourBreakdown(b, colourCtx)));
     return {
       selectSameColour: () => selectMatching(colourKey),
       selectSameShape: () => selectMatching(b => b.assetId ?? b.type),
@@ -2144,6 +2454,12 @@ export function DocumentEditor({ mode: appMode }) {
     mode: appMode,
     gridComputed, validCols, workArea, assetUsageCounts,
     knotworkThemeColors,
+    linework: {
+      settings: lineworkSettings, update: updateLinework, roles: lineworkRoles,
+      editLayer: lineworkEditLayer, setEditLayer: setLineworkEditLayer, plates: lineworkPlates,
+      diamondCells: gridComputed && lineworkSettings.orientation === 'diamond'
+        ? lineworkBaseFrame(lineworkSettings, gridComputed).cells : null,
+    },
     audioFileSrc, setAudioFileSrc,
     fillActions,
     colourCtx, layerActions, selectedIds, selectionActions,
@@ -2163,6 +2479,10 @@ export function DocumentEditor({ mode: appMode }) {
       knotworkFill: handleKnotworkFill,
       knotworkRecolour: handleKnotworkRecolour,
       knotworkCanvasBgChange: handleKnotworkCanvasBgChange,
+      lineworkReseed: reseedLinework,
+      lineworkRecolour: recolourLinework,
+      lineworkPreset: applyLineworkPreset,
+      lineworkSurprise: surpriseLinework,
     },
     extracted: {
       palette: extractedPalette,
@@ -2176,7 +2496,42 @@ export function DocumentEditor({ mode: appMode }) {
       imageProgress: null,
       canKnotworkFill: gridComputed !== null,
     },
-  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
+  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, lineworkSettings, updateLinework, lineworkRoles, lineworkEditLayer, lineworkPlates, reseedLinework, recolourLinework, applyLineworkPreset, surpriseLinework, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
+
+  // The selection's colour for the control bar's Fill chip: one colour,
+  // 'mixed', or null with nothing colourable selected.
+  const selectionFill = useMemo(() => {
+    const fills = new Set();
+    for (const b of placedBlocks) {
+      if (!selectedIds.has(b.id)) continue;
+      if (b.type === 'vector') fills.add(b.fill?.toLowerCase());
+      else if (!b.type) fills.add(dominantColour(blockColourBreakdown(b, colourCtx))?.toLowerCase());
+    }
+    fills.delete(undefined);
+    return fills.size === 1 ? [...fills][0] : fills.size ? 'mixed' : null;
+  }, [placedBlocks, selectedIds, colourCtx]);
+
+  // Fills every editable selected layer / shape: a swatch pins it to that
+  // swatch; any other colour is kept as picked.
+  const fillSelection = useCallback((hex, swatchId = null) => {
+    const ids = placedBlocks.filter(b => selectedIds.has(b.id) && !b.locked && (b.type === 'vector' || !b.type)).map(b => b.id);
+    if (!ids.length) return;
+    addRecentColour(hex);
+    const shapeSwatch = placedBlocks.some(b => ids.includes(b.id) && !b.type) ? (swatchId ?? ensureSwatch(hex)) : null;
+    updateBlocks(ids, b => {
+      if (b.type === 'vector') {
+        const next = { ...b, fill: hex };
+        if (swatchId) { next.fillSwatch = swatchId; delete next.fillFixed; } else { next.fillFixed = true; delete next.fillSwatch; }
+        return next;
+      }
+      const breakdown = blockColourBreakdown(b, colourCtx);
+      const main = breakdown.find(e => e.hex === dominantColour(breakdown));
+      if (!main) return b;
+      const slotPins = { ...(b.slotPins ?? {}) };
+      for (const sl of main.slots) slotPins[sl] = shapeSwatch;
+      return { ...b, slotPins };
+    }, 'Fill');
+  }, [placedBlocks, selectedIds, addRecentColour, ensureSwatch, updateBlocks, colourCtx]);
 
   // ── Shell bridge ───────────────────────────────────────────────────────────
   // Menu bar, status bar and app-level shortcuts reach this editor through
@@ -2185,6 +2540,7 @@ export function DocumentEditor({ mode: appMode }) {
   const editorCommands = useMemo(() => ({
     openExport,
     selection: selectionActions,
+    fillSelection,
     showAll: () => layerActions.setHidden(placedBlocks.filter(b => b.hidden).map(b => b.id), false),
     unlockAll: () => layerActions.setLocked(placedBlocks.filter(b => b.locked).map(b => b.id), false),
     undo: handleUndo,
@@ -2230,10 +2586,14 @@ export function DocumentEditor({ mode: appMode }) {
     // Meander
     knotworkFill: handleKnotworkFill,
     knotworkRecolour: handleKnotworkRecolour,
+    // Linework
+    lineworkReseed: reseedLinework,
+    lineworkRecolour: recolourLinework,
+    lineworkSurprise: surpriseLinework,
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, selectionActions, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, guides, setGuides]);
+  }), [openExport, selectionActions, fillSelection, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, reseedLinework, recolourLinework, surpriseLinework, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -2242,10 +2602,11 @@ export function DocumentEditor({ mode: appMode }) {
     height: workArea.height,
     blockCount: placedBlocks.length,
     selectedCount: selectedIds.size,
+    selectionFill,
     canUndo: historySize.undo > 0,
     canRedo: historySize.redo > 0,
     canExport: placedBlocks.length > 0,
-  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, historySize]);
+  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize]);
   useEffect(() => { setEditorBridge(editorCommands, editorStatus); }, [setEditorBridge, editorCommands, editorStatus]);
   useEffect(() => () => setEditorBridge(null, null), [setEditorBridge]);
 

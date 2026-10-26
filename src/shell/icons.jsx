@@ -61,6 +61,14 @@ export const MeanderModeMark = ({ size = 40 }) => (
   </svg>
 );
 
+export const LineworkModeMark = ({ size = 40 }) => (
+  <svg width={size} height={size} viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="2.6"
+    strokeLinecap="butt" aria-hidden="true">
+    <path d="M6 34V6h28v28H11V11h18v18H16V16h8v8h-3" />
+    <path d="M2 38L20 20" opacity="0.4" />
+  </svg>
+);
+
 export const EyeIcon = ({ off, ...p }) => (
   <Icon size={14} {...p}>
     <path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z" opacity={off ? 0.35 : 1} />

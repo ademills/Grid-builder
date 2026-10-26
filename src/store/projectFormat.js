@@ -2,6 +2,7 @@ import { createDefaultDocState } from './docDefaults';
 import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
 import { mergeEffects } from '../effects/effectDefs';
 import { meanderCornerSettings } from '../utils/knotworkCompose';
+import { mergeLineworkSettings } from '../modes/linework/settings';
 
 // Project file format.
 //
@@ -85,7 +86,7 @@ export function parseProject(text) {
   } else {
     throw new Error(`Unsupported project version: ${version ?? 'unknown'}.`);
   }
-  if (!['gridBuilder', 'knotwork'].includes(mode)) mode = 'gridBuilder';
+  if (!['gridBuilder', 'knotwork', 'linework'].includes(mode)) mode = 'gridBuilder';
 
   const state = createDefaultDocState(mode);
   // Meander documents before v1.4.1 had one shared roundness; turn it into
@@ -98,6 +99,7 @@ export function parseProject(text) {
     if (fields[key] === undefined) continue;
     state[key] = MERGED_FIELDS.has(key) ? { ...state[key], ...fields[key] } : fields[key];
   }
+  state.lineworkSettings = mergeLineworkSettings(fields.lineworkSettings);
   state.enabledAssetIds = new Set(fields.enabledAssetIds ?? [...state.enabledAssetIds]);
   state.placedBlocks = hydrateBlocks(state.placedBlocks);
   state.effects = mergeEffects(fields.effects);

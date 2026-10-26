@@ -6,6 +6,7 @@ import { Stepper, Segmented, Toggle, SeedField, ImagePicker } from './controls';
 import { useEditor } from '../editor/EditorContext';
 import { RD_PRESETS, CA_RULES } from '../utils/organicFill';
 import { silhouetteCoverage, silhouetteCells } from '../utils/silhouetteMask';
+import { symmetryOptions, normaliseSymmetry, ORGANIC_SYMMETRY } from '../utils/symmetry';
 import styles from './Panel.module.css';
 
 function Slider({ label, value, min, max, step, onChange, format = v => v }) {
@@ -32,7 +33,7 @@ function ChoiceGrid({ value, options, onChange }) {
   );
 }
 
-const MIRROR_OPTIONS = [{ key: 'off', label: 'Off' }, { key: 'x', label: '↔' }, { key: 'xy', label: '✣' }];
+const MIRROR_OPTIONS = symmetryOptions(ORGANIC_SYMMETRY).map(m => ({ key: m.key, label: m.icon, title: m.title }));
 
 export function GlitchSettings({ s, set }) {
   return (
@@ -1070,7 +1071,7 @@ export function OrganicSettings({ s, set }) {
       )}
       <div className={styles.formRow}>
         <span className={styles.label}>Mirror start</span>
-        <Segmented value={s.symmetry} onChange={v => set({ symmetry: v })} options={MIRROR_OPTIONS} />
+        <Segmented value={normaliseSymmetry(s.symmetry)} onChange={v => set({ symmetry: v })} options={MIRROR_OPTIONS} />
       </div>
       <div className={styles.formRow}>
         <span className={styles.label}>Invert</span>

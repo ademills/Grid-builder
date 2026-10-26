@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { PALETTES, PALETTE_GROUPS } from '../utils/colorize';
 import { wireframeRects } from '../utils/layouts';
 import { randomSeed } from './panelUtils';
+import { symmetryOptions, normaliseSymmetry } from '../utils/symmetry';
 import styles from './Panel.module.css';
 
 export function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues }) {
@@ -61,6 +62,17 @@ export function SeedField({ value, onChange }) {
         <button className={styles.actionBtn} title="Randomise seed" onClick={() => onChange(randomSeed())}>⟳</button>
       </div>
     </div>
+  );
+}
+
+// Symmetry picker shared by the generator panels, listing the modes in `keys`.
+export function SymmetrySelect({ value, onChange, keys }) {
+  return (
+    <select className={styles.select} value={normaliseSymmetry(value)} onChange={e => onChange(e.target.value)}>
+      {symmetryOptions(keys).map(m => (
+        <option key={m.key} value={m.key} title={m.title}>{m.key === 'none' ? m.label : `${m.icon}  ${m.label}`}</option>
+      ))}
+    </select>
   );
 }
 

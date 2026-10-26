@@ -35,9 +35,19 @@ const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSele
     >
       {block.type !== 'vector' && <rect x={x} y={y} width={w} height={h} fill="transparent" style={{ pointerEvents: 'all' }} />}
       {block.type === 'vector' ? (
-        // ghost: live effects draw the strand on the canvas; this copy only catches clicks.
-        <path d={block.d} fill={block.fill} fillOpacity={ghost ? 0 : undefined} transform={vectorTransform(block, box)}
-          style={{ pointerEvents: 'fill' }} />
+        <>
+          {block.blur > 0 && (
+            <defs>
+              <filter id={`vblur-${block.id}`} x="-25%" y="-25%" width="150%" height="150%">
+                <feGaussianBlur stdDeviation={block.blur} />
+              </filter>
+            </defs>
+          )}
+          {/* ghost: live effects draw the strand on the canvas; this copy only catches clicks. */}
+          <path d={block.d} fill={block.fill} fillOpacity={ghost ? 0 : undefined} transform={vectorTransform(block, box)}
+            filter={block.blur > 0 ? `url(#vblur-${block.id})` : undefined}
+            style={{ pointerEvents: block.blur > 0 ? 'none' : 'fill' }} />
+        </>
       ) : block.type === 'text' ? (
         <foreignObject x={x} y={y} width={w} height={h} style={{ pointerEvents: 'none', overflow: 'visible' }}
           transform={block.rotation ? `rotate(${block.rotation} ${x + w / 2} ${y + h / 2})` : undefined}>

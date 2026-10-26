@@ -3,6 +3,7 @@ import { PRESETS } from '../gridPresets';
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { Stepper, Toggle } from './controls';
+import { SwatchColourField } from './SwatchColourField';
 import styles from './Panel.module.css';
 
 // Document-level settings, like Illustrator's Properties panel with nothing
@@ -21,6 +22,7 @@ export function PropertiesPanel() {
   const [bgColor, setBgColor] = useDocField('bgColor');
   const [showTilePreview, setShowTilePreview] = useDocField('showTilePreview');
   const isGrid = mode === 'gridBuilder';
+  const isMeander = mode === 'knotwork';
 
   // Typed-but-uncommitted width/height; reset whenever the stored size changes.
   const [rawWidth, setRawWidth] = useState(String(customSize?.width ?? ''));
@@ -38,8 +40,8 @@ export function PropertiesPanel() {
   };
 
   // Meander bakes the canvas colour into its generated block, so it needs
-  // the editor's handler that regenerates; Grid mode just sets the field.
-  const onCanvasBg = isGrid ? setCanvasBg : actions.knotworkCanvasBgChange;
+  // the editor's handler that regenerates; the other modes just set the field.
+  const onCanvasBg = isMeander ? actions.knotworkCanvasBgChange : setCanvasBg;
 
   return (
     <div className={styles.sectionContent}>
@@ -70,17 +72,11 @@ export function PropertiesPanel() {
       <div className={styles.formRowPair}>
         <div className={styles.stackedField}>
           <span className={styles.label}>Canvas</span>
-          <div className={styles.colorRow}>
-            <input type="color" value={canvasBg} onChange={e => onCanvasBg(e.target.value)} className={styles.colorInput} />
-            <span className={styles.colorLabel}>{canvasBg}</span>
-          </div>
+          <SwatchColourField value={canvasBg} onChange={onCanvasBg} title="Canvas colour — a document swatch or any colour" />
         </div>
         <div className={styles.stackedField}>
           <span className={styles.label}>Pasteboard</span>
-          <div className={styles.colorRow}>
-            <input type="color" value={bgColor} onChange={e => setBgColor(e.target.value)} className={styles.colorInput} />
-            <span className={styles.colorLabel}>{bgColor}</span>
-          </div>
+          <SwatchColourField value={bgColor} onChange={setBgColor} title="Pasteboard colour — a document swatch or any colour" />
         </div>
       </div>
 
@@ -88,7 +84,7 @@ export function PropertiesPanel() {
       <div className={styles.formRowPair}>
         <div className={styles.stackedField}>
           <span className={styles.label}>Columns</span>
-          <Stepper value={gridSettings.cols} onChange={v => setGridSettings({ cols: v })} min={1} max={isGrid ? 80 : 160} validValues={validCols} />
+          <Stepper value={gridSettings.cols} onChange={v => setGridSettings({ cols: v })} min={1} max={isMeander ? 160 : 80} validValues={validCols} />
         </div>
         <div className={styles.stackedField}>
           <span className={styles.label}>Border</span>
@@ -154,7 +150,7 @@ export function PropertiesPanel() {
         </>
       )}
 
-      {!isGrid && (
+      {isMeander && (
         <div className={styles.formRow}>
           <span className={styles.label}>Tile preview</span>
           <Toggle value={showTilePreview} onChange={setShowTilePreview} title="Preview the current design repeated as a seamless single-motif tile" />

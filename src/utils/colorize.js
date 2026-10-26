@@ -589,6 +589,65 @@ function buildColorTemplate(svgContent) {
   return template;
 }
 
+// Gradient colour mode: how far along the gradient (0..1) a position is,
+// with nx, ny across the grid (0..1). Shared with Linework's line groups.
+export function gradientT(nx, ny, settings, seed = 0) {
+  const {
+    angle = 45, gradMode = 'linear', centerX = 0.5, centerY = 0.5,
+    gradScale = 1, jitter = 0, repeat = 1, repeatMode = 'tile',
+  } = settings;
+  let t;
+  if (gradMode === 'radial') {
+    const maxDist = Math.max(
+      Math.hypot(0 - centerX, 0 - centerY),
+      Math.hypot(1 - centerX, 0 - centerY),
+      Math.hypot(0 - centerX, 1 - centerY),
+      Math.hypot(1 - centerX, 1 - centerY),
+    );
+    t = maxDist > 0 ? Math.min(Math.hypot(nx - centerX, ny - centerY) / maxDist, 1) : 0;
+  } else {
+    const rad = (angle * Math.PI) / 180;
+    const cx = Math.cos(rad);
+    const cy = Math.sin(rad);
+    const raw = nx * cx + ny * cy;
+    const rawMin = Math.min(0, cx) + Math.min(0, cy);
+    const rawMax = Math.max(0, cx) + Math.max(0, cy);
+    t = rawMax > rawMin ? (raw - rawMin) / (rawMax - rawMin) : 0;
+  }
+
+  t = t * gradScale;
+
+  if (repeat > 1) {
+    t = t * repeat;
+    if (repeatMode === 'mirror') {
+      const raw = t % 2;
+      t = raw <= 1 ? raw : 2 - raw;
+    } else {
+      t = t % 1;
+    }
+  }
+
+  if (jitter > 0) {
+    const jitterRand = ((seed * 2654435761) >>> 0) / 4294967296;
+    t += (jitterRand - 0.5) * jitter;
+  }
+
+  return Math.min(1, Math.max(0, t));
+}
+
+// Mesh colour mode: the inverse-distance blend of the mesh points at nx, ny.
+export function meshColourAt(points, nx, ny, weightPower = 2) {
+  let r = 0, g = 0, b = 0, wsum = 0;
+  for (const p of points) {
+    const dist = Math.hypot(nx - p.x, ny - p.y);
+    if (dist < 1e-6) return p.hex;
+    const w = 1 / Math.pow(dist, weightPower);
+    const [pr, pg, pb] = hexToRgb(p.hex);
+    r += pr * w; g += pg * w; b += pb * w; wsum += w;
+  }
+  return rgbToHex(r / wsum, g / wsum, b / wsum);
+}
+
 // Pure re-derivation of colorizeSvg's per-mode colour assignment as a flat
 // colours[] array indexed by slot id — or null if this mode/state combination
 // applies no fill changes (caller falls back to the original markup).
@@ -612,61 +671,11 @@ function computeSlotColours(template, mode, palette, seed, colorOffset, bgOption
   }
 
   if (mode === 'gradient' && gradientPos) {
-    const {
-      gridCol, gridRow, gridCols, gridRows,
-      angle = 45, gradMode = 'linear',
-      gradBgColors,
-      centerX = 0.5, centerY = 0.5,
-      gradScale = 1,
-      reverseBg = false,
-      jitter = 0,
-      repeat = 1,
-      repeatMode = 'tile',
-    } = gradientPos;
-
-    let t;
-    if (gradMode === 'radial') {
-      const nx = gridCols > 1 ? gridCol / (gridCols - 1) : 0.5;
-      const ny = gridRows > 1 ? gridRow / (gridRows - 1) : 0.5;
-      const cx = centerX;
-      const cy = centerY;
-      const maxDist = Math.max(
-        Math.hypot(0 - cx, 0 - cy),
-        Math.hypot(1 - cx, 0 - cy),
-        Math.hypot(0 - cx, 1 - cy),
-        Math.hypot(1 - cx, 1 - cy),
-      );
-      t = maxDist > 0 ? Math.min(Math.hypot(nx - cx, ny - cy) / maxDist, 1) : 0;
-    } else {
-      const rad = (angle * Math.PI) / 180;
-      const cx = Math.cos(rad);
-      const cy = Math.sin(rad);
-      const nx = gridCols > 1 ? gridCol / (gridCols - 1) : 0;
-      const ny = gridRows > 1 ? gridRow / (gridRows - 1) : 0;
-      const raw = nx * cx + ny * cy;
-      const rawMin = Math.min(0, cx) + Math.min(0, cy);
-      const rawMax = Math.max(0, cx) + Math.max(0, cy);
-      t = rawMax > rawMin ? (raw - rawMin) / (rawMax - rawMin) : 0;
-    }
-
-    t = t * gradScale;
-
-    if (repeat > 1) {
-      t = t * repeat;
-      if (repeatMode === 'mirror') {
-        const raw = t % 2;
-        t = raw <= 1 ? raw : 2 - raw;
-      } else {
-        t = t % 1;
-      }
-    }
-
-    if (jitter > 0) {
-      const jitterRand = ((seed * 2654435761) >>> 0) / 4294967296;
-      t += (jitterRand - 0.5) * jitter;
-    }
-
-    t = Math.min(1, Math.max(0, t));
+    const { gridCol, gridRow, gridCols, gridRows, gradMode = 'linear', gradBgColors, reverseBg = false } = gradientPos;
+    const radial = gradMode === 'radial';
+    const nx = gridCols > 1 ? gridCol / (gridCols - 1) : (radial ? 0.5 : 0);
+    const ny = gridRows > 1 ? gridRow / (gridRows - 1) : (radial ? 0.5 : 0);
+    const t = gradientT(nx, ny, gradientPos, seed);
     const blockColor = palette[Math.round(t * (palette.length - 1))];
     const bgPool = gradBgColors && gradBgColors.length ? gradBgColors : [palette[0]];
     const rand = mulberry32(seed);
@@ -681,18 +690,7 @@ function computeSlotColours(template, mode, palette, seed, colorOffset, bgOption
     const { gridCol, gridRow, gridCols, gridRows, points, weightPower = 2, bgPoints } = meshPos;
     const nx = gridCols > 1 ? gridCol / (gridCols - 1) : 0.5;
     const ny = gridRows > 1 ? gridRow / (gridRows - 1) : 0.5;
-
-    const blend = (pts) => {
-      let r = 0, g = 0, b = 0, wsum = 0;
-      for (const p of pts) {
-        const dist = Math.hypot(nx - p.x, ny - p.y);
-        if (dist < 1e-6) return p.hex;
-        const w = 1 / Math.pow(dist, weightPower);
-        const [pr, pg, pb] = hexToRgb(p.hex);
-        r += pr * w; g += pg * w; b += pb * w; wsum += w;
-      }
-      return rgbToHex(r / wsum, g / wsum, b / wsum);
-    };
+    const blend = (pts) => meshColourAt(pts, nx, ny, weightPower);
 
     const blockColor = blend(points);
     const rand = mulberry32(seed);

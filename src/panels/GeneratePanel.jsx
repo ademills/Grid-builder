@@ -94,14 +94,16 @@ export function GeneratePanel() {
 // Predetermined page layouts: wireframe placeholders plus a grid area that
 // the Fill button fills.
 export function LayoutsPanel() {
-  const { actions, workArea } = useEditor();
+  const { actions, workArea, mode } = useEditor();
   const [activeLayoutId] = useDocField('activeLayoutId');
   const aspect = (workArea?.width && workArea?.height) ? workArea.width / workArea.height : 0.75;
 
   return (
     <div className={styles.sectionContent}>
       <div className={styles.gridNote}>
-        Grey blocks are wireframe placeholders. The hatched grid area fills with shapes when you press Fill.
+        Grey blocks are wireframe placeholders. {mode === 'linework'
+          ? 'The Linework design fills the hatched grid areas.'
+          : 'The hatched grid area fills with shapes when you press Fill.'}
       </div>
       {activeLayoutId && (
         <button className={styles.actionBtn} style={{ width: '100%', marginBottom: 10 }} onClick={actions.clearLayout}>

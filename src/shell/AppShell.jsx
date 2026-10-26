@@ -83,7 +83,7 @@ function useShellShortcuts(activeId, activeMode) {
 
 // Menu structure: command ids, 'separator', or { heading }.
 const MENUS = [
-  { label: 'File', items: ['file.newGrid', 'file.newMeander', 'separator', 'file.open', 'recent', 'separator',
+  { label: 'File', items: ['file.newGrid', 'file.newMeander', 'file.newLinework', 'separator', 'file.open', 'recent', 'separator',
     'file.save', 'file.saveAs', 'separator', 'file.export', 'file.exportSvg', 'separator', 'file.close'] },
   { label: 'Edit', items: ['edit.undo', 'edit.redo', 'separator', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate',
     'separator', 'edit.delete'] },

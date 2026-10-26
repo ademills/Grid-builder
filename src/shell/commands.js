@@ -47,6 +47,7 @@ export const COMMANDS = {
   // File
   'file.newGrid':   { label: 'New Grid Pattern', shortcut: 'Ctrl+N', inInputs: true, run: () => newDocument('gridBuilder') },
   'file.newMeander': { label: 'New Meander', shortcut: 'Ctrl+Shift+N', inInputs: true, run: () => newDocument('knotwork') },
+  'file.newLinework': { label: 'New Linework', inInputs: true, run: () => newDocument('linework') },
   'file.open':      { label: 'Open…', shortcut: 'Ctrl+O', inInputs: true, run: () => openDocument() },
   'file.save':      { label: 'Save', shortcut: 'Ctrl+S', inInputs: true, enabled: c => !!c.activeDoc, run: c => saveDocument(c.activeDoc.id) },
   'file.saveAs':    { label: 'Save As…', shortcut: 'Ctrl+Shift+S', inInputs: true, enabled: c => !!c.activeDoc, run: c => saveDocument(c.activeDoc.id, { saveAs: true }) },
@@ -75,9 +76,9 @@ export const COMMANDS = {
   'object.randomOpacity': { label: 'Random Opacity', enabled: hasSel, run: c => c.cmds.selection.randomOpacity() },
   'object.resetOpacity':  { label: 'Reset Opacity & Blend', enabled: hasSel, run: c => c.cmds.selection.resetAppearance() },
   'object.hide':      { label: 'Hide', enabled: hasSel, run: c => c.cmds.selection.hide() },
-  'object.showAll':   { label: 'Show All', enabled: gridDoc, run: c => c.cmds.showAll() },
+  'object.showAll':   { label: 'Show All', enabled: hasDoc, run: c => c.cmds.showAll() },
   'object.lock':      { label: 'Lock', enabled: hasSel, run: c => c.cmds.selection.lock() },
-  'object.unlockAll': { label: 'Unlock All', enabled: gridDoc, run: c => c.cmds.unlockAll() },
+  'object.unlockAll': { label: 'Unlock All', enabled: hasDoc, run: c => c.cmds.unlockAll() },
 
   // Select
   'select.all':       { label: 'All', shortcut: 'Ctrl+A', enabled: hasDoc, run: c => c.cmds.selectAll() },
@@ -92,7 +93,7 @@ export const COMMANDS = {
   'generate.clear':   { label: 'Clear Canvas', enabled: c => c.gridDoc && (c.status?.blockCount ?? 0) > 0, run: c => c.cmds.clearCanvas() },
   'generate.flipH':   { label: 'Flip Layout Horizontally', enabled: c => c.gridDoc && (c.status?.blockCount ?? 0) > 0, run: c => c.cmds.flipLayout(false) },
   'generate.flipV':   { label: 'Flip Layout Vertically', enabled: c => c.gridDoc && (c.status?.blockCount ?? 0) > 0, run: c => c.cmds.flipLayout(true) },
-  'generate.clearLayout': { label: 'Clear Layout', enabled: c => c.gridDoc && !!c.cmds.hasLayout, run: c => c.cmds.clearLayout() },
+  'generate.clearLayout': { label: 'Clear Layout', enabled: c => c.hasDoc && c.activeDoc.mode !== 'knotwork' && !!c.cmds.hasLayout, run: c => c.cmds.clearLayout() },
 
   // Colour
   'colour.shuffle':   { label: 'Shuffle Colours', enabled: c => c.gridDoc && (c.status?.blockCount ?? 0) > 0, run: c => c.cmds.shuffleColours() },
@@ -107,6 +108,11 @@ export const COMMANDS = {
   // Meander
   'meander.fill':    { label: 'Generate', enabled: c => c.hasDoc && c.activeDoc.mode === 'knotwork', run: c => c.cmds.knotworkFill() },
   'meander.recolour': { label: 'Recolour Strands', enabled: c => c.hasDoc && c.activeDoc.mode === 'knotwork' && (c.status?.blockCount ?? 0) > 0, run: c => c.cmds.knotworkRecolour() },
+
+  // Linework
+  'linework.reseed':   { label: 'New Seed', enabled: c => c.hasDoc && c.activeDoc.mode === 'linework', run: c => c.cmds.lineworkReseed() },
+  'linework.recolour': { label: 'Shuffle Colours', enabled: c => c.hasDoc && c.activeDoc.mode === 'linework', run: c => c.cmds.lineworkRecolour() },
+  'linework.surprise': { label: 'Surprise Me', enabled: c => c.hasDoc && c.activeDoc.mode === 'linework', run: c => c.cmds.lineworkSurprise() },
 
   // View
   'view.zoomIn':   { label: 'Zoom In', shortcut: 'Ctrl++', keys: ['Ctrl+='], inInputs: true, enabled: hasDoc, run: c => c.cmds.zoomIn() },

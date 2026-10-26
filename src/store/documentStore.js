@@ -8,7 +8,7 @@ import { PRESETS, getValidCols } from '../gridPresets';
 // `state` is the per-document field bag from createDefaultDocState(); the
 // editor reads/writes it field-by-field through useDocField().
 
-let untitledCounter = { gridBuilder: 0, knotwork: 0 };
+let untitledCounter = { gridBuilder: 0, knotwork: 0, linework: 0 };
 
 // Mirrors the validCols snapping in DocumentEditor (same column ceilings).
 function snapGridCols(state, mode) {

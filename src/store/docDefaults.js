@@ -2,6 +2,7 @@ import { PALETTES, PALETTE_KEYS } from '../utils/colorize';
 import { DEFAULT_ENABLED_IDS } from '../builtinAssets';
 import { ANIM_DEFAULTS } from '../components/AnimationLayer';
 import { createDefaultEffects } from '../effects/effectDefs';
+import { createLineworkSettings } from '../modes/linework/settings';
 
 // Every piece of per-document state the editor reads via useDocField().
 // Anything not listed here is either app-level (tools, swatch libraries,
@@ -13,6 +14,7 @@ const randomSeed = () => Math.floor(Math.random() * 0x80000000);
 export const MODES = {
   gridBuilder: { label: 'Grid Pattern', shortLabel: 'Grid' },
   knotwork:    { label: 'Meander',      shortLabel: 'Meander' },
+  linework:    { label: 'Linework',     shortLabel: 'Linework' },
 };
 
 // Built fresh per document so every new document gets its own random seeds.
@@ -128,6 +130,9 @@ export function createDefaultDocState() {
       letterColour: null, letterColourExclusive: false,
     },
     showTilePreview: false,
+
+    // Linework — see modes/linework/settings.js and utils/linework/compose.js.
+    lineworkSettings: createLineworkSettings(),
 
     // Assets & content
     enabledAssetIds: new Set(DEFAULT_ENABLED_IDS),

@@ -1,23 +1,36 @@
+import { normaliseSymmetry } from '../utils/symmetry';
+
 // Artboard overlays drawn for the active tool (never exported).
 
 // Live symmetry axes for Stamp / Eraser / Paint Bucket.
-export function SymmetryAxes({ mode, gridComputed }) {
-  if (!gridComputed || !mode || mode === 'off') return null;
+export function SymmetryAxes({ mode: rawMode, gridComputed }) {
+  const mode = normaliseSymmetry(rawMode);
+  if (!gridComputed || mode === 'none') return null;
   const { gridOriginX: x, gridOriginY: y, gridW: w, gridH: h, cols, rows } = gridComputed;
   const cx = x + w / 2, cy = y + h / 2;
   const line = { stroke: '#e0447a', strokeWidth: 1.25, strokeDasharray: '8 5', vectorEffect: 'non-scaling-stroke' };
-  const vertical = mode === 'x' || mode === 'xy' || mode === 'radial';
-  const horizontal = mode === 'y' || mode === 'xy' || mode === 'radial';
+  const rotational = mode === 'rotate2' || mode === 'rotate4';
+  const diag = mode === 'mirror-diag' && cols === rows;
+  const vertical = mode === 'mirror-x' || mode === 'mirror-both' || mode === 'mirror-diag' || rotational;
+  const horizontal = mode === 'mirror-y' || mode === 'mirror-both' || mode === 'mirror-diag' || rotational;
+  const dash = rotational ? '2 6' : line.strokeDasharray;
+  const copies = mode === 'rotate4' && cols === rows ? 4 : 2;
   return (
     <g pointerEvents="none" data-noexport="true" opacity={0.85}>
-      {vertical && <line x1={cx} y1={y} x2={cx} y2={y + h} {...line} strokeDasharray={mode === 'radial' ? '2 6' : line.strokeDasharray} />}
-      {horizontal && <line x1={x} y1={cy} x2={x + w} y2={cy} {...line} strokeDasharray={mode === 'radial' ? '2 6' : line.strokeDasharray} />}
-      {mode === 'radial' && (
+      {vertical && <line x1={cx} y1={y} x2={cx} y2={y + h} {...line} strokeDasharray={dash} />}
+      {horizontal && <line x1={x} y1={cy} x2={x + w} y2={cy} {...line} strokeDasharray={dash} />}
+      {diag && (
+        <>
+          <line x1={x} y1={y} x2={x + w} y2={y + h} {...line} />
+          <line x1={x + w} y1={y} x2={x} y2={y + h} {...line} />
+        </>
+      )}
+      {rotational && (
         <>
           <circle cx={cx} cy={cy} r={Math.min(w, h) * 0.04} fill="none" {...line} strokeDasharray="none" />
           <text x={cx + Math.min(w, h) * 0.05} y={cy - Math.min(w, h) * 0.05} fill="#e0447a"
             fontSize={Math.min(w, h) * 0.035} style={{ userSelect: 'none' }}>
-            {cols === rows ? '×4' : '×2'}
+            ×{copies}
           </text>
         </>
       )}

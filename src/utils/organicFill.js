@@ -1,4 +1,5 @@
 import { mulberry32 } from './rng';
+import { normaliseSymmetry } from './symmetry';
 
 /**
  * Organic fill: grows a pattern and fills the cells it covers. Two engines:
@@ -40,12 +41,21 @@ const RD_WAVELENGTH = 12;
 const RD_MAX_PIXELS = 48000;
 
 // Copies the left half onto the right (and/or top onto bottom), mirrored.
-function mirrorField(field, w, h, mode) {
-  if (mode === 'x' || mode === 'xy') {
+function mirrorField(field, w, h, symmetry) {
+  const mode = normaliseSymmetry(symmetry);
+  const mx = mode === 'mirror-x' || mode === 'mirror-both' || mode === 'mirror-diag';
+  const my = mode === 'mirror-y' || mode === 'mirror-both' || mode === 'mirror-diag';
+  // Diagonal first, inside the top-left quadrant, so the mirrors carry it out.
+  if (mode === 'mirror-diag' && w === h) {
+    const n = Math.ceil(w / 2);
+    for (let y = 0; y < n; y++)
+      for (let x = 0; x < y; x++) field[y * w + x] = field[x * w + y];
+  }
+  if (mx) {
     for (let y = 0; y < h; y++)
       for (let x = Math.ceil(w / 2); x < w; x++) field[y * w + x] = field[y * w + (w - 1 - x)];
   }
-  if (mode === 'xy') {
+  if (my) {
     for (let y = Math.ceil(h / 2); y < h; y++)
       for (let x = 0; x < w; x++) field[y * w + x] = field[(h - 1 - y) * w + x];
   }

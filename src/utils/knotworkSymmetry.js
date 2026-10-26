@@ -20,6 +20,9 @@
 function mirrorX(cell, cols) { return { col: cols - 1 - cell.col, row: cell.row }; }
 function mirrorY(cell, rows) { return { col: cell.col, row: rows - 1 - cell.row }; }
 function rotate180(cell, cols, rows) { return { col: cols - 1 - cell.col, row: rows - 1 - cell.row }; }
+// Diagonal mirrors (square grids; off-grid cells are dropped as for rotate4).
+function transpose(cell) { return { col: cell.row, row: cell.col }; }
+function antiTranspose(cell, cols, rows) { return { col: cols - 1 - cell.row, row: rows - 1 - cell.col }; }
 
 // Rotates a cell by `angleDeg` around the grid's center, snapping to the
 // nearest integer cell — used for 90°-family rotation and kaleidoscope
@@ -48,6 +51,15 @@ export function getSymmetryTransforms(mode, kaleidoscopeFold = 4) {
       (c, cols, rows) => mirrorY(c, rows),
       (c, cols, rows) => rotate180(c, cols, rows),
     ];
+    case 'mirror-diag': return [
+      (c, cols) => mirrorX(c, cols),
+      (c, cols, rows) => mirrorY(c, rows),
+      (c, cols, rows) => rotate180(c, cols, rows),
+      (c) => transpose(c),
+      (c, cols, rows) => antiTranspose(c, cols, rows),
+      (c, cols, rows) => rotateAround(c, cols, rows, 90),
+      (c, cols, rows) => rotateAround(c, cols, rows, 270),
+    ];
     case 'rotate2': return [(c, cols, rows) => rotate180(c, cols, rows)];
     case 'rotate4': return [90, 180, 270].map(deg => (c, cols, rows) => rotateAround(c, cols, rows, deg));
     case 'kaleidoscope': {
@@ -70,6 +82,9 @@ export function getSymmetrySeedRegionTest(mode, kaleidoscopeFold = 4) {
     case 'mirror-x': return (col, row, cols) => col <= half(cols);
     case 'mirror-y': return (col, row, cols, rows) => row <= half(rows);
     case 'mirror-both': return (col, row, cols, rows) => col <= half(cols) && row <= half(rows);
+    // Strictly off the diagonal: a strand on it would collide with its own
+    // mirror image, so diagonal cells are left to the mop-up pass.
+    case 'mirror-diag': return (col, row, cols, rows) => col <= half(cols) && row <= half(rows) && row < col;
     case 'rotate2': return (col, row, cols, rows) => row <= half(rows);
     case 'rotate4': return (col, row, cols, rows) => col <= half(cols) && row <= half(rows);
     case 'kaleidoscope': {

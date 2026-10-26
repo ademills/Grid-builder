@@ -284,18 +284,232 @@ export function LayersPanel() {
   );
 }
 
-// Layers for Meander: every strand and dot is its own layer, grouped by
-// colour. Groups and single strands can be selected, recoloured, hidden and
-// locked; colour changes last until the next Generate / Recolour / swatch
-// edit (reshaping with the shape sliders keeps them).
+// Layers for Meander: every strand and dot is its own layer.
 export function MeanderLayersPanel() {
+  const [placedBlocks] = useDocField('placedBlocks');
+  const vectors = placedBlocks.filter(b => b.type === 'vector');
+  if (!vectors.length) return <LegacyMeanderLayers />;
+  const strandCount = vectors.filter(b => b.meanderKey?.startsWith('s')).length;
+  return <VectorLayersPanel summary={`${strandCount} strands · ${vectors.length - strandCount} dots`} />;
+}
+
+// Layers for Linework: the base and its plates (top first), where plates are
+// added, renamed, reordered and deleted. Inside each: its ground, shadow and
+// rim, then its lines grouped by colour, then each line group. Every row can
+// be recoloured (pinned to a swatch, so it lasts through rebuilds), hidden,
+// locked and selected; clicking a layer also makes it the one the Linework
+// panel edits.
+const KIND_LABEL = { ground: 'Ground', shadow: 'Shadow', rim: 'Rim', outline: 'Outlines' };
+
+export function LineworkLayersPanel() {
+  const { layerActions, selectedIds, linework } = useEditor();
+  const [placedBlocks] = useDocField('placedBlocks');
+  const [shapeColors] = useDocField('shapeColors');
+  const [open, setOpen] = useState(() => new Set(['base']));
+  const [recolouring, setRecolouring] = useState(null);
+  const [renaming, setRenaming] = useState(null);
+
+  const layers = linework.settings.layers;
+  const byLayer = useMemo(() => {
+    const m = new Map();
+    for (const b of placedBlocks) {
+      if (b.type !== 'vector') continue;
+      const id = b.lwLayer ?? 'base';
+      if (!m.has(id)) m.set(id, []);
+      m.get(id).push(b);
+    }
+    return m;
+  }, [placedBlocks]);
+  const swatchName = useMemo(() => {
+    const m = new Map();
+    for (const sw of shapeColors) if (!m.has(sw.hex.toLowerCase())) m.set(sw.hex.toLowerCase(), sw.name || null);
+    return m;
+  }, [shapeColors]);
+  const hexOf = swatch => (swatch.startsWith('#') ? swatch : shapeColors.find(sw => sw.id === swatch)?.hex);
+
+  const toggleOpen = key => setOpen(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+
+  // Recolour button + strip for a set of blocks; `rowKey` identifies the row.
+  const recolourButton = (rowKey, title = 'Recolour') => (
+    <button className={styles.layerRecolour} onClick={e => { e.stopPropagation(); setRecolouring(r => (r === rowKey ? null : rowKey)); }}
+      title={title}>⇄</button>
+  );
+  const recolourStrip = (rowKey, ids) => recolouring === rowKey && (
+    <SwatchStrip swatches={shapeColors} onPick={swatch => {
+      const hex = hexOf(swatch);
+      if (hex) layerActions.setFill(ids, hex);
+      setRecolouring(null);
+    }} />
+  );
+  const toggles = (blocks) => {
+    const ids = blocks.map(b => b.id);
+    const hiddenCount = blocks.filter(b => b.hidden).length, lockedCount = blocks.filter(b => b.locked).length;
+    const allHidden = hiddenCount === blocks.length, allLocked = lockedCount === blocks.length;
+    return (
+      <RowToggles hidden={allHidden} locked={allLocked}
+        mixedHidden={hiddenCount > 0 && !allHidden} mixedLocked={lockedCount > 0 && !allLocked}
+        onHidden={() => layerActions.setHidden(ids, !allHidden)}
+        onLocked={() => layerActions.setLocked(ids, !allLocked)} />
+    );
+  };
+  const selectedOf = (blocks) => blocks.filter(b => selectedIds.has(b.id)).length;
+  const colourName = (hex) => swatchName.get(hex) ?? null;
+
+  const itemRow = (b, depth) => (
+    <div key={b.id}>
+      <div
+        className={`${styles.layerRow} ${styles.layerItemRow} ${selectedIds.has(b.id) ? styles.layerRowSelected : ''} ${b.hidden ? styles.layerRowHidden : ''}`}
+        style={{ paddingLeft: 12 + depth * 14 }}
+        onMouseEnter={() => layerActions.highlight(new Set([b.id]))}
+        onClick={e => layerActions.select(e.shiftKey ? [...new Set([...selectedIds, b.id])] : [b.id])}
+      >
+        <span className={styles.layerChips}><span className={styles.layerMiniChip} style={{ background: b.fill }} /></span>
+        <span className={styles.layerName}>{b.name}</span>
+        {(b.fillSwatch || b.fillFixed) && <span className={styles.layerPinned} title="Colour set by hand"><PinIcon /></span>}
+        {recolourButton(b.id, 'Recolour this group')}
+        {toggles([b])}
+      </div>
+      {recolourStrip(b.id, [b.id])}
+    </div>
+  );
+
+  // A row for several blocks: a colour group, or the ground / shadow / rim.
+  const groupRow = (key, label, hex, blocks, depth, expandable) => {
+    const isOpen = open.has(key);
+    const sel = selectedOf(blocks);
+    return (
+      <div key={key} className={styles.layerGroup}>
+        <div
+          className={`${styles.layerRow} ${styles.layerGroupRow} ${sel ? styles.layerRowSelected : ''}`}
+          style={{ paddingLeft: 4 + depth * 14 }}
+          onMouseEnter={() => layerActions.highlight(new Set(blocks.map(b => b.id)))}
+          onClick={() => layerActions.select(blocks.map(b => b.id))}
+        >
+          {expandable ? (
+            <button className={styles.layerChevron} onClick={e => { e.stopPropagation(); toggleOpen(key); }} aria-expanded={isOpen}>
+              <ChevronIcon open={isOpen} />
+            </button>
+          ) : <span className={styles.layerChevron} />}
+          <span className={styles.layerChip} style={{ background: hex }} />
+          <span className={styles.layerName}>{label}</span>
+          {blocks.length > 1 && <span className={styles.layerCount}>{sel ? `${sel}/` : ''}{blocks.length}</span>}
+          {recolourButton(key)}
+          {toggles(blocks)}
+        </div>
+        {recolourStrip(key, blocks.map(b => b.id))}
+        {expandable && isOpen && blocks.map(b => itemRow(b, depth + 1))}
+      </div>
+    );
+  };
+
+  const layerRow = (layer, index) => {
+    const blocks = byLayer.get(layer.id) ?? [];
+    const isBase = layer.id === 'base';
+    const key = layer.id;
+    const isOpen = open.has(key);
+    const editing = linework.editLayer === layer.id || (!layers.some(l => l.id === linework.editLayer) && isBase);
+    const lines = blocks.filter(b => b.lwKind === 'ink' || !b.lwKind);
+    const parts = blocks.filter(b => b.lwKind && b.lwKind !== 'ink');
+    // The layer's ⇄ recolours everything drawn in ink: lines, outlines and edge.
+    const inked = blocks.filter(b => b.lwKind === 'ink' || b.lwKind === 'outline' || !b.lwKind);
+    const colours = [...new Set(lines.map(b => b.fill.toLowerCase()))];
+    // Lines grouped by colour, most-used first.
+    const lineGroups = colours.map(hex => ({ hex, items: lines.filter(b => b.fill.toLowerCase() === hex) }))
+      .sort((a, b) => b.items.length - a.items.length);
+    const sel = selectedOf(blocks);
+    return (
+      <div key={key} className={styles.layerGroup}>
+        <div
+          className={`${styles.layerRow} ${styles.layerGroupRow} ${sel ? styles.layerRowSelected : ''}`}
+          style={editing ? { boxShadow: 'inset 3px 0 0 var(--chrome-accent, #7b61ff)' } : undefined}
+          onMouseEnter={() => layerActions.highlight(new Set(blocks.map(b => b.id)))}
+          onClick={() => { linework.setEditLayer(layer.id); layerActions.select(blocks.map(b => b.id)); }}
+          onDoubleClick={() => !isBase && setRenaming(layer.id)}
+          title={isBase ? 'Click to select and edit the base layer' : 'Click to select and edit · double-click to rename'}
+        >
+          <button className={styles.layerChevron} onClick={e => { e.stopPropagation(); toggleOpen(key); }} aria-expanded={isOpen}>
+            <ChevronIcon open={isOpen} />
+          </button>
+          <span className={styles.layerChips}>
+            {colours.slice(0, 3).map(c => <span key={c} className={styles.layerMiniChip} style={{ background: c }} />)}
+          </span>
+          {renaming === layer.id ? (
+            <input className={styles.layerRename} defaultValue={layer.name} autoFocus spellCheck={false}
+              onClick={e => e.stopPropagation()}
+              onBlur={e => { linework.plates.rename(layer.id, e.target.value.trim()); setRenaming(null); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                if (e.key === 'Escape') setRenaming(null);
+                e.stopPropagation();
+              }} />
+          ) : (
+            <span className={styles.layerName}>{layer.name}</span>
+          )}
+          {!isBase && (
+            <>
+              <button className={styles.layerRecolour} disabled={index === layers.length - 1}
+                onClick={e => { e.stopPropagation(); linework.plates.move(layer.id, 1); }} title="Bring forward">↑</button>
+              <button className={styles.layerRecolour} disabled={index === 1}
+                onClick={e => { e.stopPropagation(); linework.plates.move(layer.id, -1); }} title="Send backward">↓</button>
+              <button className={styles.layerRecolour}
+                onClick={e => { e.stopPropagation(); linework.plates.remove(layer.id); }} title="Delete plate">✕</button>
+            </>
+          )}
+          {recolourButton(`${key}:lines`, 'Recolour all of this layer’s lines')}
+          {blocks.length > 0 && toggles(blocks)}
+        </div>
+        {recolourStrip(`${key}:lines`, inked.map(b => b.id))}
+        {isOpen && (
+          <>
+            {parts.map(b => groupRow(b.id, b.name ?? KIND_LABEL[b.lwKind], b.fill, [b], 1, false))}
+            {lineGroups.map(g => groupRow(`${key}:${g.hex}`, colourName(g.hex) ? `${colourName(g.hex)} ${g.hex}` : `Lines ${g.hex}`, g.hex, g.items, 1, true))}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const count = placedBlocks.filter(b => b.type === 'vector').length;
+  return (
+    <>
+      <div className={styles.layerToolbar}>
+        <button className={styles.actionBtn} onClick={linework.plates.add} title="Add a plate on top of the others">+ Add plate</button>
+      </div>
+      <div className={styles.layerSummary}>
+        {layers.length - 1} {layers.length === 2 ? 'plate' : 'plates'} · {count} layers · click a layer to edit it in Linework
+      </div>
+      <div className={styles.layerList} onMouseLeave={() => layerActions.highlight(null)}>
+        {[...layers].map((l, i) => [l, i]).reverse().map(([l, i]) => layerRow(l, i))}
+      </div>
+      {selectedIds.size > 0 && (
+        <>
+          <div className={styles.fillBar}>
+            <span className={styles.layerSummary} style={{ padding: 0, flex: 1, alignSelf: 'center' }}>{selectedIds.size} selected</span>
+            <button className={styles.actionBtn} onClick={() => setRecolouring(r => (r === 'selection' ? null : 'selection'))}>Recolour</button>
+            <button className={styles.actionBtn} onClick={() => layerActions.setHidden([...selectedIds], true)}>Hide</button>
+            <button className={styles.actionBtn} onClick={() => layerActions.setLocked([...selectedIds], true)}>Lock</button>
+          </div>
+          {recolourStrip('selection', [...selectedIds])}
+        </>
+      )}
+    </>
+  );
+}
+
+// Layers for generated vector designs, grouped by colour. Groups and single
+// layers can be selected, recoloured, hidden and locked. Recolouring pins the
+// layer to a swatch, so the colour stays through reshapes and swatch edits.
+function VectorLayersPanel({ summary }) {
   const { layerActions, selectedIds } = useEditor();
   const [placedBlocks] = useDocField('placedBlocks');
   const [shapeColors] = useDocField('shapeColors');
   const [open, setOpen] = useState(() => new Set());
   const [recolouring, setRecolouring] = useState(null);
 
-  const vectors = placedBlocks.filter(b => b.type === 'vector');
   const cores = placedBlocks.filter(b => b.type === 'image' && b.meanderKey);
   const groups = useMemo(() => {
     const m = new Map();
@@ -314,36 +528,47 @@ export function MeanderLayersPanel() {
   }, [shapeColors]);
   const hexOf = swatch => (swatch.startsWith('#') ? swatch : shapeColors.find(s => s.id === swatch)?.hex);
 
-  if (!vectors.length) return <LegacyMeanderLayers />;
-
   const toggleOpen = key => setOpen(prev => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
     return next;
   });
   const itemRow = (block, chip) => (
-    <div
-      key={block.id}
-      className={`${styles.layerRow} ${styles.layerItemRow} ${selectedIds.has(block.id) ? styles.layerRowSelected : ''} ${block.hidden ? styles.layerRowHidden : ''}`}
-      onMouseEnter={() => layerActions.highlight(new Set([block.id]))}
-      onClick={e => layerActions.select(e.shiftKey ? [...new Set([...selectedIds, block.id])] : [block.id])}
-    >
-      {chip && <span className={styles.layerChips}><span className={styles.layerMiniChip} style={{ background: chip }} /></span>}
-      <span className={styles.layerName}>{block.name}</span>
-      <RowToggles
-        hidden={!!block.hidden} locked={!!block.locked}
-        onHidden={() => layerActions.setHidden([block.id], !block.hidden)}
-        onLocked={() => layerActions.setLocked([block.id], !block.locked)}
-      />
+    <div key={block.id}>
+      <div
+        className={`${styles.layerRow} ${styles.layerItemRow} ${selectedIds.has(block.id) ? styles.layerRowSelected : ''} ${block.hidden ? styles.layerRowHidden : ''}`}
+        onMouseEnter={() => layerActions.highlight(new Set([block.id]))}
+        onClick={e => layerActions.select(e.shiftKey ? [...new Set([...selectedIds, block.id])] : [block.id])}
+      >
+        {chip && <span className={styles.layerChips}><span className={styles.layerMiniChip} style={{ background: chip }} /></span>}
+        <span className={styles.layerName}>{block.name}</span>
+        {block.fillSwatch && <span className={styles.layerPinned} title="Colour pinned to a swatch"><PinIcon /></span>}
+        {block.type === 'vector' && (
+          <button className={styles.layerRecolour} onClick={e => { e.stopPropagation(); setRecolouring(r => (r === block.id ? null : block.id)); }}
+            title="Recolour this layer">⇄</button>
+        )}
+        <RowToggles
+          hidden={!!block.hidden} locked={!!block.locked}
+          onHidden={() => layerActions.setHidden([block.id], !block.hidden)}
+          onLocked={() => layerActions.setLocked([block.id], !block.locked)}
+        />
+      </div>
+      {recolouring === block.id && (
+        <SwatchStrip swatches={shapeColors} onPick={swatch => {
+          const hex = hexOf(swatch);
+          if (hex) layerActions.setFill([block.id], hex);
+          setRecolouring(null);
+        }} />
+      )}
     </div>
   );
 
-  const strandCount = vectors.filter(b => b.meanderKey?.startsWith('s')).length;
   return (
     <>
       <div className={styles.layerSummary}>
-        {strandCount} strands · {vectors.length - strandCount} dots · {groups.length} colours
+        {summary} · {groups.length} colours
       </div>
+      <GroupsSection blocks={placedBlocks} selectedIds={selectedIds} layerActions={layerActions} />
       <div className={styles.layerList} onMouseLeave={() => layerActions.highlight(null)}>
         {groups.map(g => {
           const ids = g.items.map(b => b.id);
@@ -408,7 +633,7 @@ export function MeanderLayersPanel() {
         </>
       )}
       <div className={styles.gridNote} style={{ padding: '8px 12px' }}>
-        Colour changes last until you Generate or Recolour again. The shape sliders keep them.
+        Recoloured layers keep their colour through reshapes, swatch edits and Recolour. Generate starts afresh.
       </div>
     </>
   );
