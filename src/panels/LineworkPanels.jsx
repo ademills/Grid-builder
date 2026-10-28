@@ -5,7 +5,7 @@ import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
 import { Stepper, Toggle, Segmented, SeedField, SymmetrySelect } from './controls';
 import { LINEWORK_SYMMETRY } from '../utils/symmetry';
-import { LINEWORK_PRESETS } from '../modes/linework/settings';
+import { LINEWORK_PRESETS, PLATE_ASPECTS, plateCells } from '../modes/linework/settings';
 import { MASK_SOURCES } from '../modes/linework/masks';
 import { DiceIcon } from '../shell/icons';
 import styles from './Panel.module.css';
@@ -56,6 +56,59 @@ const FILL_OPTIONS = [
   ['split4', '⊠ 4 triangles'], ['hatch', 'Hatch'], ['chevron', 'Chevron'],
 ];
 const ANGLE_OPTIONS = [['0', '0°'], ['45', '45°'], ['90', '90°'], ['135', '135°']];
+
+// A plate's shape and size: equal sides, a width × height in grid cells, or
+// an aspect ratio with its long side in cells. Switching keeps the plate's
+// current dimensions as near as the new way allows.
+function PlateSize({ L, setLayer, maxCells, grid }) {
+  const sizing = L.sizing ?? 'equal';
+  const [w, h] = plateCells(L, grid);
+  const half = v => Math.max(0.5, Math.round(v * 2) / 2);
+  const setSizing = (v) => {
+    if (v === 'cells') setLayer({ sizing: v, w: half(w), h: half(h) });
+    else setLayer({ sizing: v, size: Math.max(w, h) });
+  };
+  const equal = Math.abs(w - h) < 1e-6;
+  return (
+    <>
+      <Row label="Shape">
+        <Segmented value={L.shape} onChange={v => setLayer({ shape: v })} options={[
+          { key: 'square', label: equal ? 'Square' : 'Upright' }, { key: 'diamond', label: 'Diamond' },
+        ]} />
+      </Row>
+      <Row label="Sides" title="Equal sides, a width and height in grid cells, or an aspect ratio">
+        <Segmented value={sizing} onChange={setSizing} options={[
+          { key: 'equal', label: 'Equal' }, { key: 'cells', label: 'Grid cells' }, { key: 'ratio', label: 'Ratio' },
+        ]} />
+      </Row>
+      {sizing === 'equal' && (
+        <Slider label="Size" value={L.size} min={0.5} max={maxCells} step={0.1} format={cells} onChange={v => setLayer({ size: v })} title="Plate size, in grid cells" />
+      )}
+      {sizing === 'cells' && (
+        <>
+          <Slider label="Width" value={w} min={0.5} max={maxCells} step={0.5} format={cells} onChange={v => setLayer({ w: v })} title="Plate width, in grid cells" />
+          <Slider label="Height" value={h} min={0.5} max={maxCells} step={0.5} format={cells} onChange={v => setLayer({ h: v })} title="Plate height, in grid cells" />
+        </>
+      )}
+      {sizing === 'ratio' && (
+        <>
+          <Row label="Ratio">
+            <select className={styles.select} value={L.aspect ?? '3:2'} onChange={e => setLayer({ aspect: e.target.value })}>
+              {PLATE_ASPECTS.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+            </select>
+          </Row>
+          <Row label="Orientation">
+            <Segmented value={L.portrait ? 'portrait' : 'landscape'} onChange={v => setLayer({ portrait: v === 'portrait' })} options={[
+              { key: 'landscape', label: 'Landscape' }, { key: 'portrait', label: 'Portrait' },
+            ]} />
+          </Row>
+          <Slider label="Long side" value={L.size} min={0.5} max={maxCells} step={0.1} format={cells} onChange={v => setLayer({ size: v })}
+            title={`Plate is ${cells(w)} × ${cells(h)} cells`} />
+        </>
+      )}
+    </>
+  );
+}
 
 // ── Linework generator panel ─────────────────────────────────────────────────
 
@@ -110,12 +163,8 @@ export function LineworkPanel() {
 
         {plate && (
           <>
-            <Row label="Shape">
-              <Segmented value={L.shape} onChange={v => setLayer({ shape: v })} options={[
-                { key: 'square', label: 'Square' }, { key: 'diamond', label: 'Diamond' },
-              ]} />
-            </Row>
-            <Slider label="Size" value={L.size} min={0.5} max={maxCells} step={0.1} format={cells} onChange={v => setLayer({ size: v })} title="Plate size, in grid cells" />
+            <PlateSize L={L} setLayer={setLayer} maxCells={maxCells}
+              grid={linework.diamondCells ? { w: linework.diamondCells, h: linework.diamondCells } : { w: gridComputed?.cols ?? 1, h: gridComputed?.rows ?? 1 }} />
             <Slider label="Offset X" value={L.ox} min={-maxCells / 2} max={maxCells / 2} step={0.5} format={cells} onChange={v => setLayer({ ox: v })} />
             <Slider label="Offset Y" value={L.oy} min={-maxCells / 2} max={maxCells / 2} step={0.5} format={cells} onChange={v => setLayer({ oy: v })} />
             <Row label="Shadow">

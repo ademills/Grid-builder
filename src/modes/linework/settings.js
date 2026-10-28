@@ -11,6 +11,9 @@ const randomSeed = () => Math.floor(Math.random() * 0x80000000);
 export const lineworkLayerDefaults = (over = {}) => ({
   // Plates only
   id: 'base', name: 'Base', enabled: true, shape: 'square', size: 6, ox: 0, oy: 0,
+  // Plate sides: 'equal' (size × size), 'cells' (w × h cells) or 'ratio'
+  // (`aspect` with `size` as the long side, turned upright by `portrait`).
+  sizing: 'equal', w: 6, h: 4, aspect: '3:2', portrait: false,
   shadow: 'soft', depth: 0.25, rim: 0, rimInk: false,
   // Any layer
   scale: 1, invert: false, style: 'angular', sym: 'mirror-both', seed: randomSeed(),
@@ -44,6 +47,36 @@ export const createLineworkSettings = () => ({
 
 const newId = () => Math.random().toString(36).slice(2, 8);
 
+// Plate aspect ratios (long side : short side). 'match' follows the grid.
+export const PLATE_ASPECTS = [
+  { key: 'match', label: 'Match grid' },
+  { key: '5:4', label: '5 : 4', r: 5 / 4 },
+  { key: '4:3', label: '4 : 3', r: 4 / 3 },
+  { key: 'sqrt2', label: '√2 : 1 (A paper)', r: Math.SQRT2 },
+  { key: '3:2', label: '3 : 2', r: 3 / 2 },
+  { key: 'golden', label: 'Golden (1.618 : 1)', r: (1 + Math.sqrt(5)) / 2 },
+  { key: '16:9', label: '16 : 9', r: 16 / 9 },
+  { key: '2:1', label: '2 : 1', r: 2 },
+  { key: '3:1', label: '3 : 1', r: 3 },
+];
+
+// A plate's width and height in cells. `grid` is the base layer's size in
+// cells, for the 'match' ratio.
+export function plateCells(cfg, grid = null) {
+  const size = Math.max(0.5, cfg.size ?? 4);
+  if (cfg.sizing === 'cells') return [Math.max(0.5, cfg.w ?? size), Math.max(0.5, cfg.h ?? size)];
+  if (cfg.sizing === 'ratio') {
+    const r = cfg.aspect === 'match'
+      ? (grid ? grid.w / grid.h : 1)
+      : (PLATE_ASPECTS.find(a => a.key === cfg.aspect)?.r ?? 1.5);
+    // 'match' already carries the grid's orientation; Portrait turns it.
+    const wide = cfg.aspect === 'match' ? r >= 1 !== !!cfg.portrait : !cfg.portrait;
+    const long = size, short = size / Math.max(r, 1 / r);
+    return wide ? [long, short] : [short, long];
+  }
+  return [size, size];
+}
+
 // A new plate, named after the next free number and sized to fit inside
 // whatever is under it.
 export function newPlate(layers, over = {}) {
@@ -51,7 +84,7 @@ export function newPlate(layers, over = {}) {
   let n = layers.length;
   while (used.has(`Plate ${n}`)) n++;
   const under = layers[layers.length - 1];
-  const size = layers.length > 1 ? Math.max(1, Math.round((under.size ?? 6) * 0.6 * 2) / 2) : 6;
+  const size = layers.length > 1 ? Math.max(1, Math.round(Math.min(...plateCells(under)) * 0.6 * 2) / 2) : 6;
   return lineworkLayerDefaults({ id: newId(), name: `Plate ${n}`, size, ...over });
 }
 

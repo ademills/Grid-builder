@@ -10,6 +10,7 @@
 //   key  — stable for the same seed and settings, so regenerating carries
 //          each layer's edits across.
 
+import { plateCells } from '../../modes/linework/settings';
 import { angularLayer } from './angular';
 import { circuitLayer, replicateBundles } from './circuit';
 import {
@@ -63,8 +64,8 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
   // One layer in one frame; `tag` prefixes its items' keys.
   const buildLayer = (cfg, li, { base, baseM, centre, basePlanes }, tag) => {
     const plate = li > 0;
-    const size = plate ? Math.max(0.5, cfg.size ?? 4) * CELL : null;
-    const lw = plate ? size : base.w, lh = plate ? size : base.h;
+    const [pw, ph] = plate ? plateCells(cfg, { w: base.w, h: base.h }) : [0, 0];
+    const lw = plate ? pw * CELL : base.w, lh = plate ? ph * CELL : base.h;
     const rotDeg = base.rot + (plate && cfg.shape === 'diamond' ? 45 : 0);
     const m = rotation(rotDeg);
     const t = plate ? add(centre, applyLinear(baseM, [(cfg.ox ?? 0) * CELL, (cfg.oy ?? 0) * CELL])) : centre;
