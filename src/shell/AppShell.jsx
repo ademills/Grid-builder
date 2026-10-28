@@ -10,6 +10,7 @@ import { MODE_REGISTRY, TOOLS } from '../modes/registry';
 import { openRecent, dirtyDocuments } from './documentActions';
 import { commandContext, commandForEvent, menuItem, runCommand } from './commands';
 import { useFileDrop } from './fileDrop';
+import { useSliderValueTyping } from '../panels/sliderTyping';
 import { isTauri } from './fileIO';
 import { MenuBar } from './MenuBar';
 import { TabBar } from './TabBar';
@@ -99,7 +100,7 @@ const MENUS = [
     'view.rulers', 'view.guides', 'view.clearGuides', 'view.effects', 'separator', { heading: 'Overlays' },
     'view.overlay.thirds', 'view.overlay.golden', 'view.overlay.centre', 'view.overlay.ig45', 'view.overlay.ig916',
     'view.overlay.none'] },
-  { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.resetDock'] },
+  { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.inspector', 'window.resetDock'] },
   { label: 'Help', items: ['help.shortcuts'] },
 ];
 
@@ -112,6 +113,7 @@ function useMenus() {
   useAppStore(s => s.showRulers);
   useAppStore(s => s.showGuides);
   useAppStore(s => s.wheelZooms);
+  useAppStore(s => s.dock.layout);
   useDocumentStore(selectActiveDoc);
   const recentFiles = useAppStore(s => s.recentFiles);
 
@@ -147,6 +149,7 @@ export function AppShell() {
 
   useUpdateCheck();
   useCloseGuard();
+  useSliderValueTyping();
   useShellShortcuts(activeId, activeMode);
   const menus = useMenus();
   useWindowTitle(activeDoc);

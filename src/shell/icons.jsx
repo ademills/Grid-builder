@@ -155,3 +155,51 @@ export const DiceIcon = (p) => (
     <circle cx="10" cy="10" r="1" fill="currentColor" stroke="none" />
   </Icon>
 );
+
+// Panel icons for the inspector's panel rail.
+export const LayersIcon = (p) => (
+  <Icon {...p}><path d="M10 3l7 3.8-7 3.8-7-3.8zM3 10.2l7 3.8 7-3.8M3 13.6l7 3.8 7-3.8" /></Icon>
+);
+
+export const HistoryIcon = (p) => (
+  <Icon {...p}><path d="M3.5 10a6.5 6.5 0 106.5-6.5c-2.2 0-4 1-5.3 2.6M4.5 3v3.3h3.3M10 6.5V10l2.5 1.8" /></Icon>
+);
+
+export const InfoIcon = (p) => (
+  <Icon {...p}><circle cx="10" cy="10" r="7" /><path d="M10 9v5M10 6.2v.1" /></Icon>
+);
+
+export const LayoutsIcon = (p) => (
+  <Icon {...p}><rect x="3" y="3" width="14" height="14" rx="1.5" /><path d="M3 8h14M9 8v9" /></Icon>
+);
+
+export const SwatchesIcon = (p) => (
+  <Icon {...p}><rect x="3" y="3" width="6" height="6" rx="1" /><rect x="11" y="3" width="6" height="6" rx="1" /><rect x="3" y="11" width="6" height="6" rx="1" /><rect x="11" y="11" width="6" height="6" rx="1" /></Icon>
+);
+
+export const PaletteIcon = (p) => (
+  <Icon {...p}>
+    <path d="M10 3a7 7 0 000 14c1.2 0 1.6-.8 1.3-1.7-.4-1 .3-2 1.4-2H15a2.5 2.5 0 002.5-2.5C17.5 6.2 14.2 3 10 3z" />
+    <circle cx="6.5" cy="9" r=".9" fill="currentColor" /><circle cx="9.5" cy="6.2" r=".9" fill="currentColor" /><circle cx="13" cy="7.5" r=".9" fill="currentColor" />
+  </Icon>
+);
+
+export const ShapesIcon = (p) => (
+  <Icon {...p}><circle cx="6.5" cy="6.5" r="3.5" /><path d="M13.5 3l3.5 6h-7zM3 12h7v5H3zM12 12h5v5h-5z" /></Icon>
+);
+
+export const EffectsIcon = (p) => (
+  <Icon {...p}><path d="M10 2.5l1.7 4.6 4.8.4-3.7 3 1.2 4.8L10 12.6l-4 2.7 1.2-4.8-3.7-3 4.8-.4z" /></Icon>
+);
+
+export const ImageIcon = (p) => (
+  <Icon {...p}><rect x="3" y="4" width="14" height="12" rx="1.5" /><circle cx="7.5" cy="8" r="1.3" /><path d="M3.5 14.5l4.2-4 3 2.8 2.3-2 3.5 3.2" /></Icon>
+);
+
+export const AnimationIcon = (p) => (
+  <Icon {...p}><circle cx="10" cy="10" r="7" /><path d="M8.3 7v6l5-3z" fill="currentColor" /></Icon>
+);
+
+export const AudioIcon = (p) => (
+  <Icon {...p}><path d="M3.5 8v4h3l4 3.5v-11l-4 3.5zM13.5 7.5a3.5 3.5 0 010 5M15.5 5.5a6.3 6.3 0 010 9" /></Icon>
+);

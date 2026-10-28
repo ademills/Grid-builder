@@ -29,9 +29,11 @@ function saveJson(key, value) {
 // View options shared by every document, like Illustrator's View menu.
 const DEFAULT_VIEW = { overlays: [], showRulers: false, showGuides: true, wheelZooms: false };
 
+// `layout`: 'inspector' (one scrolling column plus a panel rail) or
+// 'classic' (stacked, tabbed panel groups).
 function loadDock() {
-  try { return { width: 300, groups: {}, ...JSON.parse(localStorage.getItem(DOCK_KEY) || '{}') }; }
-  catch { return { width: 300, groups: {} }; }
+  try { return { width: 300, groups: {}, layout: 'inspector', ...JSON.parse(localStorage.getItem(DOCK_KEY) || '{}') }; }
+  catch { return { width: 300, groups: {}, layout: 'inspector' }; }
 }
 
 function saveDock(dock) {
@@ -52,8 +54,18 @@ export const useAppStore = create((set, get) => ({
     set({ dock: next });
   },
   // Bring a panel to the front of its group and expand the group.
+  // In the inspector layout, rail panels open as a flyout instead.
   showDockTab(groupId, tab) {
     get().updateDockGroup(groupId, { tab, collapsed: false });
+    set({ flyout: tab });
+  },
+  // Panel id open in the inspector layout's flyout, or null.
+  flyout: null,
+  setFlyout(flyout) { set({ flyout }); },
+  setDockLayout(layout) {
+    const next = { ...get().dock, layout };
+    saveDock(next);
+    set({ dock: next, flyout: null });
   },
   setDockWidth(width) {
     const next = { ...get().dock, width: Math.round(Math.min(520, Math.max(240, width))) };
@@ -62,7 +74,7 @@ export const useAppStore = create((set, get) => ({
   },
 
   resetDock() {
-    const next = { width: 300, groups: {} };
+    const next = { width: 300, groups: {}, layout: get().dock.layout };
     saveDock(next);
     set({ dock: next });
   },

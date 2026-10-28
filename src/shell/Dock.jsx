@@ -9,7 +9,7 @@ import styles from './Dock.module.css';
 // the active mode's registry entry.
 
 // A panel's ☰ menu: its own commands, then Reset Panel Layout.
-function PanelMenu({ panel }) {
+export function PanelMenu({ panel }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {

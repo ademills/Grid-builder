@@ -54,96 +54,47 @@
 
 .openBtn:hover { background: var(--chrome-bg-hover); }
 
-/* ── Mode cards ────────────────────────────────────────── */
+/* ── New document ──────────────────────────────────────── */
 
-.modeGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 18px;
-}
-
-.modeCard {
-  display: flex;
-  flex-direction: column;
-  padding: 22px 22px 20px;
+.newDoc {
+  padding: 20px 22px 22px;
   border: 1px solid #444;
   border-radius: 12px;
   background: var(--chrome-bg-raised);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
-  transition: border-color 0.15s;
 }
 
-.modeCard:hover {
-  border-color: color-mix(in srgb, var(--mode-accent) 55%, #444);
-}
-
-.modeHeader {
+.newDocHeader {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  align-items: baseline;
+  justify-content: space-between;
   margin-bottom: 12px;
 }
 
-.modeMark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--mode-accent) 16%, var(--chrome-bg-sunken));
-  color: var(--mode-accent);
-  flex-shrink: 0;
-}
+.newDocHeader .sectionTitle { margin: 0; }
 
-.modeTitle {
-  margin: 0 0 3px;
-  font-size: 18px;
-  font-weight: 650;
-}
-
-.modeTagline {
-  margin: 0;
+.newDocDims {
   color: var(--chrome-text-dim);
-  font-size: 12.5px;
-}
-
-.modeDescription {
-  margin: 0 0 18px;
-  color: var(--chrome-text-dim);
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-
-.presetLabel {
-  margin-bottom: 8px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: var(--chrome-text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .presetGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   gap: 6px;
-  margin-bottom: 18px;
 }
 
 .preset {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  height: 66px;
-  padding: 8px 4px 7px;
+  gap: 2px;
+  padding: 8px 4px 8px;
   border: 1px solid transparent;
   border-radius: 7px;
   background: var(--chrome-bg-sunken);
   color: var(--chrome-text-dim);
-  font-size: 11px;
   cursor: pointer;
 }
 
@@ -151,9 +102,18 @@
 
 .presetActive,
 .presetActive:hover {
-  border-color: var(--mode-accent);
+  border-color: var(--chrome-accent);
   color: var(--chrome-text);
-  background: color-mix(in srgb, var(--mode-accent) 12%, var(--chrome-bg-sunken));
+  background: var(--chrome-accent-soft);
+}
+
+.presetGlyphBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 4px;
 }
 
 .presetGlyph {
@@ -163,28 +123,110 @@
   opacity: 0.85;
 }
 
-.presetName {
+.presetGlyphCustom {
+  width: 22px;
+  height: 18px;
+  border-style: dashed;
+}
+
+.presetName,
+.presetSub {
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
 }
 
-.createBtn {
-  align-self: flex-start;
-  height: 34px;
-  padding: 0 18px;
-  margin-top: auto;
-  border: none;
-  border-radius: 7px;
-  background: var(--mode-accent);
-  color: #111;
-  font-size: 13px;
-  font-weight: 600;
+.presetName { font-size: 11.5px; font-weight: 500; }
+
+.presetSub {
+  color: var(--chrome-text-faint);
+  font-size: 10.5px;
+}
+
+.newDocTools {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 26px;
+  margin: 8px 0 18px;
+}
+
+.newDocTools .showAllBtn { margin: 0; }
+
+.customDims {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chrome-text-dim);
+  font-size: 12px;
+}
+
+.customDims input {
+  width: 72px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid #4a4a4a;
+  border-radius: 5px;
+  background: var(--chrome-bg-sunken);
+  color: var(--chrome-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.modeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.modeCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #4a4a4a;
+  border-radius: 9px;
+  background: var(--chrome-bg-sunken);
+  color: var(--chrome-text);
+  text-align: left;
   cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
 }
 
-.createBtn:hover { filter: brightness(1.1); }
+.modeCard:hover {
+  border-color: var(--mode-accent);
+  background: color-mix(in srgb, var(--mode-accent) 10%, var(--chrome-bg-sunken));
+}
+
+.modeMark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--mode-accent) 16%, var(--chrome-bg-raised));
+  color: var(--mode-accent);
+  flex-shrink: 0;
+}
+
+.modeText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.modeTitle {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.modeTagline {
+  color: var(--chrome-text-dim);
+  font-size: 12px;
+}
 
 /* ── Recent ────────────────────────────────────────────── */
 
@@ -303,14 +345,12 @@
 
 .sectionHeader .sectionTitle { margin: 0; }
 
-.templateGrid,
 .paletteGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 8px;
 }
 
-.templateCard,
 .paletteCard {
   display: flex;
   flex-direction: column;
@@ -320,10 +360,8 @@
   overflow: hidden;
 }
 
-.templateCard:hover,
 .paletteCard:hover { border-color: #5a5a5a; }
 
-.templateMain,
 .paletteMain {
   display: flex;
   align-items: center;
@@ -336,33 +374,7 @@
   cursor: pointer;
 }
 
-.templateMain:hover,
 .paletteMain:hover { background: var(--chrome-bg-hover); }
-
-.templateGlyph {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  color: var(--chrome-text-dim);
-}
-
-.templateText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.templateName { font-size: 13px; font-weight: 600; }
-
-.templateSub {
-  color: var(--chrome-text-dim);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-}
 
 .paletteMain {
   flex-direction: column;

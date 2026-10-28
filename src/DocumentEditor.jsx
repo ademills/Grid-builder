@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Canvas } from './components/Canvas';
 import { ContextMenu } from './components/ContextMenu';
 import { Dock } from './shell/Dock';
+import { Inspector } from './shell/Inspector';
 import { MODE_REGISTRY } from './modes/registry';
 import { EditorContext } from './editor/EditorContext';
 import { ExportDialog, ShortcutsDialog } from './editor/Dialogs';
@@ -1063,6 +1064,7 @@ export function DocumentEditor({ mode: appMode }) {
 
   // ── Fill ───────────────────────────────────────────────────────────────────
   const showToast = useAppStore(s => s.showToast);
+  const dockLayout = useAppStore(s => s.dock.layout);
   const assetUsageCounts = useMemo(() => {
     const counts = {};
     for (const b of placedBlocks) counts[b.assetId] = (counts[b.assetId] ?? 0) + 1;
@@ -2590,10 +2592,12 @@ export function DocumentEditor({ mode: appMode }) {
     lineworkReseed: reseedLinework,
     lineworkRecolour: recolourLinework,
     lineworkSurprise: surpriseLinework,
+    updateLinework,
+    setLineworkEditLayer,
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, selectionActions, fillSelection, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, reseedLinework, recolourLinework, surpriseLinework, guides, setGuides]);
+  }), [openExport, selectionActions, fillSelection, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, reseedLinework, recolourLinework, surpriseLinework, updateLinework, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -2606,7 +2610,8 @@ export function DocumentEditor({ mode: appMode }) {
     canUndo: historySize.undo > 0,
     canRedo: historySize.redo > 0,
     canExport: placedBlocks.length > 0,
-  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize]);
+    lineworkEditLayer,
+  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer]);
   useEffect(() => { setEditorBridge(editorCommands, editorStatus); }, [setEditorBridge, editorCommands, editorStatus]);
   useEffect(() => () => setEditorBridge(null, null), [setEditorBridge]);
 
@@ -2766,7 +2771,9 @@ export function DocumentEditor({ mode: appMode }) {
 
       </div>
 
-      <Dock groups={MODE_REGISTRY[appMode].dock} />
+      {dockLayout === 'classic'
+        ? <Dock groups={MODE_REGISTRY[appMode].dock} />
+        : <Inspector mode={appMode} groups={MODE_REGISTRY[appMode].dock} />}
 
       {showExport && (
         <ExportDialog

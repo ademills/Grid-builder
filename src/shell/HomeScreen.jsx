@@ -10,23 +10,29 @@ import { isTauri } from './fileIO';
 import { FolderIcon, CloseIcon } from './icons';
 import styles from './HomeScreen.module.css';
 
-// The mode cards offer the everyday sizes; Templates below has the rest.
-const CARD_PRESET_KEYS = ['a4-portrait', 'a4-landscape', 'us-letter', 'us-letter-landscape', 'square-1080', 'hd-landscape', 'hd-portrait'];
-const CARD_PRESETS = PRESETS.filter(p => CARD_PRESET_KEYS.includes(p.key));
 const presetByKey = Object.fromEntries(PRESETS.map(p => [p.key, p]));
 
-// Start-from sizes for common outputs. `state` tweaks the new document.
-const TEMPLATES = [
-  { key: 'ig-portrait', name: 'Instagram post', note: '4:5' },
-  { key: 'square-1080', name: 'Instagram square', note: '1:1' },
+// Artboard sizes offered on the home screen. The first row is the everyday
+// set; "More sizes" adds sizes for common outputs. `state` tweaks the new
+// document.
+const COMMON_SIZES = [
+  { key: 'a4-portrait', name: 'A4', note: 'Portrait' },
+  { key: 'a4-landscape', name: 'A4', note: 'Landscape' },
+  { key: 'us-letter', name: 'US Letter', note: 'Portrait' },
+  { key: 'us-letter-landscape', name: 'US Letter', note: 'Landscape' },
+  { key: 'square-1080', name: 'Square', note: '1:1' },
+  { key: 'hd-landscape', name: 'HD', note: '16:9' },
   { key: 'hd-portrait', name: 'Story / Reel', note: '9:16' },
-  { key: 'a4-portrait', name: 'A4 print', note: 'Portrait' },
+];
+const MORE_SIZES = [
+  { key: 'ig-portrait', name: 'Instagram post', note: '4:5' },
   { key: 'a3-portrait', name: 'A3 print', note: 'Portrait' },
   { key: '4k-landscape', name: '4K wallpaper', note: '16:9' },
   { key: 'phone-wallpaper', name: 'Phone wallpaper', note: '19.5:9' },
   // Edge to edge so the design can tile as a repeat.
   { key: 'fabric-repeat', name: 'Fabric repeat', note: '12 in at 300 dpi', state: { gridSettings: { cols: 12, borderPct: 0 } } },
 ];
+const ALL_SIZES = [...COMMON_SIZES, ...MORE_SIZES];
 
 // Small Grid / Meander buttons for starting a document either way.
 function ModeButtons({ onPick }) {
@@ -45,28 +51,13 @@ function ModeButtons({ onPick }) {
   );
 }
 
-function TemplateCard({ t }) {
-  const p = presetByKey[t.key];
-  return (
-    <div className={styles.templateCard}>
-      <button className={styles.templateMain} onClick={() => newDocument('gridBuilder', { presetKey: t.key, state: t.state })}
-        title={`New Grid Pattern, ${p.width} × ${p.height}px`}>
-        <span className={styles.templateGlyph}><ArtboardGlyph width={p.width} height={p.height} /></span>
-        <span className={styles.templateText}>
-          <span className={styles.templateName}>{t.name}</span>
-          <span className={styles.templateSub}>{p.width} × {p.height} · {t.note}</span>
-        </span>
-      </button>
-      <ModeButtons onPick={mode => newDocument(mode, { presetKey: t.key, state: t.state })} />
-    </div>
-  );
-}
-
 // A new document coloured from a palette: its swatches become the document
 // palette, shown with Random colouring in Grid mode.
-function startFromPalette(mode, { name, colours }) {
+function startFromPalette(mode, { name, colours }, size) {
   newDocument(mode, {
+    ...size,
     state: {
+      ...size.state,
       paletteKey: name,
       shapeColors: colours.map((hex, i) => ({ id: `p-${i}`, hex, enabled: true, source: 'palette' })),
       ...(mode === 'gridBuilder' ? { colorMode: 'random' } : {}),
@@ -76,7 +67,7 @@ function startFromPalette(mode, { name, colours }) {
 
 const PALETTE_PAGE = 12;
 
-function PaletteSection() {
+function PaletteSection({ size }) {
   const allLibraries = useLibraryStore(s => s.libraries);
   const libraries = allLibraries.filter(l => l.swatches.length);
   const groups = [
@@ -106,13 +97,13 @@ function PaletteSection() {
       <div className={styles.paletteGrid}>
         {shown.map(p => (
           <div key={p.name} className={styles.paletteCard}>
-            <button className={styles.paletteMain} onClick={() => startFromPalette('gridBuilder', p)} title={`New Grid Pattern using ${p.name}`}>
+            <button className={styles.paletteMain} onClick={() => startFromPalette('gridBuilder', p, size)} title={`New Grid Pattern using ${p.name}`}>
               <span className={styles.paletteStrip}>
                 {p.colours.slice(0, 10).map((hex, i) => <span key={i} style={{ background: hex }} />)}
               </span>
               <span className={styles.paletteName}>{p.name}</span>
             </button>
-            <ModeButtons onPick={mode => startFromPalette(mode, p)} />
+            <ModeButtons onPick={mode => startFromPalette(mode, p, size)} />
           </div>
         ))}
       </div>
@@ -130,43 +121,76 @@ function ArtboardGlyph({ width, height }) {
   return <span className={styles.presetGlyph} style={{ width: width * s, height: height * s }} />;
 }
 
-function ModeCard({ mode }) {
-  const def = MODE_REGISTRY[mode];
-  const Mark = def.mark;
-  const [presetKey, setPresetKey] = useState('a4-portrait');
+function SizeTile({ size, active, onPick, onCreate }) {
+  const p = presetByKey[size.key];
+  return (
+    <button role="radio" aria-checked={active}
+      className={`${styles.preset} ${active ? styles.presetActive : ''}`}
+      onClick={onPick} onDoubleClick={onCreate}
+      title={`${p.width} × ${p.height}px · double-click for a new Grid Pattern`}>
+      <span className={styles.presetGlyphBox}><ArtboardGlyph width={p.width} height={p.height} /></span>
+      <span className={styles.presetName}>{size.name}</span>
+      <span className={styles.presetSub}>{size.note}</span>
+    </button>
+  );
+}
+
+// One artboard picker shared by every mode, then a button per mode.
+function NewDocument({ sizeKey, setSizeKey, custom, setCustom, size }) {
+  const [showMore, setShowMore] = useState(() => MORE_SIZES.some(t => t.key === sizeKey));
+  const sizes = showMore ? ALL_SIZES : COMMON_SIZES;
+  const dims = sizeKey === 'custom' ? custom : presetByKey[sizeKey];
+  const setDim = (k, v) => setCustom(c => ({ ...c, [k]: Math.max(1, Math.min(20000, Math.round(+v) || 1)) }));
 
   return (
-    <section className={styles.modeCard} style={{ '--mode-accent': def.accent }}>
-      <div className={styles.modeHeader}>
-        <span className={styles.modeMark}><Mark size={44} /></span>
-        <div>
-          <h2 className={styles.modeTitle}>{def.label}</h2>
-          <p className={styles.modeTagline}>{def.tagline}</p>
-        </div>
+    <section className={styles.newDoc}>
+      <div className={styles.newDocHeader}>
+        <h3 className={styles.sectionTitle}>Artboard</h3>
+        <span className={styles.newDocDims}>{dims.width} × {dims.height} px</span>
       </div>
-      <p className={styles.modeDescription}>{def.description}</p>
-
-      <div className={styles.presetLabel}>Artboard</div>
-      <div className={styles.presetGrid} role="radiogroup" aria-label={`${def.label} artboard size`}>
-        {CARD_PRESETS.map(p => (
-          <button
-            key={p.key}
-            role="radio"
-            aria-checked={presetKey === p.key}
-            className={`${styles.preset} ${presetKey === p.key ? styles.presetActive : ''}`}
-            onClick={() => setPresetKey(p.key)}
-            onDoubleClick={() => newDocument(mode, { presetKey: p.key })}
-            title={`${p.label} — ${p.width} × ${p.height}`}
-          >
-            <ArtboardGlyph width={p.width} height={p.height} />
-            <span className={styles.presetName}>{p.label}</span>
-          </button>
+      <div className={styles.presetGrid} role="radiogroup" aria-label="Artboard size">
+        {sizes.map(t => (
+          <SizeTile key={t.key} size={t} active={sizeKey === t.key}
+            onPick={() => setSizeKey(t.key)}
+            onCreate={() => newDocument('gridBuilder', { presetKey: t.key, state: t.state })} />
         ))}
+        <button role="radio" aria-checked={sizeKey === 'custom'}
+          className={`${styles.preset} ${sizeKey === 'custom' ? styles.presetActive : ''}`}
+          onClick={() => setSizeKey('custom')} title="Any size in pixels">
+          <span className={styles.presetGlyphBox}><span className={`${styles.presetGlyph} ${styles.presetGlyphCustom}`} /></span>
+          <span className={styles.presetName}>Custom</span>
+          <span className={styles.presetSub}>Any size</span>
+        </button>
+      </div>
+      <div className={styles.newDocTools}>
+        <button className={styles.showAllBtn} onClick={() => setShowMore(m => !m)}>
+          {showMore ? 'Fewer sizes' : `More sizes (${MORE_SIZES.length})`}
+        </button>
+        {sizeKey === 'custom' && (
+          <span className={styles.customDims}>
+            <input type="number" min={1} value={custom.width} aria-label="Width" onChange={e => setDim('width', e.target.value)} />
+            <span>×</span>
+            <input type="number" min={1} value={custom.height} aria-label="Height" onChange={e => setDim('height', e.target.value)} />
+            <span>px</span>
+          </span>
+        )}
       </div>
 
-      <button className={styles.createBtn} onClick={() => newDocument(mode, { presetKey })}>
-        Create {def.label}
-      </button>
+      <div className={styles.modeGrid}>
+        {MODE_ORDER.map(m => {
+          const def = MODE_REGISTRY[m];
+          return (
+            <button key={m} className={styles.modeCard} style={{ '--mode-accent': def.accent }}
+              onClick={() => newDocument(m, size)} title={def.description}>
+              <span className={styles.modeMark}><def.mark size={30} /></span>
+              <span className={styles.modeText}>
+                <span className={styles.modeTitle}>New {def.label}</span>
+                <span className={styles.modeTagline}>{def.tagline}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -185,6 +209,12 @@ export function HomeScreen() {
   const recentFiles = useAppStore(s => s.recentFiles);
   const removeRecentFile = useAppStore(s => s.removeRecentFile);
   const openCount = useDocumentStore(s => s.order.length);
+  const [sizeKey, setSizeKey] = useState('a4-portrait');
+  const [custom, setCustom] = useState({ width: 800, height: 600 });
+  const size = {
+    presetKey: sizeKey,
+    state: sizeKey === 'custom' ? { customSize: custom } : ALL_SIZES.find(t => t.key === sizeKey)?.state,
+  };
 
   return (
     <div className={styles.home}>
@@ -202,18 +232,9 @@ export function HomeScreen() {
           </button>
         </header>
 
-        <div className={styles.modeGrid}>
-          {MODE_ORDER.map(m => <ModeCard key={m} mode={m} />)}
-        </div>
+        <NewDocument sizeKey={sizeKey} setSizeKey={setSizeKey} custom={custom} setCustom={setCustom} size={size} />
 
-        <section className={styles.recent}>
-          <h3 className={styles.sectionTitle}>Templates</h3>
-          <div className={styles.templateGrid}>
-            {TEMPLATES.map(t => <TemplateCard key={t.key} t={t} />)}
-          </div>
-        </section>
-
-        <PaletteSection />
+        <PaletteSection size={size} />
 
         <section className={styles.recent}>
           <h3 className={styles.sectionTitle}>Recent</h3>

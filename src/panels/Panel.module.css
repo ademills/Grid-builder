@@ -1476,3 +1476,34 @@
   cursor: pointer;
   user-select: none;
 }
+
+/* The inspector layout pins the Generate buttons under its column, so
+   panels drop their own. */
+[data-layout='inspector'] .fillBar { display: none; }
+
+/* Slider readouts can be clicked to type a value (panels/sliderTyping.js). */
+input[type='range'] + .sliderVal {
+  border-radius: 3px;
+  cursor: text;
+}
+
+input[type='range']:not(:disabled) + .sliderVal:hover {
+  background: var(--chrome-bg-hover);
+  box-shadow: 0 0 0 3px var(--chrome-bg-hover);
+}
+
+.sliderValEdit {
+  position: fixed;
+  z-index: 1000;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--chrome-accent);
+  border-radius: 4px;
+  outline: none;
+  background: var(--chrome-bg-sunken);
+  color: var(--chrome-text);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

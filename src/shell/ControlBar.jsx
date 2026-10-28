@@ -5,9 +5,12 @@ import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
 import { MODE_REGISTRY, TOOLS } from '../modes/registry';
 import { ColorPicker } from '../panels/ColorPicker';
 import { SwatchColourField } from '../panels/SwatchColourField';
-import { assetThumb } from '../panels/panelUtils';
-import { DiceIcon } from './icons';
-import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY } from '../utils/symmetry';
+import { assetThumb, randomSeed } from '../panels/panelUtils';
+import { DiceIcon, RotateIcon, ReflectIcon } from './icons';
+import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY, MEANDER_SYMMETRY, LINEWORK_SYMMETRY } from '../utils/symmetry';
+import { FILLS } from '../modes/gridBuilder/fills';
+import { mergeLineworkSettings } from '../modes/linework/settings';
+import { runCommand } from './commands';
 import styles from './ControlBar.module.css';
 
 // Closes a popover on outside click / Escape.
@@ -148,12 +151,125 @@ function StampShape() {
   );
 }
 
+function Select({ value, options, onChange, title }) {
+  return (
+    <select className={styles.select} value={value} onChange={e => onChange(e.target.value)} title={title}>
+      {options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function SeedInput({ value, onChange }) {
+  return (
+    <span className={styles.seed}>
+      <input type="number" value={value} onChange={e => onChange(+e.target.value || 0)} title="Seed" />
+      <button onClick={() => onChange(randomSeed())} title="New random seed"><DiceIcon size={14} /></button>
+    </span>
+  );
+}
+
+const symmetryChoices = keys => symmetryOptions(keys).map(m => ({ key: m.key, label: m.key === 'none' ? m.label : `${m.icon}  ${m.label}` }));
+
+const COLOUR_MODES = [
+  { key: 'none', label: 'None' }, { key: 'uniform', label: 'Uniform' }, { key: 'random', label: 'Random' },
+  { key: 'gradient', label: 'Gradient' }, { key: 'mesh', label: 'Mesh' }, { key: 'image', label: 'Image' },
+];
+
+// With nothing selected, the bar carries the design's most-used settings so
+// they're reachable without scrolling the panels.
+function DesignOptions({ mode }) {
+  const [activeFill, setActiveFill] = useDocField('activeFill');
+  const [colorMode, setColorMode] = useDocField('colorMode');
+  const [knotwork, setKnotwork] = useDocField('knotworkSettings');
+  const [lineworkRaw] = useDocField('lineworkSettings');
+  const cmds = useAppStore(s => s.editorCommands);
+  const editLayer = useAppStore(s => s.editorStatus?.lineworkEditLayer ?? 'base');
+
+  if (mode === 'gridBuilder') {
+    return (
+      <>
+        <span className={styles.label}>Fill</span>
+        <Select value={activeFill} onChange={setActiveFill} title="The fill Generate runs"
+          options={FILLS.map(f => ({ key: f.id, label: f.group === 'Experimental' ? `${f.label} (experimental)` : f.label }))} />
+        <span className={styles.label}>Colour</span>
+        <Select value={colorMode} onChange={setColorMode} options={COLOUR_MODES} />
+      </>
+    );
+  }
+
+  if (mode === 'knotwork' && knotwork) {
+    const set = changes => setKnotwork(prev => ({ ...prev, ...changes }));
+    return (
+      <>
+        <span className={styles.label}>Symmetry</span>
+        <Select value={normaliseSymmetry(knotwork.symmetryMode)} options={symmetryChoices(MEANDER_SYMMETRY)} onChange={v => set({ symmetryMode: v })} />
+        <span className={styles.label}>Seed</span>
+        <SeedInput value={knotwork.seed} onChange={seed => set({ seed, seedWord: '' })} />
+      </>
+    );
+  }
+
+  if (mode === 'linework' && cmds?.updateLinework) {
+    const s = mergeLineworkSettings(lineworkRaw);
+    const L = s.layers.find(l => l.id === editLayer) ?? s.layers[0];
+    const setLayer = changes => cmds.updateLinework(prev => ({
+      ...prev, layers: prev.layers.map(l => (l.id === L.id ? { ...l, ...changes } : l)),
+    }));
+    return (
+      <>
+        {s.layers.length > 1 && (
+          <>
+            <span className={styles.label}>Layer</span>
+            <Select value={L.id} onChange={cmds.setLineworkEditLayer}
+              options={[...s.layers].reverse().map(l => ({ key: l.id, label: l.name }))} />
+          </>
+        )}
+        <span className={styles.label}>Style</span>
+        <Segment value={L.style} onChange={v => setLayer({ style: v })} options={[
+          { key: 'angular', label: 'Angular' }, { key: 'circuit', label: 'Circuit' },
+        ]} />
+        <span className={styles.label}>Symmetry</span>
+        <Select value={normaliseSymmetry(L.sym)} options={symmetryChoices(LINEWORK_SYMMETRY)} onChange={v => setLayer({ sym: v })} />
+        <span className={styles.label}>Seed</span>
+        <SeedInput value={L.seed} onChange={seed => setLayer({ seed })} />
+      </>
+    );
+  }
+  return null;
+}
+
+// With a selection: its fill plus the Object menu's quick actions.
+function SelectionActions({ mode, selectedCount }) {
+  const gridDoc = mode === 'gridBuilder';
+  return (
+    <>
+      <span className={styles.count}>{selectedCount} selected</span>
+      <SelectionFill />
+      {gridDoc && (
+        <span className={styles.iconGroup}>
+          <button onClick={() => runCommand('object.rotateCcw')} title="Rotate 90° anticlockwise"><RotateIcon size={15} style={{ transform: 'scaleX(-1)' }} /></button>
+          <button onClick={() => runCommand('object.rotateCw')} title="Rotate 90° clockwise"><RotateIcon size={15} /></button>
+          <button onClick={() => runCommand('object.reflectH')} title="Reflect horizontal"><ReflectIcon size={15} /></button>
+          <button onClick={() => runCommand('object.reflectV')} title="Reflect vertical"><ReflectIcon size={15} style={{ transform: 'rotate(90deg)' }} /></button>
+        </span>
+      )}
+      <span className={styles.iconGroup}>
+        {gridDoc && <button onClick={() => runCommand('edit.duplicate')} title="Duplicate (Ctrl+D)">Duplicate</button>}
+        <button onClick={() => runCommand('object.hide')}>Hide</button>
+        <button onClick={() => runCommand('object.lock')}>Lock</button>
+        {gridDoc && <button onClick={() => runCommand('edit.delete')} title="Delete (Del)">Delete</button>}
+      </span>
+    </>
+  );
+}
+
 // Illustrator-style control bar: the active tool's name, its options and a
 // short hint. Sits between the document tabs and the canvas.
 export function ControlBar({ mode, selectedCount }) {
   const tool = useAppStore(s => s.toolOverride ?? s.activeTool);
   const options = useAppStore(s => s.toolOptions);
   const setToolOption = useAppStore(s => s.setToolOption);
+  const layout = useAppStore(s => s.dock.layout);
   const def = TOOLS[tool];
   if (!def || !MODE_REGISTRY[mode].tools.includes(tool)) return <div className={styles.bar} />;
   const Icon = def.icon;
@@ -163,8 +279,17 @@ export function ControlBar({ mode, selectedCount }) {
       <span className={styles.toolName}><Icon size={15} /> {def.label}</span>
       <span className={styles.sep} />
 
-      {tool === 'select' && <span className={styles.hint}>{selectedCount ? `${selectedCount} selected` : 'Click or drag on the canvas to select shapes'}</span>}
-      {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionFill />}
+      {layout === 'classic' ? (
+        <>
+          {tool === 'select' && <span className={styles.hint}>{selectedCount ? `${selectedCount} selected` : 'Click or drag on the canvas to select shapes'}</span>}
+          {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionFill />}
+        </>
+      ) : (
+        <>
+          {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionActions mode={mode} selectedCount={selectedCount} />}
+          {tool === 'select' && !selectedCount && <DesignOptions mode={mode} />}
+        </>
+      )}
 
       {tool === 'wand' && (
         <>
