@@ -23,6 +23,7 @@ const TILING_OPTIONS = [
 const usesFill = (L, keys) => keys.some(k => L.fills?.includes(k) || L.maskFills?.includes(k));
 const angular = L => L.style !== 'circuit';
 const single = L => L.style === 'circuit' && L.route === 'single';
+const filled = L => single(L) && L.fill;
 const square = L => (L.tiling ?? 'square') === 'square';
 const plate = (_, ctx) => ctx.plate;
 const masked = L => L.mask && L.mask !== 'none';
@@ -96,25 +97,30 @@ export const LINEWORK_LAYER_SCHEMA = [
   {
     id: 'linework.circuit', title: 'B · Circuit', showIf: L => !angular(L), fields: [
       { key: 'route', label: 'Route', type: 'segmented', value: L => (single(L) ? 'single' : 'bundles'),
-        help: 'Many separate bundles, or one circuit that flows through every cell without crossing itself',
-        options: [{ key: 'bundles', label: 'Bundles' }, { key: 'single', label: 'One circuit' }] },
-      { key: 'loop', label: 'Closed loop', type: 'toggle', showIf: single,
+        help: 'Many separate bundles, or one circuit that follows the same rules and runs as far as it can',
+        options: [{ key: 'bundles', label: 'Bundles' }, { key: 'single', label: 'One circuit' }],
+        // One circuit wants room to run: lift a short max length to no limit.
+        onChange: (v, L) => ({ route: v, ...(v === 'single' && (L.maxLen ?? 40) < 200 ? { maxLen: 200 } : {}) }) },
+      { key: 'fill', label: 'Fill every cell', type: 'toggle', showIf: single,
+        help: 'Route through every cell exactly once. It then never crosses itself, so over / under and running off edges are off' },
+      { key: 'loop', label: 'Closed loop', type: 'toggle', showIf: L => single(L) && L.fill,
         help: 'Join the circuit into a loop with no ends, instead of two hairpin ends (an odd number of cells always has ends)' },
       { key: 'bundle', label: 'Bundle size', type: 'number', min: 1, max: 8,
         help: 'Cells per bundle; a bundle carries Lines per cell × this many strands' },
       { key: 'straight', label: 'Straightness', type: 'slider', min: 0, max: 1, step: 0.05, format: pct },
-      { key: 'maxLen', label: 'Max length', type: 'slider', min: 1, max: 200, step: 1, format: v => v, help: 'Longest run, in bundles', showIf: L => !single(L) },
+      { key: 'maxLen', label: 'Max length', type: 'slider', min: 1, max: 200, step: 1, format: v => (v >= 200 ? 'No limit' : v),
+        help: 'Longest run, in bundles', showIf: L => !filled(L) },
       { key: 'density', label: 'Density', type: 'slider', min: 0.05, max: 1, step: 0.05, format: pct, showIf: L => !single(L) },
-      { key: 'edgeExit', label: 'Run off edges', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: L => !single(L),
+      { key: 'edgeExit', label: 'Run off edges', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: L => !filled(L),
         help: 'Chance a bundle runs off the edge instead of turning back (only when the grid holds whole bundles)' },
-      { key: 'weave', label: 'Over / under', type: 'segmented', showIf: L => !single(L),
+      { key: 'weave', label: 'Over / under', type: 'segmented', showIf: L => !filled(L),
         options: [{ key: 'off', label: 'Off' }, { key: 'alternate', label: 'Alternate' }, { key: 'random', label: 'Random' }] },
       { key: 'eyes', label: 'Single-cell eyes', type: 'toggle', showIf: L => !single(L) },
     ],
   },
   {
-    // One line runs through every cell, so a mask has nothing to steer.
-    id: 'linework.mask', title: 'Region mask', showIf: L => !single(L), defaultOpen: masked,
+    // A route through every cell has nothing for a mask to steer.
+    id: 'linework.mask', title: 'Region mask', showIf: L => !filled(L), defaultOpen: masked,
     info: 'Confine part of the design to a shape, image or word. Angular tiles inside it take their own fills; circuit bundles route inside it first.',
     fields: [
       { key: 'mask', label: 'Mask', type: 'select',

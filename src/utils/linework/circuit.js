@@ -25,11 +25,16 @@ const EPS = 1e-6;
 // L: { w, h } layer size, C cell size, p pitch, ratio (line / pitch).
 // sym: 'none' | 'mirror-x' | 'mirror-y' | 'mirror-both'.
 // insideCell(i, j): region mask over the bundle grid, or null.
+// cfg.route 'single': one bundle instead of many — the same walk and rules
+// (straightness, over / under, running off edges, max length), steered to
+// reach as many cells as it can; with cfg.fill, a route through every
+// cell instead (singleCircuit, no crossings).
 export function circuitLayer(L, cfg, seed, sym, insideCell) {
-  if (cfg.route === 'single') {
-    const one = singleCircuit(L, cfg, seed, sym);
-    if (one) return one;
+  if (cfg.route === 'single' && cfg.fill) {
+    const whole = singleCircuit(L, cfg, seed, sym);
+    if (whole) return whole;
   }
+  const one = cfg.route === 'single';
   const S = Math.max(1, cfg.bundle ?? 1) * L.C;
   const k = Math.max(1, Math.round(S / L.p));
   const p = S / k, w = p * L.ratio;
@@ -50,6 +55,39 @@ export function circuitLayer(L, cfg, seed, sym, insideCell) {
   let phase = insideCell ? 'inside' : 'all';
 
   const outside = (i, j) => i < 0 || j < 0 || i >= cols || j >= rows || (i >= limI && i !== axI) || (j >= limJ && j !== axJ);
+  // One circuit looks ahead: the free area still reachable after stepping
+  // into (i, j) — the largest region beside it, plus the cell. It prefers
+  // moves that keep the most, so it sweeps the grid rather than walling off
+  // pockets, and crossing over / under is how it escapes a corner.
+  const isFree = (i, j) => !outside(i, j) && !occ.has(key(i, j));
+  const reach = (i0, j0, blocked, seen) => {
+    seen.add(key(i0, j0));
+    const stack = [[i0, j0]];
+    let n = 1;
+    while (stack.length) {
+      const [i, j] = stack.pop();
+      for (const [a, b] of DIRS) {
+        const k2 = key(i + a, j + b);
+        if (k2 === blocked || seen.has(k2) || !isFree(i + a, j + b)) continue;
+        seen.add(k2); stack.push([i + a, j + b]); n++;
+      }
+    }
+    return n;
+  };
+  const areaAfter = (i, j) => {
+    const seen = new Set();
+    let best = 0;
+    for (const [a, b] of DIRS) {
+      const x = i + a, y = j + b;
+      if (isFree(x, y) && !seen.has(key(x, y))) best = Math.max(best, reach(x, y, key(i, j), seen));
+    }
+    return best + 1;
+  };
+  // After passing under, the walker must carry straight on past the cell
+  // beyond the crossing: is that cell free?
+  const roomUnder = (c, h) => c.then.t === 'free' && isFree(c.then.i + DIRS[h][0], c.then.j + DIRS[h][1]);
+  // Max length at the top of its range means no limit.
+  const maxLen = (cfg.maxLen ?? 40) >= 200 ? Infinity : (cfg.maxLen ?? 40);
 
   // What stepping from (i, j) in heading h leads to. straightIn: the walker
   // reached (i, j) heading h, so its own cell there is a straight.
@@ -93,7 +131,7 @@ export function circuitLayer(L, cfg, seed, sym, insideCell) {
   function walk(i, j, h, bIdx, forbid, axes) {
     const cells = [], heads = [];
     let ci = i, cj = j, end = 'cap', first = true, first0 = true, forceStraight = false, crossN = 0;
-    for (let n = 0; n < (cfg.maxLen ?? 40); n++) {
+    for (let n = 0; n < maxLen; n++) {
       const turns = shuffle([(h + 1) % 4, (h + 3) % 4], r);
       // After passing under, carry on straight (or stop) so the cut-back only meets straight strands.
       const order = forceStraight ? [h] : r() < (cfg.straight ?? 0.6) ? [h, ...turns] : [...turns, h];
@@ -104,8 +142,21 @@ export function circuitLayer(L, cfg, seed, sym, insideCell) {
         const c = classify(ci, cj, cand, bIdx, !first && cand === h);
         if (c) opts.push([c, cand]);
       }
+      if (one && opts.length > 1) {
+        // Most reachable area first; ties keep the walk's own (straightness)
+        // order. Ends (off an edge, onto a mirror axis) only when stuck.
+        const area = ([c, hh]) => (c.t === 'free' ? areaAfter(c.i, c.j)
+          : c.t === 'cross' && c.then.t === 'free' && (c.canTop || roomUnder(c, hh)) ? areaAfter(c.then.i, c.then.j) - 0.5 : -1);
+        const scored = opts.map(o => [o, area(o)]);
+        scored.sort((a, b) => b[1] - a[1]);
+        // Dead ends and ends drop out while anything else is open, so the
+        // random crossing pick below can't take one either.
+        const live = scored.filter(([, a]) => a > 0);
+        opts.splice(0, opts.length, ...(live.length ? live : scored).map(([o]) => o));
+      }
       // Prefer weaving over a neighbour when a crossing is on offer.
-      const pick = opts.find(o => o[0].t === 'cross' && r() < 0.75) || opts[0];
+      // (One circuit: crossings mostly to reach space it couldn't otherwise.)
+      const pick = opts.find(o => o[0].t === 'cross' && r() < (one ? 0.25 : 0.75)) || opts[0];
       first = false;
       if (!pick) break;
       const [res, hh] = pick;
@@ -120,7 +171,8 @@ export function circuitLayer(L, cfg, seed, sym, insideCell) {
         if (st.t === 'open') { heads.push(hh); end = 'open'; if (st.axis) axes.add(st.axis); stop = true; break; }
         if (st.t === 'cross') {
           const wantTop = weave === 'random' ? r() < 0.5 : crossN++ % 2 === 0;
-          const walkerTop = st.canTop && (wantTop || !st.canUnder);
+          // (One circuit goes over rather than under into a dead end.)
+          const walkerTop = st.canTop && (wantTop || !st.canUnder || (one && !roomUnder(st, hh)));
           if (!walkerTop) forceStraight = true;
           const walkerAxis = hh % 2 === 0 ? 'H' : 'V';
           crossings.push({
@@ -145,11 +197,17 @@ export function circuitLayer(L, cfg, seed, sym, insideCell) {
   const starts = [];
   for (let j = 0; j < Math.min(rows, limJ); j++) for (let i = 0; i < Math.min(cols, limI); i++) starts.push([i, j]);
   shuffle(starts, r);
+  // One circuit starts in a corner and sweeps from there.
+  if (one) {
+    const ways = ([i, j]) => DIRS.filter(([a, b]) => !outside(i + a, j + b)).length;
+    starts.sort((a, b) => ways(a) - ways(b));
+  }
 
   const runPass = (canStart) => {
     for (const [i, j] of starts) {
+      if (one && bundles.length) return;
       if (occ.has(key(i, j)) || !canStart(i, j)) continue;
-      if (r() > (cfg.density ?? 1)) { occ.set(key(i, j), { b: -1, dir: 'E' }); continue; }
+      if (!one && r() > (cfg.density ?? 1)) { occ.set(key(i, j), { b: -1, dir: 'E' }); continue; }
       const bIdx = bundles.length;
       occ.set(key(i, j), { b: bIdx, dir: '?' });
       const axes = new Set();

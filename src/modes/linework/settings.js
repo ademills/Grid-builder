@@ -24,9 +24,10 @@ export const lineworkLayerDefaults = (over = {}) => ({
   tiling: 'square', regularity: 0.5,
   tile: 2, subdiv: 0, minTile: 1, fills: ['spiral'], triFill: 'spiral', angles: ['45', '135'],
   orient: 'random', outline: true, core: true,
-  // B · circuit. route: 'bundles' (many walks) or 'single' (one bundle that
-  // runs through every cell, with hairpin ends, or a closed `loop`).
-  route: 'bundles', loop: false, bundle: 1, straight: 0.6, maxLen: 40, density: 1, edgeExit: 0.5, weave: 'off', eyes: true,
+  // B · circuit. route: 'bundles' (many walks) or 'single' (one walk, same
+  // rules); `fill` makes the single route visit every cell (no crossings),
+  // optionally as a closed `loop`. maxLen 200 means no limit.
+  route: 'bundles', fill: false, loop: false, bundle: 1, straight: 0.6, maxLen: 40, density: 1, edgeExit: 0.5, weave: 'off', eyes: true,
   // Region mask: a Generate-panel fill (its own settings) or 'word'
   mask: 'none', maskFills: ['rings'], maskOutside: 'fill',
   ...over,

@@ -104,7 +104,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       // One circuit is built whole (already symmetric), so it isn't copied.
       for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym)) {
         push({
-          key: `${tag}:b:${b.key}`, name: nameFor(li, R.whole ? 'Circuit' : b.single ? 'Eye' : 'Bundle'), kind: 'ink',
+          key: `${tag}:b:${b.key}`, name: nameFor(li, cfg.route === 'single' ? 'Circuit' : b.single ? 'Eye' : 'Bundle'), kind: 'ink',
           contours: b.contours.map(c => mapContour(c, m, t)), centre: add(applyLinear(m, b.centre), t),
         });
       }
