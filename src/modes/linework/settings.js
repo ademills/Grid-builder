@@ -19,9 +19,8 @@ export const lineworkLayerDefaults = (over = {}) => ({
   scale: 1, invert: false, style: 'angular', sym: 'mirror-both', seed: randomSeed(),
   // Base only: an ink frame round the canvas, in cells
   frame: 0,
-  // A · angular. tiling: 'square' | 'hex' | 'triangle' | 'voronoi' (tile
-  // size sets the cell size); regularity evens out Voronoi cells.
-  tiling: 'square', regularity: 0.5,
+  // A · angular (the cell shape is the document's `tiling`; tile size sets
+  // the cell size)
   tile: 2, subdiv: 0, minTile: 1, fills: ['spiral'], triFill: 'spiral', angles: ['45', '135'],
   orient: 'random', outline: true, core: true,
   // B · circuit. route: 'bundles' (many walks) or 'single' (one walk, same
@@ -35,6 +34,10 @@ export const lineworkLayerDefaults = (over = {}) => ({
 
 export const createLineworkSettings = () => ({
   orientation: 'square',
+  // Cell shape for every layer and style: 'square' | 'hex' | 'triangle' |
+  // 'voronoi'; regularity evens out Voronoi cells (Properties › Grid).
+  tiling: 'square',
+  regularity: 0.5,
   linesPerCell: 3,
   lineRatio: 0.55,
   // Colour roles: swatch ids, or null — ink: the first palette swatch;
@@ -100,7 +103,10 @@ export function mergeLineworkSettings(saved) {
   if (!saved) return d;
   const [base, ...plates] = saved.layers?.length ? saved.layers : d.layers;
   return {
-    ...d, ...saved,
+    ...d,
+    // Cells were briefly a per-layer setting: the base layer's carries over.
+    ...(saved.tiling == null && base?.tiling ? { tiling: base.tiling, regularity: base.regularity ?? d.regularity } : {}),
+    ...saved,
     word: { ...d.word, ...(saved.word ?? {}) },
     layers: [
       { ...lineworkLayerDefaults(), ...base, id: 'base', name: 'Base' },

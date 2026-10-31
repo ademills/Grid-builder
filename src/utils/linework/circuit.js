@@ -565,6 +565,8 @@ const revCmd = (seg) => (seg.t === 'A' ? ['A', seg.r, 1 - seg.sweep, seg.a] : ['
 
 // A strand of width w as filled contours: one for an open strand (butt or
 // round caps), two (outer and inner, opposite windings) for a closed loop.
+export { strandOutline as strandOutlineOf };
+
 function strandOutline(strand, w) {
   const { segs } = strand;
   if (!segs.length) return [];

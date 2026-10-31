@@ -13,6 +13,7 @@
 import { plateCells } from '../../modes/linework/settings';
 import { angularLayer } from './angular';
 import { circuitLayer, replicateBundles } from './circuit';
+import { cellCircuitLayer } from './cellCircuit';
 import {
   add, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
   SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds,
@@ -94,7 +95,17 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       if (P) push({ key: `${tag}:ground`, name: NAMES.ground, kind: 'ground', contours: [polyContour(P)] });
     }
 
-    if (cfg.style === 'circuit') {
+    const tiling = settings.tiling ?? 'square';
+    if (cfg.style === 'circuit' && tiling !== 'square') {
+      // Circuits through hexagons, triangles or Voronoi cells (no symmetry or mask).
+      const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single');
+      for (const b of R.bundles) {
+        push({
+          key: `${tag}:c:${b.index}`, name: nameFor(li, cfg.route === 'single' ? 'Circuit' : 'Bundle'), kind: 'ink',
+          contours: b.contours.map(c => mapContour(c, m, t)), centre: add(applyLinear(m, b.centre), t),
+        });
+      }
+    } else if (cfg.style === 'circuit') {
       // Circuit symmetry: mirrors only; rotations become their mirror equivalent.
       const csym = sym === 'mirror-x' || sym === 'mirror-y' || sym === 'none' ? sym : 'mirror-both';
       const S = Math.max(1, cfg.bundle ?? 1) * C;
@@ -119,7 +130,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const cols = Math.max(1, Math.round(lw / C)), rows = Math.max(1, Math.round(lh / C));
       const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, cols, rows) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + lw / 2) / C)},${Math.floor((y + lh / 2) / C)}`) : null;
-      const { regions, outlines } = angularLayer(L, cfg, seed, dom, inside, { ops, planes });
+      const { regions, outlines } = angularLayer(L, { ...cfg, tiling, regularity: settings.regularity }, seed, dom, inside, { ops, planes });
       // Clip to the symmetry domain, copy by each map, clip to the layer.
       // With outlines on, the content shrinks by half a line all round so the
       // full-width Edge (below) frames it like the borders between tiles.

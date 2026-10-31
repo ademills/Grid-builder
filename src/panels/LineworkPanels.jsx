@@ -22,6 +22,7 @@ export function LineworkPanel() {
   }));
   const ctx = {
     plate: L.id !== 'base',
+    tiling: s.tiling ?? 'square',
     layers: s.layers,
     layerCount: s.layers.length,
     setEditLayer: linework.setEditLayer,

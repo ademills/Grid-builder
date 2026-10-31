@@ -4,8 +4,8 @@ import { PlateSize, DiamondNote, MaskWord, MaskFillSettings, EditLayer } from '.
 
 // Linework's settings as data (see panels/schema.jsx): the document-wide
 // grid and lines, and the settings of the layer being edited (the base or a
-// plate). ctx: { plate, layers, layerCount, setEditLayer, maxCells, grid,
-// diamondCells, word, setWord }.
+// plate). ctx: { plate, tiling, layers, layerCount, setEditLayer, maxCells,
+// grid, diamondCells, word, setWord }.
 
 const pct = v => `${Math.round(v * 100)}%`;
 const cells = v => `${+v.toFixed(2)}`;
@@ -15,7 +15,7 @@ const FILL_OPTIONS = [
   ['split4', '⊠ 4 triangles'], ['hatch', 'Hatch'], ['chevron', 'Chevron'],
 ];
 const ANGLE_OPTIONS = [['0', '0°'], ['45', '45°'], ['90', '90°'], ['135', '135°']];
-const TILING_OPTIONS = [
+export const TILING_OPTIONS = [
   { key: 'square', label: 'Squares' }, { key: 'hex', label: 'Hexagons' },
   { key: 'triangle', label: 'Triangles' }, { key: 'voronoi', label: 'Voronoi' },
 ];
@@ -23,8 +23,10 @@ const TILING_OPTIONS = [
 const usesFill = (L, keys) => keys.some(k => L.fills?.includes(k) || L.maskFills?.includes(k));
 const angular = L => L.style !== 'circuit';
 const single = L => L.style === 'circuit' && L.route === 'single';
-const filled = L => single(L) && L.fill;
-const square = L => (L.tiling ?? 'square') === 'square';
+const filled = (L, ctx) => single(L) && L.fill && square(L, ctx);
+// Square cells (Properties › Grid › Cells), where subdivision, crossings,
+// every-cell routes and masks work.
+const square = (_, ctx) => (ctx.tiling ?? 'square') === 'square';
 const plate = (_, ctx) => ctx.plate;
 const masked = L => L.mask && L.mask !== 'none';
 
@@ -74,16 +76,11 @@ export const LINEWORK_LAYER_SCHEMA = [
   },
   {
     id: 'linework.angular', title: 'A · Angular', showIf: angular, fields: [
-      { key: 'tiling', label: 'Tiles', type: 'select', options: TILING_OPTIONS, value: L => L.tiling ?? 'square',
-        help: 'The shape of the tiles the fills go in' },
       { key: 'tile', label: 'Tile size', type: 'number', min: 1, max: (_, c) => c.maxCells, help: 'Tile size in cells' },
-      { key: 'regularity', label: 'Regularity', type: 'slider', min: 0, max: 1, step: 0.25, format: pct,
-        value: L => L.regularity ?? 0.5, showIf: L => L.tiling === 'voronoi',
-        help: '0%: scattered cells of every size; 100%: relaxed into even, honeycomb-like cells' },
       { key: 'subdiv', label: 'Subdivide', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: square,
         help: 'Chance each tile splits into four smaller ones' },
       { key: 'minTile', label: 'Smallest tile', type: 'slider', min: 0.25, max: 8, step: 0.25, format: cells,
-        showIf: L => square(L) && L.subdiv > 0 },
+        showIf: (L, ctx) => square(L, ctx) && L.subdiv > 0 },
       { key: 'fills', label: 'Fills', type: 'chips', options: FILL_OPTIONS },
       { key: 'triFill', label: 'Triangle fill', type: 'segmented', showIf: L => usesFill(L, ['split2', 'split4']),
         options: [{ key: 'spiral', label: 'Spiral' }, { key: 'rings', label: 'Rings' }, { key: 'mix', label: 'Mix' }] },
@@ -101,26 +98,26 @@ export const LINEWORK_LAYER_SCHEMA = [
         options: [{ key: 'bundles', label: 'Bundles' }, { key: 'single', label: 'One circuit' }],
         // One circuit wants room to run: lift a short max length to no limit.
         onChange: (v, L) => ({ route: v, ...(v === 'single' && (L.maxLen ?? 40) < 200 ? { maxLen: 200 } : {}) }) },
-      { key: 'fill', label: 'Fill every cell', type: 'toggle', showIf: single,
+      { key: 'fill', label: 'Fill every cell', type: 'toggle', showIf: (L, ctx) => single(L) && square(L, ctx),
         help: 'Route through every cell exactly once. It then never crosses itself, so over / under and running off edges are off' },
-      { key: 'loop', label: 'Closed loop', type: 'toggle', showIf: L => single(L) && L.fill,
+      { key: 'loop', label: 'Closed loop', type: 'toggle', showIf: (L, ctx) => single(L) && L.fill && square(L, ctx),
         help: 'Join the circuit into a loop with no ends, instead of two hairpin ends (an odd number of cells always has ends)' },
       { key: 'bundle', label: 'Bundle size', type: 'number', min: 1, max: 8,
         help: 'Cells per bundle; a bundle carries Lines per cell × this many strands' },
       { key: 'straight', label: 'Straightness', type: 'slider', min: 0, max: 1, step: 0.05, format: pct },
       { key: 'maxLen', label: 'Max length', type: 'slider', min: 1, max: 200, step: 1, format: v => (v >= 200 ? 'No limit' : v),
-        help: 'Longest run, in bundles', showIf: L => !filled(L) },
+        help: 'Longest run, in bundles', showIf: (L, ctx) => !filled(L, ctx) },
       { key: 'density', label: 'Density', type: 'slider', min: 0.05, max: 1, step: 0.05, format: pct, showIf: L => !single(L) },
-      { key: 'edgeExit', label: 'Run off edges', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: L => !filled(L),
+      { key: 'edgeExit', label: 'Run off edges', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: (L, ctx) => !filled(L, ctx),
         help: 'Chance a bundle runs off the edge instead of turning back (only when the grid holds whole bundles)' },
-      { key: 'weave', label: 'Over / under', type: 'segmented', showIf: L => !filled(L),
+      { key: 'weave', label: 'Over / under', type: 'segmented', showIf: (L, ctx) => !filled(L, ctx) && square(L, ctx),
         options: [{ key: 'off', label: 'Off' }, { key: 'alternate', label: 'Alternate' }, { key: 'random', label: 'Random' }] },
-      { key: 'eyes', label: 'Single-cell eyes', type: 'toggle', showIf: L => !single(L) },
+      { key: 'eyes', label: 'Single-cell eyes', type: 'toggle', showIf: (L, ctx) => !single(L) && square(L, ctx) },
     ],
   },
   {
     // A route through every cell has nothing for a mask to steer.
-    id: 'linework.mask', title: 'Region mask', showIf: L => !filled(L), defaultOpen: masked,
+    id: 'linework.mask', title: 'Region mask', showIf: (L, ctx) => !filled(L, ctx) && (angular(L) || square(L, ctx)), defaultOpen: masked,
     info: 'Confine part of the design to a shape, image or word. Angular tiles inside it take their own fills; circuit bundles route inside it first.',
     fields: [
       { key: 'mask', label: 'Mask', type: 'select',
