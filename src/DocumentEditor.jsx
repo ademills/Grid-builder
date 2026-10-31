@@ -1577,6 +1577,7 @@ export function DocumentEditor({ mode: appMode }) {
       sym: style === 'circuit' ? pick(['mirror-both', 'mirror-x', 'none']) : pick(['mirror-both', 'mirror-diag', 'mirror-diag', 'rotate4']),
       tile: pick([1, 2, 2, 3, 4]), fills: fills(), triFill: pick(['spiral', 'rings', 'mix']), orient: pick(['uniform', 'random']),
       subdiv: pick([0, 0, 0.2, 0.4]), bundle: pick([1, 1, 2]), straight: 0.4 + r() * 0.4, weave: pick(['off', 'alternate']),
+      route: style === 'circuit' && r() < 0.3 ? 'single' : 'bundles',
       ...over,
     });
     const nPlates = pick([0, 1, 1, 2, 2, 3]);

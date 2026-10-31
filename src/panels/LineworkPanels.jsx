@@ -213,7 +213,10 @@ export function LineworkPanel() {
 
         {L.style === 'angular' ? <AngularSettings L={L} setLayer={setLayer} maxCells={maxCells} /> : <CircuitSettings L={L} setLayer={setLayer} />}
 
-        <RegionMask L={L} setLayer={setLayer} word={s.word} setWord={w => set({ word: { ...s.word, ...w } })} />
+        {/* One line runs through every cell, so a mask has nothing to steer. */}
+        {!(L.style === 'circuit' && L.route === 'single') && (
+          <RegionMask L={L} setLayer={setLayer} word={s.word} setWord={w => set({ word: { ...s.word, ...w } })} />
+        )}
       </div>
 
       <div className={styles.fillBar}>
@@ -267,12 +270,25 @@ function AngularSettings({ L, setLayer, maxCells }) {
 }
 
 function CircuitSettings({ L, setLayer }) {
+  const single = L.route === 'single';
   return (
     <Section id="linework.circuit" title="B · Circuit">
-      <Row label="Bundle size" title="Cells per bundle; a bundle carries Lines per cell × this many strands">
-        <Stepper value={L.bundle} onChange={v => setLayer({ bundle: v })} min={1} max={8} />
+      <Row label="Route" title="Many separate bundles, or one closed line that runs through the whole layer without crossing itself">
+        <Segmented value={single ? 'single' : 'bundles'} onChange={v => setLayer({ route: v })} options={[
+          { key: 'bundles', label: 'Bundles' }, { key: 'single', label: 'One line' },
+        ]} />
       </Row>
+      {single ? (
+        <Row label="Parallel lines" title="Strands running side by side along the one route (1: a single line)">
+          <Stepper value={L.bundle} onChange={v => setLayer({ bundle: v })} min={1} max={8} />
+        </Row>
+      ) : (
+        <Row label="Bundle size" title="Cells per bundle; a bundle carries Lines per cell × this many strands">
+          <Stepper value={L.bundle} onChange={v => setLayer({ bundle: v })} min={1} max={8} />
+        </Row>
+      )}
       <Slider label="Straightness" value={L.straight} min={0} max={1} step={0.05} format={pct} onChange={v => setLayer({ straight: v })} />
+      {single ? null : <>
       <Slider label="Max length" value={L.maxLen} min={1} max={200} step={1} onChange={v => setLayer({ maxLen: v })} title="Longest run, in bundles" />
       <Slider label="Density" value={L.density} min={0.05} max={1} step={0.05} format={pct} onChange={v => setLayer({ density: v })} />
       <Slider label="Run off edges" value={L.edgeExit} min={0} max={1} step={0.05} format={pct} onChange={v => setLayer({ edgeExit: v })}
@@ -283,6 +299,7 @@ function CircuitSettings({ L, setLayer }) {
         ]} />
       </Row>
       <Row label="Single-cell eyes"><Toggle value={L.eyes} onChange={v => setLayer({ eyes: v })} /></Row>
+      </>}
     </Section>
   );
 }

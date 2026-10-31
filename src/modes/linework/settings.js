@@ -22,8 +22,9 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // A · angular
   tile: 2, subdiv: 0, minTile: 1, fills: ['spiral'], triFill: 'spiral', angles: ['45', '135'],
   orient: 'random', outline: true, core: true,
-  // B · circuit
-  bundle: 1, straight: 0.6, maxLen: 40, density: 1, edgeExit: 0.5, weave: 'off', eyes: true,
+  // B · circuit. route: 'bundles' (many walks) or 'single' (one closed line
+  // through every cell; `bundle` is then its number of parallel strands).
+  route: 'bundles', bundle: 1, straight: 0.6, maxLen: 40, density: 1, edgeExit: 0.5, weave: 'off', eyes: true,
   // Region mask: a Generate-panel fill (its own settings) or 'word'
   mask: 'none', maskFills: ['rings'], maskOutside: 'fill',
   ...over,
