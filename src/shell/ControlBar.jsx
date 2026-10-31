@@ -7,10 +7,13 @@ import { ColorPicker } from '../panels/ColorPicker';
 import { SwatchColourField } from '../panels/SwatchColourField';
 import { assetThumb, randomSeed } from '../panels/panelUtils';
 import { DiceIcon, RotateIcon, ReflectIcon, WandIcon, PinIcon } from './icons';
-import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY, MEANDER_SYMMETRY, LINEWORK_SYMMETRY } from '../utils/symmetry';
+import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY } from '../utils/symmetry';
 import { FILLS } from '../modes/gridBuilder/fills';
 import { mergeLineworkSettings } from '../modes/linework/settings';
 import { runCommand } from './commands';
+import { BarFields } from '../panels/schema';
+import { MEANDER_SCHEMA } from '../modes/meander/schema';
+import { LINEWORK_LAYER_SCHEMA } from '../modes/linework/schema';
 import styles from './ControlBar.module.css';
 
 // Closes a popover on outside click / Escape.
@@ -204,7 +207,11 @@ function SeedInput({ value, onChange }) {
   );
 }
 
-const symmetryChoices = keys => symmetryOptions(keys).map(m => ({ key: m.key, label: m.key === 'none' ? m.label : `${m.icon}  ${m.label}` }));
+// The bar's own controls, for settings schemas' `bar` fields (BarFields).
+const BAR_UI = {
+  Group: ({ label, children }) => <><span className={styles.label}>{label}</span>{children}</>,
+  Select, Segment, Seed: SeedInput,
+};
 
 const COLOUR_MODES = [
   { key: 'none', label: 'None' }, { key: 'uniform', label: 'Uniform' }, { key: 'random', label: 'Random' },
@@ -234,15 +241,7 @@ function DesignOptions({ mode }) {
   }
 
   if (mode === 'knotwork' && knotwork) {
-    const set = changes => setKnotwork(prev => ({ ...prev, ...changes }));
-    return (
-      <>
-        <span className={styles.label}>Symmetry</span>
-        <Select value={normaliseSymmetry(knotwork.symmetryMode)} options={symmetryChoices(MEANDER_SYMMETRY)} onChange={v => set({ symmetryMode: v })} />
-        <span className={styles.label}>Seed</span>
-        <SeedInput value={knotwork.seed} onChange={seed => set({ seed, seedWord: '' })} />
-      </>
-    );
+    return <BarFields schema={MEANDER_SCHEMA} values={knotwork} set={changes => setKnotwork(prev => ({ ...prev, ...changes }))} ui={BAR_UI} />;
   }
 
   if (mode === 'linework' && cmds?.updateLinework) {
@@ -260,14 +259,7 @@ function DesignOptions({ mode }) {
               options={[...s.layers].reverse().map(l => ({ key: l.id, label: l.name }))} />
           </>
         )}
-        <span className={styles.label}>Style</span>
-        <Segment value={L.style} onChange={v => setLayer({ style: v })} options={[
-          { key: 'angular', label: 'Angular' }, { key: 'circuit', label: 'Circuit' },
-        ]} />
-        <span className={styles.label}>Symmetry</span>
-        <Select value={normaliseSymmetry(L.sym)} options={symmetryChoices(LINEWORK_SYMMETRY)} onChange={v => setLayer({ sym: v })} />
-        <span className={styles.label}>Seed</span>
-        <SeedInput value={L.seed} onChange={seed => setLayer({ seed })} />
+        <BarFields schema={LINEWORK_LAYER_SCHEMA} values={L} set={setLayer} ctx={{ plate: L.id !== 'base', layerCount: s.layers.length }} ui={BAR_UI} />
       </>
     );
   }

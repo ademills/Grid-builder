@@ -43,7 +43,9 @@ import { useColorPalette } from './hooks/useColorPalette';
 import { useSelection } from './hooks/useSelection';
 import { groupMembers, groupBlocksTogether, ungroupBlocks, regroupCopies, listGroups } from './utils/groups';
 import { planMove, moveLimits } from './utils/moveBlocks';
-import { symmetricPoints, symmetricPlacements, normaliseSymmetry, MEANDER_SYMMETRY } from './utils/symmetry';
+import { symmetricPoints, symmetricPlacements, normaliseSymmetry } from './utils/symmetry';
+import { surpriseValues } from './panels/schemaUtils';
+import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { SymmetryAxes, MoveGhost } from './components/ToolOverlays';
 import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
 import { tidySvg } from './utils/svgExport';
@@ -1315,22 +1317,18 @@ export function DocumentEditor({ mode: appMode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [knotShapeSig]);
 
-  // Surprise Me for Meander: random walker, symmetry and strand shape with a
-  // fresh seed, as one Generate. The palette is left alone (Recolour or the
-  // Swatches panel change it). The new shape signature is recorded up front
-  // so the reshape effect above doesn't rebuild the design a second time.
+  // Surprise Me for Meander: every setting MEANDER_SCHEMA gives a `surprise`
+  // (walker, symmetry, strand shape, a fresh seed) as one Generate. The
+  // palette is left alone (Recolour or the Swatches panel change it). The
+  // new shape signature is recorded up front so the reshape effect above
+  // doesn't rebuild the design a second time.
   const handleKnotworkSurprise = useCallback(() => {
     if (!gridComputed) return;
-    const r = Math.random, pick = (a) => a[Math.floor(r() * a.length)];
-    const strandWidthRatio = Math.round((0.4 + r() * 0.5) * 50) / 50;
-    const innerRadius = pick([0, 0.1, 0.25, 0.25, 0.5]);
+    const r = Math.random;
     const nextSettings = {
       ...knotworkSettings,
-      density: pick([0.6, 0.8, 1, 1]), straightBias: 1 + Math.floor(r() * 15), wallDensity: pick([0, 0, 0.05, 0.12]),
-      symmetryMode: pick(MEANDER_SYMMETRY.filter(k => k !== 'kaleidoscope')),
-      strandWidthRatio, capRoundness: pick([0.5, 1, 1]), innerRadius, outerRadius: innerRadius + strandWidthRatio, bendLinked: true,
-      showTerminalDots: r() < 0.3, seedWord: '',
-      seed: Math.floor(r() * 0x80000000), letterArrangementSeed: Math.floor(r() * 0x80000000), colorSeed: Math.floor(r() * 0x80000000) || 1,
+      ...surpriseValues(MEANDER_SCHEMA, knotworkSettings, r),
+      letterArrangementSeed: Math.floor(r() * 0x80000000), colorSeed: Math.floor(r() * 0x80000000) || 1,
     };
     knotShapeRef.current = shapeSigOf(nextSettings);
     setKnotworkSettings(nextSettings);

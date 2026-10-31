@@ -93,6 +93,21 @@ export function NumberField({ value, onChange, min = 0, max = Infinity, format, 
   );
 }
 
+// Toggle buttons for a multi-choice list: options = [[key, label]]; the
+// value keeps the options' order.
+export function Chips({ options, value, onChange }) {
+  return (
+    <div className={styles.fillPicker}>
+      {options.map(([key, label]) => (
+        <button key={key}
+          className={`${styles.fillPickerBtn} ${value.includes(key) ? styles.fillPickerBtnActive : ''}`}
+          onClick={() => onChange(value.includes(key) ? value.filter(v => v !== key) : options.map(o => o[0]).filter(k => k === key || value.includes(k)))}
+        >{label}</button>
+      ))}
+    </div>
+  );
+}
+
 // The old name, kept so existing panels need no change.
 export const Stepper = NumberField;
 
