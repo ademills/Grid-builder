@@ -53,6 +53,7 @@ const FILL_OPTIONS = [
   ['spiral', 'Key spiral'], ['rings', 'Rings'], ['split2', '◩ 2 triangles'],
   ['split4', '⊠ 4 triangles'], ['hatch', 'Hatch'], ['chevron', 'Chevron'],
 ];
+const TILING_OPTIONS = [['square', 'Squares'], ['hex', 'Hexagons'], ['triangle', 'Triangles'], ['voronoi', 'Voronoi']];
 const ANGLE_OPTIONS = [['0', '0°'], ['45', '45°'], ['90', '90°'], ['135', '135°']];
 
 // A plate's shape and size: equal sides, a width × height in grid cells, or
@@ -231,17 +232,31 @@ export function LineworkPanel() {
 }
 
 function AngularSettings({ L, setLayer, maxCells }) {
+  const tiling = L.tiling ?? 'square';
   const hasTriangles = L.fills.includes('split2') || L.fills.includes('split4') || L.maskFills.includes('split2') || L.maskFills.includes('split4');
   const hasHatch = ['hatch', 'chevron'].some(k => L.fills.includes(k) || L.maskFills.includes(k));
   return (
     <Section id="linework.angular" title="A · Angular">
+      <Row label="Tiles" title="The shape of the tiles the fills go in">
+        <select className={styles.select} value={tiling} onChange={e => setLayer({ tiling: e.target.value })}>
+          {TILING_OPTIONS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </Row>
       <Row label="Tile size" title="Tile size in cells">
         <Stepper value={L.tile} onChange={v => setLayer({ tile: v })} min={1} max={maxCells} />
       </Row>
-      <Slider label="Subdivide" value={L.subdiv} min={0} max={1} step={0.05} format={pct} onChange={v => setLayer({ subdiv: v })}
-        title="Chance each tile splits into four smaller ones" />
-      {L.subdiv > 0 && (
-        <Slider label="Smallest tile" value={L.minTile} min={0.25} max={8} step={0.25} format={cells} onChange={v => setLayer({ minTile: v })} />
+      {tiling === 'voronoi' && (
+        <Slider label="Regularity" value={L.regularity ?? 0.5} min={0} max={1} step={0.25} format={pct} onChange={v => setLayer({ regularity: v })}
+          title="0%: scattered cells of every size; 100%: relaxed into even, honeycomb-like cells" />
+      )}
+      {tiling === 'square' && (
+        <>
+          <Slider label="Subdivide" value={L.subdiv} min={0} max={1} step={0.05} format={pct} onChange={v => setLayer({ subdiv: v })}
+            title="Chance each tile splits into four smaller ones" />
+          {L.subdiv > 0 && (
+            <Slider label="Smallest tile" value={L.minTile} min={0.25} max={8} step={0.25} format={cells} onChange={v => setLayer({ minTile: v })} />
+          )}
+        </>
       )}
       <Row label="Fills" />
       <Chips options={FILL_OPTIONS} value={L.fills} onChange={v => setLayer({ fills: v })} />

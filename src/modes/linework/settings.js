@@ -19,7 +19,9 @@ export const lineworkLayerDefaults = (over = {}) => ({
   scale: 1, invert: false, style: 'angular', sym: 'mirror-both', seed: randomSeed(),
   // Base only: an ink frame round the canvas, in cells
   frame: 0,
-  // A · angular
+  // A · angular. tiling: 'square' | 'hex' | 'triangle' | 'voronoi' (tile
+  // size sets the cell size); regularity evens out Voronoi cells.
+  tiling: 'square', regularity: 0.5,
   tile: 2, subdiv: 0, minTile: 1, fills: ['spiral'], triFill: 'spiral', angles: ['45', '135'],
   orient: 'random', outline: true, core: true,
   // B · circuit. route: 'bundles' (many walks) or 'single' (one closed line

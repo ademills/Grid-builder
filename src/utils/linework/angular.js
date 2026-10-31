@@ -15,6 +15,7 @@
 import {
   add, sub, mul, dot, len, xLines, edgesOf, inset, clipHalf, signedArea, rectPoly, rngAt, hash,
 } from './geometry';
+import { tilingCells, centroid } from './tilings';
 
 // Greek-key spiral: segment j lies on edge (j mod n) moved inward by
 // p * floor((j+1)/n), so every ring steps in by exactly one pitch.
@@ -76,7 +77,8 @@ export function hatchBands(P, angle, w, p, origin = [0, 0]) {
   return out;
 }
 
-const outlineBand = (P, w) => ({ s: P, h: inset(P, w / 2) });
+// A tile's border, half a line wide; null if the tile is too small to hold it.
+const outlineBand = (P, w) => { const h = inset(P, w / 2); return h ? { s: P, h } : null; };
 function longestEdge(P) {
   let best = 0, bl = -1;
   P.forEach((a, i) => { const l = len(sub(P[(i + 1) % P.length], a)); if (l > bl + 1e-6) { bl = l; best = i; } });
@@ -91,9 +93,13 @@ const KIND_NAMES = {
 // L: { w, h } layer size, C cell size, lineW, p pitch, snap.
 // cfg: the layer's settings. dom: [x0, y0, x1, y1] — only tiles touching
 // this box are built (the symmetry domain). insideMask(x, y): whether a tile
-// centre is in the region mask, or null for no mask.
+// centre is in the region mask, or null for no mask. sym: { ops, planes } of
+// the layer's symmetry, for Voronoi seeds.
+// cfg.tiling: 'square' (default, with quadtree subdivision) or 'hex',
+// 'triangle', 'voronoi' (tilings.js), whose cells take the same fills;
+// "split" fills fan each cell into triangles from its centre.
 // Returns { regions: [{ key, kind, name, shapes }], outlines: shapes }.
-export function angularLayer(L, cfg, seed, dom, insideMask) {
+export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}) {
   const { C, lineW: w, p } = L;
   const regions = [];
   const outlines = [];
@@ -122,18 +128,26 @@ export function angularLayer(L, cfg, seed, dom, insideMask) {
     return cfg.fills?.length ? cfg.fills : ['spiral'];
   };
 
+  const pushOutline = (P) => {
+    if (!cfg.outline) return;
+    const band = outlineBand(P, w);
+    if (band) outlines.push(band);
+  };
+
   function region(key, P, mode, r, startHint, tri) {
     let shapes;
     if (mode === 'spiral') {
       const start = uni ? (startHint ?? 0) : Math.floor(r() * P.length);
       const b = spiralBand(P, w, p, start, uni ? false : r() < 0.5, minLen);
       shapes = b ? [b] : [];
+      // A spiral can't always turn inside a small or awkward cell: rings fit.
+      if (!b) { shapes = ringBands(P, w, p, cfg.core); mode = 'rings'; }
     } else {
       shapes = ringBands(P, w, p, cfg.core);
     }
     const kind = tri ? (mode === 'spiral' ? 'triSpiral' : 'triRings') : mode;
     if (shapes.length) regions.push({ key, kind, shapes });
-    if (cfg.outline) outlines.push(outlineBand(P, w));
+    pushOutline(P);
   }
   const triMode = r => (cfg.triFill === 'mix' ? (r() < 0.5 ? 'spiral' : 'rings') : (cfg.triFill || 'spiral'));
 
@@ -170,7 +184,7 @@ export function angularLayer(L, cfg, seed, dom, insideMask) {
       case 'hatch': {
         const a = uni ? angles[0] : angles[Math.floor(r() * angles.length)];
         regions.push({ key, kind: 'hatch', shapes: hatch(sq, a) });
-        if (cfg.outline) outlines.push(outlineBand(sq, w));
+        pushOutline(sq);
         break;
       }
       case 'chevron': {
@@ -184,12 +198,40 @@ export function angularLayer(L, cfg, seed, dom, insideMask) {
           shapes = [...hatch(rectPoly(x, y, tw, th / 2), a, o), ...hatch(rectPoly(x, ym, tw, th / 2), -a, o)];
         }
         regions.push({ key, kind: 'chevron', shapes });
-        if (cfg.outline) outlines.push(outlineBand(sq, w));
+        pushOutline(sq);
         break;
       }
     }
   }
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) tile(x0 + i * Tw, y0 + j * Th, Tw, Th, 0);
+  // A convex cell of a hex / triangle / Voronoi tiling.
+  function cell({ key, P, box }) {
+    const kinds = kindsFor(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+    if (!kinds) return;
+    const c = centroid(P);
+    const r = rngAt(seed, c[0], c[1], 7);
+    const kind = uni ? kinds[hash(seed, P.length) % kinds.length] : kinds[Math.floor(r() * kinds.length)];
+    switch (kind) {
+      case 'spiral': region(key, P, 'spiral', r, 0); break;
+      case 'rings': region(key, P, 'rings', r); break;
+      case 'split2': case 'split4': {
+        P.forEach((a, i) => region(`${key}:${i}`, [a, P[(i + 1) % P.length], c], triMode(r), r, 0, true));
+        break;
+      }
+      default: {
+        // Hatch, and chevron (one hatch direction per cell).
+        const a = kind === 'chevron' ? (r() < 0.5 ? 45 : 135) : uni ? angles[0] : angles[Math.floor(r() * angles.length)];
+        regions.push({ key, kind: 'hatch', shapes: hatch(P, a) });
+        pushOutline(P);
+      }
+    }
+  }
+
+  if (cfg.tiling && cfg.tiling !== 'square') {
+    const cells = tilingCells(cfg.tiling, L.w, L.h, T, { seed, dom, ops: sym.ops, planes: sym.planes, regularity: cfg.regularity ?? 0.5 });
+    for (const c of cells) cell(c);
+  } else {
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) tile(x0 + i * Tw, y0 + j * Th, Tw, Th, 0);
+  }
   for (const reg of regions) reg.name = KIND_NAMES[reg.kind];
   return { regions, outlines };
 }

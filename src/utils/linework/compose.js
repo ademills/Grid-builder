@@ -119,7 +119,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const cols = Math.max(1, Math.round(lw / C)), rows = Math.max(1, Math.round(lh / C));
       const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, cols, rows) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + lw / 2) / C)},${Math.floor((y + lh / 2) / C)}`) : null;
-      const { regions, outlines } = angularLayer(L, cfg, seed, dom, inside);
+      const { regions, outlines } = angularLayer(L, cfg, seed, dom, inside, { ops, planes });
       // Clip to the symmetry domain, copy by each map, clip to the layer.
       // With outlines on, the content shrinks by half a line all round so the
       // full-width Edge (below) frames it like the borders between tiles.
