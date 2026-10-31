@@ -96,10 +96,12 @@ export const LINEWORK_LAYER_SCHEMA = [
   {
     id: 'linework.circuit', title: 'B · Circuit', showIf: L => !angular(L), fields: [
       { key: 'route', label: 'Route', type: 'segmented', value: L => (single(L) ? 'single' : 'bundles'),
-        help: 'Many separate bundles, or one closed line that runs through the whole layer without crossing itself',
-        options: [{ key: 'bundles', label: 'Bundles' }, { key: 'single', label: 'One line' }] },
-      { key: 'bundle', label: L => (single(L) ? 'Parallel lines' : 'Bundle size'), type: 'number', min: 1, max: 8,
-        help: L => (single(L) ? 'Strands running side by side along the one route (1: a single line)' : 'Cells per bundle; a bundle carries Lines per cell × this many strands') },
+        help: 'Many separate bundles, or one circuit that flows through every cell without crossing itself',
+        options: [{ key: 'bundles', label: 'Bundles' }, { key: 'single', label: 'One circuit' }] },
+      { key: 'loop', label: 'Closed loop', type: 'toggle', showIf: single,
+        help: 'Join the circuit into a loop with no ends, instead of two hairpin ends (an odd number of cells always has ends)' },
+      { key: 'bundle', label: 'Bundle size', type: 'number', min: 1, max: 8,
+        help: 'Cells per bundle; a bundle carries Lines per cell × this many strands' },
       { key: 'straight', label: 'Straightness', type: 'slider', min: 0, max: 1, step: 0.05, format: pct },
       { key: 'maxLen', label: 'Max length', type: 'slider', min: 1, max: 200, step: 1, format: v => v, help: 'Longest run, in bundles', showIf: L => !single(L) },
       { key: 'density', label: 'Density', type: 'slider', min: 0.05, max: 1, step: 0.05, format: pct, showIf: L => !single(L) },

@@ -27,7 +27,7 @@ const EPS = 1e-6;
 // insideCell(i, j): region mask over the bundle grid, or null.
 export function circuitLayer(L, cfg, seed, sym, insideCell) {
   if (cfg.route === 'single') {
-    const one = singleLine(L, cfg, seed, sym);
+    const one = singleCircuit(L, cfg, seed, sym);
     if (one) return one;
   }
   const S = Math.max(1, cfg.bundle ?? 1) * L.C;
@@ -188,16 +188,6 @@ export function circuitLayer(L, cfg, seed, sym, insideCell) {
   const half = S / 2;
   const offsets = strandOffsets(k, p, S);
   const trav = (pcs, o, segs) => traverse(pcs, o, half, segs);
-  // Hairpin end: strand at offset o turns into the strand at -o.
-  function capArc(pc, o, segs) {
-    if (Math.abs(o) < EPS) return;
-    const h = DIRS[pc.in ?? pc.pseudo], a = add(pc.c, mul(perp(h), o));
-    segs.push({ t: 'A', a, b: sub(pc.c, mul(perp(h), o)), K: pc.c, sweep: cross(mul(perp(h), o), h) > 0 ? 1 : 0 });
-  }
-  const reversed = pcs => pcs.slice().reverse().map(pc => ({
-    ...pc, in: pc.out == null ? null : opp(pc.out), out: pc.in == null ? null : opp(pc.in),
-    pseudo: pc.pseudo == null ? null : opp(pc.pseudo),
-  }));
 
   // Cut-backs where a bundle passes under another: the margin leaves a gap
   // of one line gap between the cut ends and the upper bundle's strands.
@@ -248,6 +238,17 @@ export function circuitLayer(L, cfg, seed, sym, insideCell) {
   return { bundles: out, k, cols, rows, crossings: crossings.length };
 }
 
+// Hairpin end: strand at offset o turns into the strand at -o.
+function capArc(pc, o, segs) {
+  if (Math.abs(o) < EPS) return;
+  const h = DIRS[pc.in ?? pc.pseudo], a = add(pc.c, mul(perp(h), o));
+  segs.push({ t: 'A', a, b: sub(pc.c, mul(perp(h), o)), K: pc.c, sweep: cross(mul(perp(h), o), h) > 0 ? 1 : 0 });
+}
+const reversed = pcs => pcs.slice().reverse().map(pc => ({
+  ...pc, in: pc.out == null ? null : opp(pc.out), out: pc.in == null ? null : opp(pc.in),
+  pseudo: pc.pseudo == null ? null : opp(pc.pseudo),
+}));
+
 // Offsets of a bundle's k strands from its centreline, S wide at pitch p.
 const strandOffsets = (k, p, S) => Array.from({ length: k }, (_, s) => (s + 0.5) * p - S / 2);
 
@@ -279,14 +280,16 @@ const bundleCentre = (pcs) => {
   return [x / pcs.length, y / pcs.length];
 };
 
-// ── One line ─────────────────────────────────────────────────────────────────
-// The whole layer as a single closed line: a random maze (spanning tree) on
-// a half-resolution grid, traced round. Every route cell is visited exactly
-// once and the line never crosses itself. Cells are `bundle` pitches wide,
-// carrying that many parallel strands (one by default: a single line).
-// Mirror symmetry builds half the maze and mirrors it, bridged by one edge
-// across the axis, when the grid divides evenly; otherwise it's dropped.
-// Returns null when the layer is too small, to fall back to bundles.
+// ── One circuit ──────────────────────────────────────────────────────────────
+// The whole layer as a single bundle: the same cells, strands, turns and
+// hairpin ends as Bundles, but one route that runs through every cell once
+// without crossing itself. The route traces round a random maze (spanning
+// tree) on a half-resolution grid; an odd leftover column or row is taken
+// in by detours. Mirror symmetry builds half the maze and mirrors it,
+// bridged by one edge across the axis, when the grid divides evenly
+// (any leftover then becomes a margin). The route is cut into a path with
+// two hairpin ends, or kept as a closed loop. Returns null when the layer
+// is too small, to fall back to bundles.
 
 const edgeKey = (x0, y0, x1, y1) => (x0 < x1 || y0 < y1 ? `${x0},${y0},${x1},${y1}` : `${x1},${y1},${x0},${y0}`);
 
@@ -315,21 +318,12 @@ function mazeTree(w, h, r, straight) {
   return edges;
 }
 
-function singleLine(L, cfg, seed, sym) {
-  const k = Math.max(1, cfg.bundle ?? 1);
-  const p = L.p, S = k * p, w = p * L.ratio;
-  const even = n => n - (n % 2);
-  const cols = even(Math.floor(L.w / S + 1e-6)), rows = even(Math.floor(L.h / S + 1e-6));
-  if (cols < 2 || rows < 2) return null;
-  const ox = -cols * S / 2, oy = -rows * S / 2;
-  const tw = cols / 2, th = rows / 2;
-  const r = rngAt(seed, 123);
-
-  // The maze, mirrored where the symmetry and grid allow.
-  const wantX = sym === 'mirror-x' || sym === 'mirror-both', wantY = sym === 'mirror-y' || sym === 'mirror-both';
-  const mx = wantX && tw % 2 === 0, my = !mx && wantY && th % 2 === 0;
+// A closed route through every cell of an even cE × rE block, as the
+// successor of each cell (id = y * W + x).
+function mazeLoop(cE, rE, W, r, straight, mx, my) {
+  const tw = cE / 2, th = rE / 2;
   const gw = mx ? tw / 2 : tw, gh = my ? th / 2 : th;
-  const edges = mazeTree(gw, gh, r, cfg.straight ?? 0.6);
+  const edges = mazeTree(gw, gh, r, straight);
   if (mx || my) {
     for (const e of [...edges]) {
       const [x0, y0, x1, y1] = e.split(',').map(Number);
@@ -339,38 +333,100 @@ function singleLine(L, cfg, seed, sym) {
     else { const x = Math.floor(r() * tw); edges.add(edgeKey(x, gh - 1, x, gh)); }
   }
   const linked = (bx, by, h) => edges.has(edgeKey(bx, by, bx + DIRS[h][0], by + DIRS[h][1]));
-
-  // Route cells round the maze: each maze node is 2 × 2 route cells, joined
-  // across a maze edge and split along it, so every cell has two neighbours.
-  const open = (fx, fy, h) => {
-    const nx = fx + DIRS[h][0], ny = fy + DIRS[h][1];
-    if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) return false;
-    const bx = fx >> 1, by = fy >> 1;
+  // Each maze node is 2 × 2 route cells, joined across a maze edge and split
+  // along it, so every cell has exactly two neighbours.
+  const open = (x, y, h) => {
+    const nx = x + DIRS[h][0], ny = y + DIRS[h][1];
+    if (nx < 0 || ny < 0 || nx >= cE || ny >= rE) return false;
+    const bx = x >> 1, by = y >> 1;
     if ((nx >> 1) !== bx || (ny >> 1) !== by) return linked(bx, by, h);
     // Within a node: the top pair is split by an edge up, the bottom pair by
     // one down, the left pair by one left, the right pair by one right.
-    if (h % 2 === 0) return !linked(bx, by, (fy & 1) ? 1 : 3);
-    return !linked(bx, by, (fx & 1) ? 0 : 2);
+    if (h % 2 === 0) return !linked(bx, by, (y & 1) ? 1 : 3);
+    return !linked(bx, by, (x & 1) ? 0 : 2);
   };
-  const cells = [], heads = [];
-  let fx = 0, fy = 0, from = -1;
-  for (let n = 0; n < cols * rows; n++) {
-    cells.push([fx, fy]);
-    const h = [0, 1, 2, 3].find(d => d !== from && open(fx, fy, d));
+  const succ = new Map();
+  let x = 0, y = 0, from = -1;
+  for (let n = 0; n < cE * rE; n++) {
+    const h = [0, 1, 2, 3].find(d => d !== from && open(x, y, d));
     if (h == null) return null;
-    heads.push(h);
-    fx += DIRS[h][0]; fy += DIRS[h][1]; from = opp(h);
+    const nx = x + DIRS[h][0], ny = y + DIRS[h][1];
+    succ.set(y * W + x, ny * W + nx);
+    x = nx; y = ny; from = opp(h);
   }
-  if (fx !== 0 || fy !== 0) return null;
+  return x === 0 && y === 0 ? succ : null;
+}
 
-  const m = cells.length;
-  const pcs = cells.map(([i, j], n) => ({ c: [ox + (i + 0.5) * S, oy + (j + 0.5) * S], in: heads[(n + m - 1) % m], out: heads[n] }));
-  const contours = [];
-  for (const o of strandOffsets(k, p, S)) {
-    const segs = [];
-    traverse(pcs, o, S / 2, segs);
-    contours.push(...strandOutline({ segs, closed: true }, w));
+function singleCircuit(L, cfg, seed, sym) {
+  const S = Math.max(1, cfg.bundle ?? 1) * L.C;
+  const k = Math.max(1, Math.round(S / L.p));
+  const p = S / k, w = p * L.ratio;
+  let cols = Math.floor(L.w / S + 1e-6), rows = Math.floor(L.h / S + 1e-6);
+  const even = n => n - (n % 2);
+  if (even(cols) < 2 || even(rows) < 2) return null;
+  const r = rngAt(seed, 123);
+  const straight = cfg.straight ?? 0.6;
+
+  // Mirror symmetry when the halves divide evenly; then the grid is kept even.
+  const wantX = sym === 'mirror-x' || sym === 'mirror-both', wantY = sym === 'mirror-y' || sym === 'mirror-both';
+  const mx = wantX && (even(cols) / 2) % 2 === 0;
+  const my = !mx && wantY && (even(rows) / 2) % 2 === 0;
+  if (mx || my) { cols = even(cols); rows = even(rows); }
+  const cE = even(cols), rE = even(rows), W = cols;
+  const id = (x, y) => y * W + x;
+  const succ = mazeLoop(cE, rE, W, r, straight, mx, my);
+  if (!succ) return null;
+
+  // Leftover column / row: the loop's last column always links each pair of
+  // cells vertically (and its last row each pair across), so each link can
+  // detour out through the two leftover cells beside it.
+  const detour = (a, b, a2, b2) => {
+    if (succ.get(a) === b) { succ.set(a, a2); succ.set(a2, b2); succ.set(b2, b); }
+    else if (succ.get(b) === a) { succ.set(b, b2); succ.set(b2, a2); succ.set(a2, a); }
+  };
+  if (cols > cE) for (let y = 0; y < rE; y += 2) detour(id(cE - 1, y), id(cE - 1, y + 1), id(cE, y), id(cE, y + 1));
+  if (rows > rE) for (let x = 0; x < cE; x += 2) detour(id(x, rE - 1), id(x + 1, rE - 1), id(x, rE), id(x + 1, rE));
+
+  // Order the cells, then cut the loop into a path (or keep it closed). With
+  // an odd number of cells the last corner joins the path as its end.
+  const corner = cols > cE && rows > rE ? id(cols - 1, rows - 1) : null;
+  const loop = cfg.loop && corner == null;
+  let first = 0;
+  if (corner != null) first = succ.get(id(cols - 2, rows - 1));
+  else if (!loop) {
+    let skip = Math.floor(r() * succ.size);
+    for (first = 0; skip-- > 0;) first = succ.get(first);
   }
+  const order = [first];
+  for (let c = succ.get(first); c !== first; c = succ.get(c)) order.push(c);
+  if (corner != null) order.push(corner);
+
+  const ox = -cols * S / 2, oy = -rows * S / 2;
+  const cells = order.map(c => [c % W, Math.floor(c / W)]);
+  const headTo = (a, b) => DIRS.findIndex(([dx, dy]) => dx === b[0] - a[0] && dy === b[1] - a[1]);
+  const m = cells.length;
+  const pcs = cells.map((c, n) => ({
+    c: [ox + (c[0] + 0.5) * S, oy + (c[1] + 0.5) * S],
+    in: n > 0 ? headTo(cells[n - 1], c) : loop ? headTo(cells[m - 1], c) : null,
+    out: n < m - 1 ? headTo(c, cells[n + 1]) : loop ? headTo(c, cells[0]) : null,
+  }));
+
+  // Strands as in a bundle: a hairpinned pair per offset, plus the centre
+  // strand (round ends) when the count is odd; a loop is concentric rings.
+  const half = S / 2, offsets = strandOffsets(k, p, S);
+  const strands = [];
+  if (loop) {
+    for (const o of offsets) { const segs = []; traverse(pcs, o, half, segs); strands.push({ segs, closed: true }); }
+  } else {
+    const rev = reversed(pcs);
+    for (let s2 = 0; s2 < Math.floor(k / 2); s2++) {
+      const o = offsets[s2], segs = [];
+      traverse(pcs, o, half, segs); capArc(pcs[m - 1], o, segs); traverse(rev, o, half, segs); capArc(rev[m - 1], o, segs);
+      strands.push({ segs, closed: true });
+    }
+    if (k % 2) { const segs = []; traverse(pcs, 0, half, segs); strands.push({ segs, closed: false, caps: ['round', 'round'] }); }
+  }
+  const contours = strands.flatMap(st => strandOutline(st, w));
   return { bundles: [{ index: 0, single: false, axes: new Set(), contours, centre: [0, 0] }], k, cols, rows, crossings: 0, whole: true };
 }
 

@@ -101,10 +101,10 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
       const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, bc, br) : null;
       const R = circuitLayer(L, cfg, seed, csym, mask ? (i, j) => mask.has(`${i},${j}`) : null);
-      // One line is built whole (already symmetric), so it isn't copied.
+      // One circuit is built whole (already symmetric), so it isn't copied.
       for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym)) {
         push({
-          key: `${tag}:b:${b.key}`, name: nameFor(li, R.whole ? 'Line' : b.single ? 'Eye' : 'Bundle'), kind: 'ink',
+          key: `${tag}:b:${b.key}`, name: nameFor(li, R.whole ? 'Circuit' : b.single ? 'Eye' : 'Bundle'), kind: 'ink',
           contours: b.contours.map(c => mapContour(c, m, t)), centre: add(applyLinear(m, b.centre), t),
         });
       }
