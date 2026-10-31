@@ -111,10 +111,7 @@ export function GlitchSettings({ s, set }) {
       
       <div className={styles.formRow}>
         <span className={styles.label}>Bidirectional</span>
-        <button
-          className={`${styles.modeBtn} ${s.bidirectional ? styles.modeBtnActive : ''}`}
-          onClick={() => set({ bidirectional: !s.bidirectional })}
-        >{s.bidirectional ? 'On' : 'Off'}</button>
+        <Toggle value={s.bidirectional} onChange={v => set({ bidirectional: v })} />
       </div>
       
       <div className={styles.formRow}>
@@ -343,10 +340,7 @@ export function MultiStripSettings({ s, set }) {
       
       <div className={styles.formRow}>
         <span className={styles.label}>Stagger</span>
-        <button
-          className={`${styles.modeBtn} ${s.stagger ? styles.modeBtnActive : ''}`}
-          onClick={() => set({ stagger: !s.stagger })}
-        >{s.stagger ? 'On' : 'Off'}</button>
+        <Toggle value={s.stagger} onChange={v => set({ stagger: v })} />
       </div>
       
       <div className={styles.formRow}>
@@ -459,10 +453,7 @@ export function BrightnessSettings({ s, set }) {
       
       <div className={styles.formRow}>
         <span className={styles.label}>Invert</span>
-        <button
-          className={`${styles.modeBtn} ${s.invert ? styles.modeBtnActive : ''}`}
-          onClick={() => set({ invert: !s.invert })}
-        >{s.invert ? 'On' : 'Off'}</button>
+        <Toggle value={s.invert} onChange={v => set({ invert: v })} />
       </div>
       
       <div className={styles.formRow}>
@@ -510,10 +501,7 @@ export function NoiseSettings({ s, set }) {
       
       <div className={styles.formRow}>
         <span className={styles.label}>Invert</span>
-        <button
-          className={`${styles.modeBtn} ${s.invert ? styles.modeBtnActive : ''}`}
-          onClick={() => set({ invert: !s.invert })}
-        >{s.invert ? 'On' : 'Off'}</button>
+        <Toggle value={s.invert} onChange={v => set({ invert: v })} />
       </div>
       
       <div className={styles.formRow}>
@@ -768,10 +756,7 @@ export function HalftoneSettings({ s, set }) {
       </div>
       <div className={styles.formRow}>
         <span className={styles.label}>Invert</span>
-        <button
-          className={`${styles.modeBtn} ${s.invert ? styles.modeBtnActive : ''}`}
-          onClick={() => set({ invert: !s.invert })}
-        >{s.invert ? 'On' : 'Off'}</button>
+        <Toggle value={s.invert} onChange={v => set({ invert: v })} />
       </div>
     </>
   );
@@ -954,10 +939,7 @@ export function FractalSettings({ s, set }) {
       </div>
       <div className={styles.formRow}>
         <span className={styles.label}>Invert</span>
-        <button
-          className={`${styles.modeBtn} ${s.invert ? styles.modeBtnActive : ''}`}
-          onClick={() => set({ invert: !s.invert })}
-        >{s.invert ? 'On' : 'Off'}</button>
+        <Toggle value={s.invert} onChange={v => set({ invert: v })} />
       </div>
     </>
   );
@@ -1009,10 +991,7 @@ export function GoldenSettings({ s, set }) {
       </div>
       <div className={styles.formRow}>
         <span className={styles.label}>Alternate axes</span>
-        <button
-          className={`${styles.modeBtn} ${s.alternate ? styles.modeBtnActive : ''}`}
-          onClick={() => set({ alternate: !s.alternate })}
-        >{s.alternate ? 'On' : 'Off'}</button>
+        <Toggle value={s.alternate} onChange={v => set({ alternate: v })} />
       </div>
       <div className={styles.formRow}>
         <span className={styles.label}>Seed</span>

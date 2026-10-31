@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { setInputValue } from './scrub';
 import styles from './Panel.module.css';
 
 // Click a slider's value readout to type a number. Works for every
@@ -25,13 +26,6 @@ function displayFactor(text, slider) {
   return !shown && +slider.max <= 1 ? 100 : 1;
 }
 
-// Sets a React-controlled input's value so its onChange fires.
-function setSliderValue(slider, value) {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-  setter.call(slider, String(value));
-  slider.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
 function beginEdit(readout, slider) {
   const text = readout.textContent.trim();
   const factor = displayFactor(text, slider);
@@ -54,7 +48,7 @@ function beginEdit(readout, slider) {
     done = true;
     const typed = input.value.match(NUMBER);
     input.remove();
-    if (commit && typed && slider.isConnected) setSliderValue(slider, +typed[0] / factor);
+    if (commit && typed && slider.isConnected) setInputValue(slider, +typed[0] / factor);
   };
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();

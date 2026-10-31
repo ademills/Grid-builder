@@ -1,37 +1,138 @@
-import { useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PALETTES, PALETTE_GROUPS } from '../utils/colorize';
 import { wireframeRects } from '../utils/layouts';
 import { randomSeed } from './panelUtils';
 import { symmetryOptions, normaliseSymmetry } from '../utils/symmetry';
+import { useAppStore } from '../store/appStore';
+import { scrubDrag } from './scrub';
 import styles from './Panel.module.css';
 
-export function Stepper({ value, onChange, min = 0, max = Infinity, format, validValues }) {
-  let prevVal, nextVal;
-  if (validValues) {
-    prevVal = [...validValues].reverse().find(v => v < value) ?? null;
-    nextVal = validValues.find(v => v > value) ?? null;
-  } else {
-    prevVal = value > min ? value - 1 : null;
-    nextVal = value < max ? value + 1 : null;
-  }
+const NUMBER = /-?\d*\.?\d+/;
+
+// Whole-number field: type a value, drag the value (or the row's label)
+// sideways to scrub it, or step with − / +. `validValues` limits it to a
+// sorted list (e.g. column counts that divide the artboard evenly).
+export function NumberField({ value, onChange, min = 0, max = Infinity, format, validValues }) {
+  const [draft, setDraft] = useState(null); // text while typing
+  const inputRef = useRef(null);
+  const wrapRef = useRef(null);
+  const latest = useRef({ value, onChange });
+
+  const clampTo = (v) => {
+    if (validValues?.length) return validValues.reduce((best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best));
+    return Math.min(max, Math.max(min, Math.round(v)));
+  };
+  const stepFrom = (from, dir) => {
+    if (!validValues) return clampTo(from + dir);
+    const i = validValues.indexOf(clampTo(from));
+    return validValues[Math.min(validValues.length - 1, Math.max(0, i + dir))];
+  };
+  const prevVal = stepFrom(value, -1), nextVal = stepFrom(value, 1);
+  const set = (v) => { if (v !== latest.current.value) latest.current.onChange(v); };
+
+  // Drag to scrub: one step per 6px (24px with Shift), counting steps from
+  // the value at the start so validValues are walked in order.
+  const stepN = (from, n) => {
+    let v = from;
+    for (let i = 0; i < Math.abs(n); i++) v = stepFrom(v, Math.sign(n));
+    return v;
+  };
+  const scrubN = (e, onClick) => {
+    const start = latest.current.value;
+    scrubDrag(e, { onDrag: (dx, fine) => set(stepN(start, Math.trunc(dx / (fine ? 24 : 6)))), onClick });
+  };
+  // Handlers attached outside React (the label) read the latest props here.
+  useLayoutEffect(() => { latest.current = { value, onChange, scrub: scrubN }; });
+
+  // The row's label scrubs too.
+  useEffect(() => {
+    const row = wrapRef.current?.closest(`.${styles.formRow}, .${styles.stackedField}`);
+    const label = row?.querySelector(`:scope > .${styles.label}`);
+    if (!label) return;
+    const onDown = (e) => { if (!e.target.closest(`.${styles.infoTip}`)) { e.preventDefault(); latest.current.scrub(e); } };
+    label.addEventListener('pointerdown', onDown);
+    return () => label.removeEventListener('pointerdown', onDown);
+  }, []);
+
+  const commit = () => {
+    const typed = draft?.match(NUMBER);
+    setDraft(null);
+    if (typed) set(clampTo(+typed[0]));
+  };
+
   return (
-    <div className={styles.stepper}>
-      <button className={styles.stepBtn} onClick={() => prevVal != null && onChange(prevVal)} disabled={prevVal == null}>−</button>
-      <span className={styles.stepVal}>{format ? format(value) : value}</span>
-      <button className={styles.stepBtn} onClick={() => nextVal != null && onChange(nextVal)} disabled={nextVal == null}>+</button>
+    <div className={`${styles.stepper} ${styles.numberField}`} ref={wrapRef}>
+      <button className={styles.stepBtn} onClick={() => set(prevVal)} disabled={prevVal === value} tabIndex={-1} aria-label="Decrease">−</button>
+      <input
+        ref={inputRef}
+        className={styles.stepVal}
+        value={draft ?? (format ? format(value) : value)}
+        inputMode="numeric"
+        onPointerDown={(e) => {
+          if (document.activeElement === inputRef.current) return;
+          e.preventDefault();
+          scrubN(e, () => inputRef.current?.focus());
+        }}
+        onFocus={(e) => { setDraft(String(value)); requestAnimationFrame(() => e.target.select()); }}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') e.currentTarget.blur();
+          else if (e.key === 'Escape') { setDraft(null); requestAnimationFrame(() => inputRef.current?.blur()); }
+          else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            const v = stepFrom(clampTo(+(draft?.match(NUMBER)?.[0] ?? value)), e.key === 'ArrowUp' ? 1 : -1);
+            setDraft(String(v));
+            set(v);
+          }
+        }}
+      />
+      <button className={styles.stepBtn} onClick={() => set(nextVal)} disabled={nextVal === value} tabIndex={-1} aria-label="Increase">+</button>
     </div>
   );
 }
 
-// On/Off toggle used for boolean settings.
-export function Toggle({ value, onChange, title }) {
+// The old name, kept so existing panels need no change.
+export const Stepper = NumberField;
+
+// On/off switch for boolean settings.
+export function Toggle({ value, onChange, title, disabled }) {
   return (
     <button
-      className={`${styles.modeBtn} ${value ? styles.modeBtnActive : ''}`}
-      style={{ flex: 'none', minWidth: 44 }}
+      type="button"
+      role="switch"
+      aria-checked={!!value}
+      className={`${styles.switch} ${value ? styles.switchOn : ''}`}
       onClick={() => onChange(!value)}
       title={title}
-    >{value ? 'On' : 'Off'}</button>
+      disabled={disabled}
+    ><span className={styles.switchKnob} /></button>
+  );
+}
+
+export const Switch = Toggle;
+
+// A folding group of settings inside a panel, with a light heading. Its
+// open/closed state is remembered per `id` (shared across documents).
+export function Section({ id, title, info, defaultOpen = true, children }) {
+  const key = `section:${id}`;
+  const collapsed = useAppStore(s => s.dock.groups[key]?.collapsed ?? !defaultOpen);
+  const updateDockGroup = useAppStore(s => s.updateDockGroup);
+  return (
+    <section className={styles.subSection}>
+      <div className={styles.subSectionHeader}>
+        <button type="button" className={styles.subSectionToggle} aria-expanded={!collapsed}
+          onClick={() => updateDockGroup(key, { collapsed: !collapsed })}>
+          <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true" style={{ transform: collapsed ? 'rotate(-90deg)' : 'none' }}>
+            <path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          {title}
+        </button>
+        {info && <InfoTip text={info} />}
+      </div>
+      {!collapsed && <div className={styles.subSectionBody}>{children}</div>}
+    </section>
   );
 }
 

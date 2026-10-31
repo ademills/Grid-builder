@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDocField } from '../store/useDocField';
 import { useEditor } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
-import { ImagePicker, InfoTip } from './controls';
+import { ImagePicker, InfoTip, Toggle } from './controls';
 import { normalizeHex, hslToHex } from './panelUtils';
 import styles from './Panel.module.css';
 
@@ -114,21 +114,13 @@ export function ColourPanel() {
             </div>
 
             <div className={styles.formRow} style={{ marginTop: 4 }}>
-              <span className={styles.label}>Rnd Rev</span>
+              <span className={styles.label}>Random reverse</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <button
-                  className={`${styles.modeBtn} ${randomReverseEnabled ? styles.modeBtnActive : ''}`}
-                  style={{ flex: 'none', padding: '3px 8px', fontSize: 10 }}
-                  onClick={() => {
-                    if (!randomReverseEnabled) {
-                      setRandomReverseEnabled(true);
-                      actions.randomReverse();
-                    } else {
-                      setRandomReverseEnabled(false);
-                    }
-                  }}
-                  title="Randomly reverse palette colours on a percentage of blocks"
-                >{randomReverseEnabled ? 'On' : 'Off'}</button>
+                <Toggle value={randomReverseEnabled} title="Randomly reverse palette colours on a percentage of blocks"
+                  onChange={(on) => {
+                    setRandomReverseEnabled(on);
+                    if (on) actions.randomReverse();
+                  }} />
                 {randomReverseEnabled && (
                   <button
                     className={styles.modeBtn}

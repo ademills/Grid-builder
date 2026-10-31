@@ -126,19 +126,6 @@ export function AnimationPanel() {
         </div>
       </div>
 
-      {/* Intensity */}
-      <div className={styles.formRow}>
-        <span className={styles.label}>Intensity</span>
-        <div className={styles.sliderRow}>
-          <input type="range" className={styles.slider}
-            min={0.05} max={1} step={0.05}
-            value={animSettings.intensity}
-            onChange={e => setAnimSettings({ intensity: parseFloat(e.target.value) })}
-          />
-          <span className={styles.sliderVal}>{Math.round(animSettings.intensity * 100)}%</span>
-        </div>
-      </div>
-
       {/* ── Per-type controls ── */}
       {animSettings.type === 'noise' && (
         <>
@@ -354,10 +341,7 @@ export function AudioPanel() {
     <div className={styles.sectionContent}>
       <div className={styles.formRow}>
         <span className={styles.label}>Enabled</span>
-        <button
-          className={`${styles.modeBtn} ${audioSettings.enabled ? styles.modeBtnActive : ''}`}
-          onClick={() => setAudioSettings({ enabled: !audioSettings.enabled })}
-        >{audioSettings.enabled ? 'On' : 'Off'}</button>
+        <Toggle value={audioSettings.enabled} onChange={v => setAudioSettings({ enabled: v })} />
       </div>
 
       <div className={styles.formRow}>

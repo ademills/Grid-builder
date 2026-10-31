@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PRESETS } from '../gridPresets';
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
-import { Stepper, Toggle, InfoTip } from './controls';
+import { Stepper, Toggle, InfoTip, Section } from './controls';
 import { SwatchColourField } from './SwatchColourField';
 import styles from './Panel.module.css';
 
@@ -47,7 +47,7 @@ export function PropertiesPanel() {
 
   return (
     <div className={styles.sectionContent}>
-      <div className={styles.subHeading}>Artboard</div>
+      <Section id="properties.artboard" title="Artboard">
       <div className={styles.formRow}>
         <span className={styles.label}>Size</span>
         <select className={styles.select} value={presetKey} onChange={e => setPresetKey(e.target.value)}>
@@ -81,8 +81,9 @@ export function PropertiesPanel() {
           <SwatchColourField value={bgColor} onChange={setBgColor} title="Pasteboard colour — a document swatch or any colour" />
         </div>
       </div>
+      </Section>
 
-      <div className={styles.subHeading}>Grid</div>
+      <Section id="properties.grid" title="Grid">
       <div className={styles.formRowPair}>
         <div className={styles.stackedField}>
           <span className={styles.label}>Columns</span>
@@ -100,9 +101,16 @@ export function PropertiesPanel() {
         </div>
       )}
       {validCols === null && <div className={styles.gridNote}>Any column count is valid for this layout.</div>}
+      {isMeander && (
+        <div className={styles.formRow}>
+          <span className={styles.label}>Tile preview</span>
+          <Toggle value={showTilePreview} onChange={setShowTilePreview} title="Preview the current design repeated as a seamless single-motif tile" />
+        </div>
+      )}
+      </Section>
 
       {isGrid && (
-        <>
+        <Section id="properties.shapes" title="Shapes" info="How Generate sizes and shades the shapes it places">
           <div className={styles.formRow}>
             <span className={styles.label}>Max scale</span>
             <div className={styles.sliderRow}>
@@ -147,16 +155,8 @@ export function PropertiesPanel() {
             <span className={styles.label}>Auto-fill<InfoTip text="Re-fill the grid automatically whenever grid settings change" /></span>
             <Toggle value={autoFill} onChange={setAutoFill} />
           </div>
-        </>
+        </Section>
       )}
-
-      {isMeander && (
-        <div className={styles.formRow}>
-          <span className={styles.label}>Tile preview</span>
-          <Toggle value={showTilePreview} onChange={setShowTilePreview} title="Preview the current design repeated as a seamless single-motif tile" />
-        </div>
-      )}
-
     </div>
   );
 }

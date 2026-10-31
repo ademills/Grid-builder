@@ -3,7 +3,7 @@ import { PALETTES } from '../utils/colorize';
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
-import { Stepper, Toggle, Segmented, SeedField, SymmetrySelect, InfoTip } from './controls';
+import { Stepper, Toggle, Segmented, SeedField, SymmetrySelect, InfoTip, Section } from './controls';
 import { LINEWORK_SYMMETRY } from '../utils/symmetry';
 import { LINEWORK_PRESETS, PLATE_ASPECTS, plateCells } from '../modes/linework/settings';
 import { MASK_SOURCES } from '../modes/linework/masks';
@@ -141,7 +141,7 @@ export function LineworkPanel() {
           </select>
         </Row>
 
-        <div className={styles.subHeading}>Grid &amp; lines</div>
+        <Section id="linework.grid" title="Grid &amp; lines">
         <Row label="Orientation">
           <Segmented value={s.orientation} onChange={v => set({ orientation: v })} options={[
             { key: 'square', label: 'Square' }, { key: 'diamond', label: 'Diamond 45°' },
@@ -155,11 +155,10 @@ export function LineworkPanel() {
         </Row>
         <Slider label="Line weight" value={s.lineRatio} min={0.1} max={0.9} step={0.01} format={pct}
           onChange={v => set({ lineRatio: v })} title="Line width as a share of each line's pitch; the rest is the gap" />
+        </Section>
 
-        <div className={styles.subHeading}>
-          Layer · {L.name}
-          {s.layers.length > 1 && <InfoTip text="Pick the layer to edit in the Layers panel or the control bar. Add and reorder plates in Layers." />}
-        </div>
+        <Section id="linework.layer" title={`Layer · ${L.name}`}
+          info={s.layers.length > 1 ? 'Pick the layer to edit in the Layers panel or the control bar. Add and reorder plates in Layers.' : undefined}>
         {!inControlBar && s.layers.length > 1 && (
           <Row label="Editing" title="Add, remove and reorder plates in the Layers panel">
             <select className={styles.select} value={L.id} onChange={e => linework.setEditLayer(e.target.value)}>
@@ -212,6 +211,7 @@ export function LineworkPanel() {
           <Slider label="Frame" value={L.frame} min={0} max={1} step={0.01} format={cells} onChange={v => setLayer({ frame: v })} title="An ink border round the canvas, in cells" />
         )}
         {!inControlBar && <SeedField value={L.seed} onChange={v => setLayer({ seed: v })} />}
+        </Section>
 
         {L.style === 'angular' ? <AngularSettings L={L} setLayer={setLayer} maxCells={maxCells} /> : <CircuitSettings L={L} setLayer={setLayer} />}
 
@@ -233,8 +233,7 @@ function AngularSettings({ L, setLayer, maxCells }) {
   const hasTriangles = L.fills.includes('split2') || L.fills.includes('split4') || L.maskFills.includes('split2') || L.maskFills.includes('split4');
   const hasHatch = ['hatch', 'chevron'].some(k => L.fills.includes(k) || L.maskFills.includes(k));
   return (
-    <>
-      <div className={styles.subHeading}>A · Angular</div>
+    <Section id="linework.angular" title="A · Angular">
       <Row label="Tile size" title="Tile size in cells">
         <Stepper value={L.tile} onChange={v => setLayer({ tile: v })} min={1} max={maxCells} />
       </Row>
@@ -265,14 +264,13 @@ function AngularSettings({ L, setLayer, maxCells }) {
       </Row>
       <Row label="Tile outlines"><Toggle value={L.outline} onChange={v => setLayer({ outline: v })} /></Row>
       <Row label="Solid centres"><Toggle value={L.core} onChange={v => setLayer({ core: v })} title="Fill the last ring's middle" /></Row>
-    </>
+    </Section>
   );
 }
 
 function CircuitSettings({ L, setLayer }) {
   return (
-    <>
-      <div className={styles.subHeading}>B · Circuit</div>
+    <Section id="linework.circuit" title="B · Circuit">
       <Row label="Bundle size" title="Cells per bundle; a bundle carries Lines per cell × this many strands">
         <Stepper value={L.bundle} onChange={v => setLayer({ bundle: v })} min={1} max={8} />
       </Row>
@@ -287,7 +285,7 @@ function CircuitSettings({ L, setLayer }) {
         ]} />
       </Row>
       <Row label="Single-cell eyes"><Toggle value={L.eyes} onChange={v => setLayer({ eyes: v })} /></Row>
-    </>
+    </Section>
   );
 }
 
@@ -297,8 +295,8 @@ function CircuitSettings({ L, setLayer }) {
 function RegionMask({ L, setLayer, word, setWord }) {
   const source = MASK_SOURCES.find(m => m.id === L.mask);
   return (
-    <>
-      <div className={styles.subHeading}>Region mask</div>
+    <Section id="linework.mask" title="Region mask" defaultOpen={L.mask !== 'none'}
+      info="Confine part of the design to a shape, image or word. Angular tiles inside it take their own fills; circuit bundles route inside it first.">
       <Row label="Mask">
         <select className={styles.select} value={L.mask} onChange={e => setLayer({ mask: e.target.value })}>
           <option value="none">None</option>
@@ -331,7 +329,7 @@ function RegionMask({ L, setLayer, word, setWord }) {
           )}
         </>
       )}
-    </>
+    </Section>
   );
 }
 
@@ -420,6 +418,7 @@ export function LineworkThemePanel() {
         Roles
         <InfoTip text="Ground on Auto follows the canvas colour. Colour modes (Colour tab) spread the palette over the line groups; the Paint Bucket recolours single groups." />
       </div>
+      <div style={{ '--label-w': '52px' }}>
       <Row label="Ink">
         <RolePicker value={s.inkSwatch} auto={roles.ink} autoLabel="The first palette swatch"
           swatches={shapeColors} onChange={id => linework.update({ inkSwatch: id }, 'Ink Colour')} />
@@ -432,6 +431,7 @@ export function LineworkThemePanel() {
         <RolePicker value={s.shadowSwatch} auto="#000000" autoLabel="Black"
           swatches={shapeColors} onChange={id => linework.update({ shadowSwatch: id }, 'Shadow Colour')} />
       </Row>
+      </div>
       <button className={styles.actionBtn} style={{ width: '100%', marginTop: 6 }} onClick={actions.lineworkRecolour}
         title="Reshuffle which palette colour each group gets (Random colour mode)">
         Shuffle colours

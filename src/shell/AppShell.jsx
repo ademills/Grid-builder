@@ -11,6 +11,7 @@ import { openRecent, dirtyDocuments } from './documentActions';
 import { commandContext, commandForEvent, menuItem, runCommand } from './commands';
 import { useFileDrop } from './fileDrop';
 import { useSliderValueTyping } from '../panels/sliderTyping';
+import { useSliderLabelScrub } from '../panels/scrub';
 import { isTauri } from './fileIO';
 import { MenuBar } from './MenuBar';
 import { TabBar } from './TabBar';
@@ -151,6 +152,7 @@ export function AppShell() {
   useUpdateCheck();
   useCloseGuard();
   useSliderValueTyping();
+  useSliderLabelScrub();
   useShellShortcuts(activeId, activeMode);
   const menus = useMenus();
   useWindowTitle(activeDoc);
