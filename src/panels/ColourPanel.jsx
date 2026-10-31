@@ -3,21 +3,90 @@ import { useDocField } from '../store/useDocField';
 import { useEditor } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
 import { ImagePicker, InfoTip, Toggle } from './controls';
+import { SwatchRoleField } from './SwatchColourField';
 import { normalizeHex, hslToHex } from './panelUtils';
 import styles from './Panel.module.css';
 
-// Colour mode and its options (uniform / random / gradient / mesh / image),
-// global temperature and blend mode, plus a preview of the swatches the
-// palette-based modes draw from (edited in the Swatches panel). Markup
-// carried over from the old sidebar's Colour view.
+const COLOUR_MODES = [
+  { key: 'none', label: 'None', lineworkLabel: 'Single' },
+  { key: 'uniform', label: 'Uniform' },
+  { key: 'random', label: 'Random' },
+  { key: 'gradient', label: 'Gradient' },
+  { key: 'mesh', label: 'Mesh' },
+  { key: 'image', label: 'Image' },
+];
+
+const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
+  'darken', 'lighten', 'color-dodge', 'color-burn', 'difference', 'exclusion'];
+
+const capitalise = s => s[0].toUpperCase() + s.slice(1).replace('-', ' ');
+
+// The document palette as one chip: its name and colours. Opens Swatches.
+function PaletteChip() {
+  const [paletteKey] = useDocField('paletteKey');
+  const [shapeColors] = useDocField('shapeColors');
+  const showDockTab = useAppStore(s => s.showDockTab);
+  return (
+    <button className={styles.paletteChooserBtn} style={{ marginBottom: 8 }} onClick={() => showDockTab('colour', 'swatches')}
+      title="Edit swatches or pick a library in the Swatches panel">
+      <span className={styles.paletteChooserName}>{paletteKey || 'Document'}</span>
+      <span className={styles.paletteChooserSwatches}>
+        {shapeColors.filter(c => c.enabled !== false).map(c => (
+          <span key={c.id} className={styles.paletteChooserSwatch} style={{ background: c.hex }} title={c.name || c.hex} />
+        ))}
+      </span>
+      <span className={styles.paletteChooserArrow}>›</span>
+    </button>
+  );
+}
+
+// Linework's colour roles: which swatch is the ink, the ground (the canvas
+// colour unless split off) and the plate shadow.
+function LineworkRoles() {
+  const { linework } = useEditor();
+  const [shapeColors] = useDocField('shapeColors');
+  const [canvasBg] = useDocField('canvasBg');
+  const s = linework.settings;
+  const role = (label, key, autoHex, autoLabel, undoLabel) => (
+    <div className={styles.formRow}>
+      <span className={styles.label}>{label}</span>
+      <SwatchRoleField value={s[key]} autoHex={autoHex} autoLabel={autoLabel} swatches={shapeColors}
+        onChange={id => linework.update({ [key]: id }, undoLabel)} />
+    </div>
+  );
+  return (
+    <>
+      {role('Ink', 'inkSwatch', linework.roles.ink, 'first palette swatch', 'Ink Colour')}
+      {role('Ground', 'groundSwatch', canvasBg, 'canvas colour', 'Ground Colour')}
+      {role('Shadow', 'shadowSwatch', '#000000', 'black', 'Shadow Colour')}
+    </>
+  );
+}
+
+// Meander's two colours, read-only: they follow the palette and canvas.
+function MeanderRoles() {
+  const { knotworkThemeColors } = useEditor();
+  return (
+    <div className={styles.formRow}>
+      <span className={styles.label}>Ink / paper<InfoTip text="Ink is the first palette colour; paper is the canvas colour (Properties)" /></span>
+      <div className={styles.sliderRow}>
+        <span className={styles.swatchInline} style={{ background: knotworkThemeColors.fg }} />
+        <span className={styles.swatchInline} style={{ background: knotworkThemeColors.bg }} />
+      </div>
+    </div>
+  );
+}
+
+// One Colour panel for every mode, in the same order: the palette, the
+// mode's colour roles, then (Grid Pattern and Linework) the colour mode with
+// its options, temperature and blend, and a Shuffle for modes that use it.
 export function ColourPanel() {
   const { actions, status, mode } = useEditor();
   const linework = mode === 'linework';
+  const meander = mode === 'knotwork';
   const imageProgress = status.imageProgress;
   const openSwatches = useAppStore(s => s.showDockTab);
   const [colorMode, setColorMode] = useDocField('colorMode');
-  const [paletteKey] = useDocField('paletteKey');
-  const [shapeColors] = useDocField('shapeColors');
   const [bgColors] = useDocField('bgColors');
   const [uniformReverse, setUniformReverse] = useDocField('uniformReverse');
   const [randomReverseEnabled, setRandomReverseEnabled] = useDocField('randomReverseEnabled');
@@ -75,45 +144,38 @@ export function ColourPanel() {
     });
   }, [setMeshSettings]);
 
+  // Grid Pattern's palette only shows in the palette-based colour modes.
   const usesPalette = colorMode !== 'none' && colorMode !== 'image' && colorMode !== 'mesh';
+  const shuffle = meander ? actions.knotworkRecolour
+    : linework ? actions.lineworkRecolour
+    : colorMode === 'random' ? actions.randomRerun : null;
 
   return (
     <div className={styles.sectionContent}>
-        <div className={styles.formRow}>
+      {(mode !== 'gridBuilder' || usesPalette) && <PaletteChip />}
+      {meander && <MeanderRoles />}
+      {linework && <LineworkRoles />}
+
+      {!meander && (
+      <>
+        <div className={styles.formRow} style={{ marginTop: 8 }}>
           <span className={styles.label}>
-            Mode
-            {linework && <InfoTip text="Single: every line takes the ink colour (Theme). Uniform cycles the palette over the line groups; Random, Gradient, Mesh and Image colour each group by where it sits." />}
+            Colour mode
+            {linework && <InfoTip text="Single: every line takes the ink colour. Uniform cycles the palette over the line groups; Random, Gradient, Mesh and Image colour each group by where it sits." />}
           </span>
-          <div className={styles.modeToggle}>
-            {[
-              { key: 'none',     label: linework ? 'Single' : 'None' },
-              { key: 'uniform',  label: 'Uniform' },
-              { key: 'random',   label: 'Random' },
-              { key: 'gradient', label: 'Gradient' },
-              { key: 'mesh',     label: 'Mesh' },
-              { key: 'image',    label: 'Image' },
-            ].map(({ key, label }) => (
-              <button key={key}
-                className={`${styles.modeBtn} ${colorMode === key ? styles.modeBtnActive : ''}`}
-                onClick={() => setColorMode(key)}
-              >{label}</button>
-            ))}
-          </div>
+          <select className={styles.select} value={colorMode} onChange={e => setColorMode(e.target.value)}>
+            {COLOUR_MODES.map(m => <option key={m.key} value={m.key}>{(linework && m.lineworkLabel) || m.label}</option>)}
+          </select>
         </div>
 
         {colorMode === 'uniform' && !linework && (
           <>
-            <div className={styles.formRow} style={{ marginTop: 6 }}>
-              <span className={styles.label}>Reverse</span>
-              <button
-                className={`${styles.modeBtn} ${uniformReverse ? styles.modeBtnActive : ''}`}
-                style={{ flex: 'none', padding: '3px 8px', fontSize: 10 }}
-                onClick={() => setUniformReverse(!uniformReverse)}
-                title="Apply palette colours in reverse order for all blocks"
-              >Reverse</button>
+            <div className={styles.formRow}>
+              <span className={styles.label}>Reverse order</span>
+              <Toggle value={uniformReverse} onChange={setUniformReverse} title="Apply palette colours in reverse order for all blocks" />
             </div>
 
-            <div className={styles.formRow} style={{ marginTop: 4 }}>
+            <div className={styles.formRow}>
               <span className={styles.label}>Random reverse</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Toggle value={randomReverseEnabled} title="Randomly reverse palette colours on a percentage of blocks"
@@ -133,8 +195,8 @@ export function ColourPanel() {
             </div>
 
             {randomReverseEnabled && (
-              <div className={styles.formRow} style={{ marginTop: 2 }}>
-                <span className={styles.label}>{randomReversePct}%</span>
+              <div className={styles.formRow}>
+                <span className={styles.label}>Share reversed</span>
                 <div className={styles.sliderRow}>
                   <input
                     type="range" min={0} max={100} step={5}
@@ -142,25 +204,20 @@ export function ColourPanel() {
                     onChange={e => setRandomReversePct(+e.target.value)}
                     className={styles.slider}
                   />
+                  <span className={styles.sliderVal}>{randomReversePct}%</span>
                 </div>
               </div>
             )}
+            <div className={styles.formRow}>
+              <span className={styles.label}>Backgrounds<InfoTip text="Block backgrounds, edited in the Swatches panel" /></span>
+              <span className={styles.paletteChooserSwatches} style={{ flex: 1 }}>
+                {bgColors.filter(c => c.enabled !== false).map(c => <span key={c.id} className={styles.paletteChooserSwatch} style={{ background: c.hex }} />)}
+              </span>
+            </div>
           </>
         )}
 
-        {colorMode === 'random' && (
-          <div className={styles.formRow} style={{ marginTop: 6 }}>
-            <span className={styles.label}>Re-run</span>
-            <button
-              className={styles.modeBtn}
-              style={{ flex: 'none', padding: '3px 12px', fontSize: 12 }}
-              onClick={linework ? actions.lineworkRecolour : actions.randomRerun}
-              title="Re-randomise all block colour seeds"
-            >↺ Shuffle</button>
-          </div>
-        )}
-
-        <div className={styles.formRow} style={{ marginTop: 6 }}>
+        <div className={styles.formRow}>
           <span className={styles.label}>Temperature</span>
           <div className={styles.sliderRow}>
             <input type="range" className={styles.slider} min={-100} max={100} step={1}
@@ -170,18 +227,14 @@ export function ColourPanel() {
           </div>
         </div>
 
-        <div className={styles.formRow} style={{ marginTop: 4 }}>
+        <div className={styles.formRow}>
           <span className={styles.label}>Blend mode</span>
           <select
             className={styles.select}
             value={blendMode}
             onChange={e => setBlendMode(e.target.value)}
           >
-            {['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
-              'darken', 'lighten', 'color-dodge', 'color-burn', 'difference', 'exclusion',
-            ].map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
+            {BLEND_MODES.map(m => <option key={m} value={m}>{capitalise(m)}</option>)}
           </select>
         </div>
 
@@ -197,19 +250,13 @@ export function ColourPanel() {
               </div>
             )}
             <div className={styles.formRow} style={{ marginTop: 8 }}>
-              <span className={styles.label}>Colour tolerance</span>
-              <span className={styles.stepVal}>{imageColourTolerance}</span>
+              <span className={styles.label}>Tolerance</span>
+              <div className={styles.sliderRow}>
+                <input type="range" className={styles.slider} min={0} max={50} step={1}
+                  value={imageColourTolerance} onChange={e => setImageColourTolerance(Number(e.target.value))} />
+                <span className={styles.sliderVal}>{imageColourTolerance}</span>
+              </div>
             </div>
-            <input
-              type="range"
-              min={0}
-              max={50}
-              step={1}
-              value={imageColourTolerance}
-              onChange={e => setImageColourTolerance(Number(e.target.value))}
-              className={styles.slider}
-              style={{ width: '100%', marginTop: 4 }}
-            />
           </div>
         )}
 
@@ -556,26 +603,14 @@ export function ColourPanel() {
           </div>
         )}
 
-      {usesPalette && (
-        <>
-          <div className={styles.subHeading}>Swatches · {paletteKey}</div>
-          <button className={styles.paletteChooserBtn} onClick={() => openSwatches('colour', 'swatches')} title="Edit in the Swatches panel">
-            <span className={styles.paletteChooserSwatches} style={{ flex: 1, flexWrap: 'wrap' }}>
-              {shapeColors.filter(c => c.enabled !== false).map(c => (
-                <span key={c.id} className={styles.paletteChooserSwatch} style={{ background: c.hex }} title={c.name || c.hex} />
-              ))}
-            </span>
-            <span className={styles.paletteChooserArrow}>Edit ›</span>
-          </button>
-          {colorMode === 'uniform' && (
-            <div className={styles.formRow} style={{ marginTop: 8 }}>
-              <span className={styles.label}>Backgrounds</span>
-              <span className={styles.paletteChooserSwatches} style={{ flex: 1 }}>
-                {bgColors.filter(c => c.enabled !== false).map(c => <span key={c.id} className={styles.paletteChooserSwatch} style={{ background: c.hex }} />)}
-              </span>
-            </div>
-          )}
-        </>
+      </>
+      )}
+
+      {shuffle && (
+        <button className={styles.actionBtn} style={{ width: '100%', marginTop: 8 }} onClick={shuffle}
+          disabled={!status.hasBlocks} title="Reassign palette colours without changing the design">
+          Shuffle colours
+        </button>
       )}
     </div>
   );

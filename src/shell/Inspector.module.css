@@ -118,7 +118,7 @@
   cursor: col-resize;
 }
 
-.resizeHandle:hover { background: rgba(123, 97, 255, 0.35); }
+.resizeHandle:hover { background: color-mix(in srgb, var(--chrome-accent) 35%, transparent); }
 
 .section { border-bottom: 1px solid var(--chrome-border); }
 
@@ -182,11 +182,11 @@
   min-width: 0;
   border: none;
   background: var(--chrome-accent);
-  color: #fff;
+  color: var(--chrome-on-accent);
   font-weight: 600;
 }
 
-.primaryBtn:hover:not(:disabled) { background: #8d76ff; }
+.primaryBtn:hover:not(:disabled) { background: var(--chrome-accent-hover); }
 
 .secondaryBtn {
   padding: 0 10px;

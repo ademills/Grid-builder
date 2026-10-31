@@ -58,7 +58,7 @@
 }
 
 .segBtn:hover { color: var(--chrome-text); }
-.segBtnActive, .segBtnActive:hover { background: var(--chrome-accent); color: #fff; }
+.segBtnActive, .segBtnActive:hover { background: var(--chrome-accent); color: var(--chrome-on-accent); }
 
 .check {
   display: flex;
@@ -89,6 +89,9 @@
 }
 
 .colourChip { font-family: ui-monospace, 'Cascadia Mono', monospace; }
+
+/* A colour-role chip fills its panel row, in the panel's own type. */
+.roleChip { flex: 1; justify-content: flex-start; font-family: inherit; }
 
 .colourChip span {
   width: 18px;
@@ -145,6 +148,43 @@
 }
 
 .popSwatch:hover { outline: 2px solid var(--chrome-accent); outline-offset: 1px; }
+.popSwatchActive { outline: 2px solid var(--chrome-text); outline-offset: 1px; }
+
+/* "Auto" choice in a colour-role popover (SwatchRoleField). */
+.popAuto {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 5px 7px;
+  border: 1px solid #4a4a4a;
+  border-radius: 5px;
+  background: var(--chrome-bg-raised);
+  color: var(--chrome-text);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.popAuto span {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+}
+
+.popAuto em {
+  overflow: hidden;
+  font-style: normal;
+  color: var(--chrome-text-dim);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.popAuto:hover { background: var(--chrome-bg-hover); }
+.popAutoActive { border-color: var(--chrome-accent); }
 
 .popSearch {
   width: 100%;

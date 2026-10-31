@@ -25,11 +25,11 @@
   cursor: default;
 }
 
-.item:hover:not(:disabled) { background: var(--chrome-accent); color: #fff; }
+.item:hover:not(:disabled) { background: var(--chrome-accent); color: var(--chrome-on-accent); }
 .item:disabled { color: var(--chrome-text-faint); }
 
 .shortcut { font-size: 11.5px; color: var(--chrome-text-dim); }
-.item:hover:not(:disabled) .shortcut { color: rgba(255, 255, 255, 0.85); }
+.item:hover:not(:disabled) .shortcut { color: inherit; opacity: 0.8; }
 
 .itemDanger { color: var(--chrome-danger); }
 

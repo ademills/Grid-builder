@@ -20,8 +20,8 @@ function FillSettingsHost({ fill, run }) {
   return settings ? <Settings s={settings} set={set} /> : null;
 }
 
-// Grid Pattern fills: pick one, tune it, Fill. Replaces the old Fill and
-// Experimental sub-menus with a single picker.
+// Grid Pattern fills: pick one, tune it, Fill. One dropdown (with the
+// experimental fills in their own group), then that fill's settings.
 export function GeneratePanel() {
   const { fillActions, actions, status } = useEditor();
   const [activeFill, setActiveFill] = useDocField('activeFill');
@@ -31,46 +31,32 @@ export function GeneratePanel() {
   return (
     <>
       <div className={styles.sectionContent}>
-        {GROUPS.map(group => (
-          <div key={group}>
-            <div className={styles.fillPickerGroup}>{group}</div>
-            <div className={styles.fillPicker}>
-              {FILLS.filter(f => f.group === group).map(f => (
-                <button
-                  key={f.id}
-                  className={`${styles.fillPickerBtn} ${f.id === fill.id ? styles.fillPickerBtnActive : ''}`}
-                  onClick={() => setActiveFill(f.id)}
-                  title={f.image === 'required' ? 'Needs an image in Image colour mode' : undefined}
-                >
-                  {f.label}
-                  {f.image === 'required' && <span className={styles.fillPickerTag}>Image</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
+        <div className={styles.formRow}>
+          <span className={styles.label}>
+            Fill
+            {!fill.Settings && <InfoTip text="Standard packs the enabled shapes across the whole grid (or the active layout's grid area). Shape sizes come from Max scale and Scale freq in Properties." />}
+          </span>
+          <select className={styles.select} value={fill.id} onChange={e => setActiveFill(e.target.value)}>
+            {GROUPS.map(group => (
+              <optgroup key={group} label={group}>
+                {FILLS.filter(f => f.group === group).map(f => (
+                  <option key={f.id} value={f.id}>{f.label}{f.image === 'required' ? ' (needs image)' : ''}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
 
-        {fill.Settings && (
-          <>
-            <div className={styles.subHeading}>{fill.label} settings</div>
-            {fill.image === 'required' && !status.hasImage && (
-              <div className={styles.gridNote}>Needs Image colour mode with an image loaded (Colour panel).</div>
-            )}
-            {fill.image === 'suggested' && !status.hasImage && (
-              <div className={styles.gridNote}>Works best with Image colour mode active.</div>
-            )}
-            {fill.group === 'Experimental' && (
-              <div className={styles.gridNote}>Experimental — this fill may change or be removed.</div>
-            )}
-            <FillSettingsHost key={fill.id} fill={fill} run={action?.can ? action.run : null} />
-          </>
+        {fill.image === 'required' && !status.hasImage && (
+          <div className={styles.gridNote}>Needs Image colour mode with an image loaded (Colour panel).</div>
         )}
-        {!fill.Settings && (
-          <div className={styles.subHeading}>
-            {fill.label}
-            <InfoTip text="Packs the enabled shapes across the whole grid (or the active layout's grid area). Shape sizes come from Max scale and Scale freq in Properties." />
-          </div>
+        {fill.image === 'suggested' && !status.hasImage && (
+          <div className={styles.gridNote}>Works best with Image colour mode active.</div>
         )}
+        {fill.group === 'Experimental' && (
+          <div className={styles.gridNote}>Experimental — this fill may change or be removed.</div>
+        )}
+        {fill.Settings && <FillSettingsHost key={fill.id} fill={fill} run={action?.can ? action.run : null} />}
       </div>
 
       <div className={styles.fillBar}>

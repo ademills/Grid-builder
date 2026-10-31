@@ -12,8 +12,8 @@ import { SwatchesPanel } from '../panels/SwatchesPanel';
 import { LayersPanel, MeanderLayersPanel, LineworkLayersPanel } from '../panels/LayersPanel';
 import { AssetsPanel } from '../panels/AssetsPanel';
 import { ImagePanel, AnimationPanel, AudioPanel } from '../panels/MediaPanels';
-import { MeanderPanel, MeanderThemePanel } from '../panels/MeanderPanels';
-import { LineworkPanel, LineworkThemePanel } from '../panels/LineworkPanels';
+import { MeanderPanel } from '../panels/MeanderPanels';
+import { LineworkPanel } from '../panels/LineworkPanels';
 
 // Everything the shell needs to know about a mode: how it's presented on
 // the home screen and tabs, which tools appear in the tool bar, and how its
@@ -78,6 +78,7 @@ export const MODE_REGISTRY = {
     tagline: 'Generate knot and key patterns',
     description: 'Seeded meander walker with symmetry, word-seeded designs, image-sampled colour and seamless tiling.',
     accent: '#e0a33a',
+    onAccent: '#1f1608', // white is too faint on the amber
     mark: MeanderModeMark,
     tools: ['select', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
     dock: [
@@ -88,7 +89,7 @@ export const MODE_REGISTRY = {
       ], grow: 2 },
       { id: 'meander', panels: [{ id: 'meander', title: 'Meander', component: MeanderPanel, menu: ['meander.fill', 'meander.recolour'] }], grow: 4 },
       { id: 'colour', panels: [
-        { id: 'colour', title: 'Colour', component: MeanderThemePanel, menu: ['colour.saveSwatches'] },
+        { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['meander.recolour', 'colour.saveSwatches'] },
         { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
       ], grow: 2 },
       { id: 'effects', panels: [{ id: 'effects', title: 'Effects', component: EffectsPanel, menu: ['view.effects', 'file.export'] }], defaultCollapsed: true, grow: 2 },
@@ -116,8 +117,7 @@ MODE_REGISTRY.linework = {
       { id: 'layouts', title: 'Layouts', component: LayoutsPanel, menu: ['generate.clearLayout'] },
     ], grow: 5 },
     { id: 'colour', panels: [
-      { id: 'theme', title: 'Theme', component: LineworkThemePanel, menu: ['linework.recolour', 'colour.saveSwatches'] },
-      { id: 'colour', title: 'Colour', component: ColourPanel },
+      { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['linework.recolour', 'colour.saveSwatches'] },
       { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
     ], grow: 2 },
     { id: 'effects', panels: [{ id: 'effects', title: 'Effects', component: EffectsPanel, menu: ['view.effects', 'file.export'] }], defaultCollapsed: true, grow: 2 },

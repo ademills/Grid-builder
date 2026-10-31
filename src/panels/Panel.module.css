@@ -343,7 +343,7 @@
 .modeBtnActive,
 .modeBtnActive:hover:not(:disabled) {
   background: var(--chrome-accent);
-  color: #fff;
+  color: var(--chrome-on-accent);
 }
 
 .modeGrid2col .modeBtn { border: 1px solid #1a1a1a; }
@@ -374,11 +374,11 @@
 .actionBtnPrimary {
   border-color: transparent;
   background: var(--chrome-accent);
-  color: #fff;
+  color: var(--chrome-on-accent);
   font-weight: 600;
 }
 
-.actionBtnPrimary:hover:not(:disabled) { background: #8d76ff; }
+.actionBtnPrimary:hover:not(:disabled) { background: var(--chrome-accent-hover); }
 
 .fillBar {
   position: sticky;
@@ -394,7 +394,7 @@
 
 .active {
   background: var(--chrome-accent) !important;
-  color: #fff !important;
+  color: var(--chrome-on-accent) !important;
 }
 
 /* ── Image upload ──────────────────────────────────────── */
@@ -725,7 +725,7 @@
 }
 
 .gradDirBtn:hover { color: var(--chrome-text); }
-.gradDirBtnActive, .gradDirBtnActive:hover { background: var(--chrome-accent); color: #fff; }
+.gradDirBtnActive, .gradDirBtnActive:hover { background: var(--chrome-accent); color: var(--chrome-on-accent); }
 
 .gradBgLabel {
   display: block;
@@ -1148,7 +1148,7 @@
 .layerItemRow { padding-left: 26px; color: var(--chrome-text-dim); }
 
 .layerRowSelected { background: var(--chrome-accent-soft); }
-.layerRowSelected:hover { background: rgba(123, 97, 255, 0.28); }
+.layerRowSelected:hover { background: color-mix(in srgb, var(--chrome-accent) 28%, transparent); }
 .layerRowHidden .layerName { opacity: 0.45; }
 
 .layerRowDrop {

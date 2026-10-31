@@ -16,6 +16,10 @@
   --chrome-text-faint: #8c8c8c;
   --chrome-accent: #7b61ff;
   --chrome-accent-soft: rgba(123, 97, 255, 0.18);
+  /* Hover shade of the accent, and text drawn on it. The open document's
+     mode replaces all four (AppShell, from the mode registry's accent). */
+  --chrome-accent-hover: #8d76ff;
+  --chrome-on-accent: #fff;
   --chrome-danger: #ff6b5e;
   --pasteboard: #1f1f1f;
 }

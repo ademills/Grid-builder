@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { PALETTES } from '../utils/colorize';
-import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
-import { Stepper, Toggle, Segmented, SeedField, SymmetrySelect, InfoTip, Section } from './controls';
+import { Stepper, Toggle, Segmented, SeedField, SymmetrySelect, Section } from './controls';
 import { LINEWORK_SYMMETRY } from '../utils/symmetry';
 import { LINEWORK_PRESETS, PLATE_ASPECTS, plateCells } from '../modes/linework/settings';
 import { MASK_SOURCES } from '../modes/linework/masks';
@@ -369,73 +367,5 @@ function WordSettings({ word, setWord }) {
         </>
       )}
     </>
-  );
-}
-
-// ── Theme: colour roles ──────────────────────────────────────────────────────
-
-// Picks a swatch for a role; `auto` is the role's default (no swatch).
-function RolePicker({ value, auto, autoLabel, swatches, onChange }) {
-  return (
-    <div className={styles.layerPickStrip} style={{ padding: 0, flex: 1 }}>
-      <button className={`${styles.modeBtn} ${!value ? styles.modeBtnActive : ''}`} style={{ flex: 'none' }}
-        onClick={() => onChange(null)} title={autoLabel}>
-        <span className={styles.swatchInline} style={{ background: auto }} /> Auto
-      </button>
-      {swatches.map(sw => (
-        <button key={sw.id} className={styles.layerPickSwatch} title={sw.name || sw.hex}
-          style={{ background: sw.hex, outline: value === sw.id ? '2px solid var(--accent, #7b61ff)' : undefined, outlineOffset: 1 }}
-          onClick={() => onChange(sw.id)} />
-      ))}
-    </div>
-  );
-}
-
-// Linework colours: the palette, plus which swatch is the ink, the ground
-// (the canvas colour unless split off) and the plate shadow. Individual line
-// groups are recoloured with the Paint Bucket or the Layers panel.
-export function LineworkThemePanel() {
-  const { linework, actions } = useEditor();
-  const [paletteKey] = useDocField('paletteKey');
-  const [shapeColors] = useDocField('shapeColors');
-  const [canvasBg] = useDocField('canvasBg');
-  const showDockTab = useAppStore(s => s.showDockTab);
-  const s = linework.settings;
-  const roles = linework.roles;
-  return (
-    <div className={styles.sectionContent}>
-      <button className={styles.paletteChooserBtn} onClick={() => showDockTab('colour', 'swatches')} title="Edit swatches or pick a library in the Swatches tab">
-        <span className={styles.paletteChooserName}>{paletteKey}</span>
-        <span className={styles.paletteChooserSwatches}>
-          {(PALETTES[paletteKey] ?? shapeColors.filter(c => c.enabled).map(c => c.hex)).map((c, i) => (
-            <span key={i} className={styles.paletteChooserSwatch} style={{ background: c }} />
-          ))}
-        </span>
-        <span className={styles.paletteChooserArrow}>›</span>
-      </button>
-
-      <div className={styles.subHeading}>
-        Roles
-        <InfoTip text="Ground on Auto follows the canvas colour. Colour modes (Colour tab) spread the palette over the line groups; the Paint Bucket recolours single groups." />
-      </div>
-      <div style={{ '--label-w': '52px' }}>
-      <Row label="Ink">
-        <RolePicker value={s.inkSwatch} auto={roles.ink} autoLabel="The first palette swatch"
-          swatches={shapeColors} onChange={id => linework.update({ inkSwatch: id }, 'Ink Colour')} />
-      </Row>
-      <Row label="Ground">
-        <RolePicker value={s.groundSwatch} auto={canvasBg} autoLabel="Same as the canvas colour (Properties)"
-          swatches={shapeColors} onChange={id => linework.update({ groundSwatch: id }, 'Ground Colour')} />
-      </Row>
-      <Row label="Shadow">
-        <RolePicker value={s.shadowSwatch} auto="#000000" autoLabel="Black"
-          swatches={shapeColors} onChange={id => linework.update({ shadowSwatch: id }, 'Shadow Colour')} />
-      </Row>
-      </div>
-      <button className={styles.actionBtn} style={{ width: '100%', marginTop: 6 }} onClick={actions.lineworkRecolour}
-        title="Reshuffle which palette colour each group gets (Random colour mode)">
-        Shuffle colours
-      </button>
-    </div>
   );
 }

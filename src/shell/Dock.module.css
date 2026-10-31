@@ -20,7 +20,7 @@
   cursor: col-resize;
 }
 
-.resizeHandle:hover { background: rgba(123, 97, 255, 0.35); }
+.resizeHandle:hover { background: color-mix(in srgb, var(--chrome-accent) 35%, transparent); }
 
 /* Expanded groups split the dock's height by weight (--group-grow), but a
    group whose content is shorter than its share stops at its content and
@@ -140,7 +140,7 @@
 
 .panelMenuItem:hover:not(:disabled) {
   background: var(--chrome-accent);
-  color: #fff;
+  color: var(--chrome-on-accent);
 }
 
 .panelMenuItem:disabled { color: var(--chrome-text-faint); }
@@ -150,7 +150,7 @@
   font-size: 11px;
 }
 
-.panelMenuItem:hover:not(:disabled) .panelMenuShortcut { color: rgba(255, 255, 255, 0.85); }
+.panelMenuItem:hover:not(:disabled) .panelMenuShortcut { color: inherit; opacity: 0.8; }
 
 .panelMenuSeparator {
   height: 1px;

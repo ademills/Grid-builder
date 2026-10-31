@@ -1,9 +1,7 @@
-import { PALETTES } from '../utils/colorize';
 import { hashSeed } from '../utils/textSeed';
-import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
-import { Stepper, SeedField, SymmetrySelect, InfoTip, Toggle, Section, Segmented } from './controls';
+import { Stepper, SeedField, SymmetrySelect, Toggle, Section, Segmented } from './controls';
 import { MEANDER_SYMMETRY } from '../utils/symmetry';
 import styles from './Panel.module.css';
 import { meanderCornerSettings } from '../utils/knotworkCompose';
@@ -184,39 +182,5 @@ export function MeanderPanel() {
       >Recolour</button>
     </div>
     </>
-  );
-}
-
-// Meander colour theme: which palette the strands cycle through, and the
-// ink/paper pair it resolves to.
-export function MeanderThemePanel() {
-  const { actions, status, knotworkThemeColors } = useEditor();
-  const [paletteKey] = useDocField('paletteKey');
-  const showDockTab = useAppStore(s => s.showDockTab);
-  return (
-    <div className={styles.sectionContent}>
-      <div className={styles.subHeading}>Theme</div>
-      <button className={styles.paletteChooserBtn} onClick={() => showDockTab('colour', 'swatches')} title="Edit swatches or pick a library in the Swatches tab">
-        <span className={styles.paletteChooserName}>{paletteKey}</span>
-        <span className={styles.paletteChooserSwatches}>
-          {(PALETTES[paletteKey] ?? knotworkThemeColors.palette).map((c, i) => (
-            <span key={i} className={styles.paletteChooserSwatch} style={{ background: c }} />
-          ))}
-        </span>
-        <span className={styles.paletteChooserArrow}>›</span>
-      </button>
-      <div className={styles.formRow} style={{ marginTop: 10 }}>
-        <span className={styles.label}>Ink / paper<InfoTip text="Ink is the first palette colour; paper is the canvas colour (Properties)" /></span>
-        <div className={styles.sliderRow}>
-          <span className={styles.swatchInline} style={{ background: knotworkThemeColors.fg }} />
-          <span className={styles.swatchInline} style={{ background: knotworkThemeColors.bg }} />
-        </div>
-      </div>
-      <button className={styles.actionBtn} style={{ width: '100%', marginTop: 6 }}
-        onClick={actions.knotworkRecolour} disabled={!status.hasBlocks}
-        title="Reassign colours to the current design without changing its layout">
-        Shuffle colours
-      </button>
-    </div>
   );
 }

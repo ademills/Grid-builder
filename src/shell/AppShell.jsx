@@ -61,6 +61,24 @@ function useCloseGuard() {
 
 // Keyboard shortcuts. Command shortcuts come from the registry
 // (shell/commands.js); single-letter keys pick a tool in the active mode.
+// The open document's mode colours the chrome: main buttons, active
+// switches and segments, selections. Set on the page root so popovers and
+// menus placed outside the shell follow too; the home screen keeps the
+// defaults from index.css.
+const ACCENT_VARS = ['--chrome-accent', '--chrome-accent-soft', '--chrome-accent-hover', '--chrome-on-accent'];
+function useModeAccent(activeMode) {
+  useEffect(() => {
+    const root = document.documentElement.style;
+    const def = MODE_REGISTRY[activeMode];
+    if (!def?.accent) { ACCENT_VARS.forEach(v => root.removeProperty(v)); return; }
+    const a = def.accent;
+    root.setProperty('--chrome-accent', a);
+    root.setProperty('--chrome-accent-soft', `color-mix(in srgb, ${a} 18%, transparent)`);
+    root.setProperty('--chrome-accent-hover', `color-mix(in srgb, ${a} 82%, white)`);
+    root.setProperty('--chrome-on-accent', def.onAccent ?? '#fff');
+  }, [activeMode]);
+}
+
 function useShellShortcuts(activeId, activeMode) {
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -154,6 +172,7 @@ export function AppShell() {
   useSliderValueTyping();
   useSliderLabelScrub();
   useShellShortcuts(activeId, activeMode);
+  useModeAccent(activeMode);
   const menus = useMenus();
   useWindowTitle(activeDoc);
   const dropping = useFileDrop();

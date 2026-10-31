@@ -48,7 +48,7 @@
   height: 9px;
   border-radius: 50%;
   background: var(--chrome-accent);
-  box-shadow: 0 0 8px rgba(123, 97, 255, 0.6);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--chrome-accent) 60%, transparent);
 }
 
 .menu {
@@ -100,7 +100,7 @@
 
 .menuItem:hover:not(:disabled) {
   background: var(--chrome-accent);
-  color: #fff;
+  color: var(--chrome-on-accent);
 }
 
 .menuItem:disabled {
@@ -113,7 +113,8 @@
 }
 
 .menuItem:hover:not(:disabled) .menuShortcut {
-  color: rgba(255, 255, 255, 0.85);
+  color: inherit;
+  opacity: 0.8;
 }
 
 .menuSeparator {
@@ -285,7 +286,7 @@
 .toolBtnActive:hover {
   background: var(--chrome-accent-soft);
   color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(123, 97, 255, 0.55);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chrome-accent) 55%, transparent);
 }
 
 .toolDivider {
@@ -395,10 +396,10 @@
 .btnPrimary {
   border-color: transparent;
   background: var(--chrome-accent);
-  color: #fff;
+  color: var(--chrome-on-accent);
 }
 
-.btnPrimary:hover { background: #8d76ff; }
+.btnPrimary:hover { background: var(--chrome-accent-hover); }
 
 .btnLeft { margin-right: auto; }
 
@@ -426,7 +427,7 @@
   justify-content: center;
   border: 2px dashed var(--chrome-accent);
   border-radius: 10px;
-  background: rgba(123, 97, 255, 0.12);
+  background: color-mix(in srgb, var(--chrome-accent) 12%, transparent);
   pointer-events: none;
 }
 
