@@ -11,8 +11,9 @@
   --chrome-bg-hover: #464646;
   --chrome-border: #1c1c1c;
   --chrome-text: #d9d9d9;
-  --chrome-text-dim: #9a9a9a;
-  --chrome-text-faint: #6e6e6e;
+  /* Dim ≈ 6:1 and faint ≈ 4.5:1 against --chrome-bg, so secondary text stays readable. */
+  --chrome-text-dim: #ababab;
+  --chrome-text-faint: #8c8c8c;
   --chrome-accent: #7b61ff;
   --chrome-accent-soft: rgba(123, 97, 255, 0.18);
   --chrome-danger: #ff6b5e;

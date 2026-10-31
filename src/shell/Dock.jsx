@@ -9,7 +9,10 @@ import styles from './Dock.module.css';
 // the active mode's registry entry.
 
 // A panel's ☰ menu: its own commands, then Reset Panel Layout.
-export function PanelMenu({ panel }) {
+// `up` opens the list above the button; `withReset: false` leaves off the
+// Reset Panels item (for menus that aren't a panel's own); `children`
+// replaces the ☰ icon and `className` the button style.
+export function PanelMenu({ panel, up = false, withReset = true, className, children }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -22,17 +25,21 @@ export function PanelMenu({ panel }) {
   }, [open]);
 
   const c = open ? commandContext() : null;
-  const items = open ? [...(panel.menu ?? []), ...(panel.menu?.length ? ['separator'] : []), 'window.resetDock'] : [];
+  const items = !open ? [] : withReset
+    ? [...(panel.menu ?? []), ...(panel.menu?.length ? ['separator'] : []), 'window.resetDock']
+    : panel.menu ?? [];
   return (
     <span className={styles.panelMenu} ref={ref}>
-      <button className={styles.collapseBtn} onClick={() => setOpen(o => !o)} title={`${panel.title} options`}
+      <button className={className ?? styles.collapseBtn} onClick={() => setOpen(o => !o)} title={`${panel.title} options`}
         aria-haspopup="menu" aria-expanded={open}>
-        <svg width="12" height="10" viewBox="0 0 12 10" aria-hidden="true">
-          <path d="M1 1.5h10M1 5h10M1 8.5h10" stroke="currentColor" strokeWidth="1.4" />
-        </svg>
+        {children ?? (
+          <svg width="12" height="10" viewBox="0 0 12 10" aria-hidden="true">
+            <path d="M1 1.5h10M1 5h10M1 8.5h10" stroke="currentColor" strokeWidth="1.4" />
+          </svg>
+        )}
       </button>
       {open && (
-        <div className={styles.panelMenuDropdown} role="menu">
+        <div className={`${styles.panelMenuDropdown} ${up ? styles.panelMenuUp : ''}`} role="menu">
           {items.map((id, i) => {
             if (id === 'separator') return <div key={i} className={styles.panelMenuSeparator} />;
             const item = menuItem(id, c);

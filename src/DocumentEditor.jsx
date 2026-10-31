@@ -43,7 +43,7 @@ import { useColorPalette } from './hooks/useColorPalette';
 import { useSelection } from './hooks/useSelection';
 import { groupMembers, groupBlocksTogether, ungroupBlocks, regroupCopies, listGroups } from './utils/groups';
 import { planMove, moveLimits } from './utils/moveBlocks';
-import { symmetricPoints, symmetricPlacements, normaliseSymmetry } from './utils/symmetry';
+import { symmetricPoints, symmetricPlacements, normaliseSymmetry, MEANDER_SYMMETRY } from './utils/symmetry';
 import { SymmetryAxes, MoveGhost } from './components/ToolOverlays';
 import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
 import { tidySvg } from './utils/svgExport';
@@ -1295,11 +1295,11 @@ export function DocumentEditor({ mode: appMode }) {
   // its colour, visibility and lock. Layout settings (density, walls,
   // symmetry, word...) still wait for the next Fill. Debounced like the
   // palette above so a slider drag rebuilds once it settles.
-  const knotShapeSig = [
-    knotworkSettings.strandWidthRatio, knotworkSettings.capRoundness, knotworkSettings.innerRadius,
-    knotworkSettings.outerRadius, knotworkSettings.bendLinked, knotworkSettings.showTerminalDots,
-    knotworkSettings.widthJitter, knotworkSettings.tension,
+  const shapeSigOf = s => [
+    s.strandWidthRatio, s.capRoundness, s.innerRadius, s.outerRadius, s.bendLinked, s.showTerminalDots,
+    s.widthJitter, s.tension,
   ].join('|');
+  const knotShapeSig = shapeSigOf(knotworkSettings);
   const knotShapeRef = useRef(null);
   const knotShapeTimer = useRef(null);
   useEffect(() => {
@@ -1314,6 +1314,34 @@ export function DocumentEditor({ mode: appMode }) {
     return () => clearTimeout(knotShapeTimer.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [knotShapeSig]);
+
+  // Surprise Me for Meander: random walker, symmetry and strand shape with a
+  // fresh seed, as one Generate. The palette is left alone (Recolour or the
+  // Swatches panel change it). The new shape signature is recorded up front
+  // so the reshape effect above doesn't rebuild the design a second time.
+  const handleKnotworkSurprise = useCallback(() => {
+    if (!gridComputed) return;
+    const r = Math.random, pick = (a) => a[Math.floor(r() * a.length)];
+    const strandWidthRatio = Math.round((0.4 + r() * 0.5) * 50) / 50;
+    const innerRadius = pick([0, 0.1, 0.25, 0.25, 0.5]);
+    const nextSettings = {
+      ...knotworkSettings,
+      density: pick([0.6, 0.8, 1, 1]), straightBias: 1 + Math.floor(r() * 15), wallDensity: pick([0, 0, 0.05, 0.12]),
+      symmetryMode: pick(MEANDER_SYMMETRY.filter(k => k !== 'kaleidoscope')),
+      strandWidthRatio, capRoundness: pick([0.5, 1, 1]), innerRadius, outerRadius: innerRadius + strandWidthRatio, bendLinked: true,
+      showTerminalDots: r() < 0.3, seedWord: '',
+      seed: Math.floor(r() * 0x80000000), letterArrangementSeed: Math.floor(r() * 0x80000000), colorSeed: Math.floor(r() * 0x80000000) || 1,
+    };
+    knotShapeRef.current = shapeSigOf(nextSettings);
+    setKnotworkSettings(nextSettings);
+    const blocks = buildKnotworkBlocks({ ...nextSettings, ...knotworkThemeColors });
+    if (!blocks) return;
+    pushHistory(placedBlocks, { label: 'Surprise Me' });
+    setPlacedBlocks(blocks);
+    setSelectedIds(new Set());
+    syncHistorySize();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- shapeSigOf is a pure helper
+  }, [gridComputed, knotworkSettings, knotworkThemeColors, buildKnotworkBlocks, placedBlocks, pushHistory, syncHistorySize, setSelectedIds]);
 
   // The paper colour shows through between strands by itself; only the
   // centre motif bakes it in (the gaps in its interlace), so that gets
@@ -2212,6 +2240,10 @@ export function DocumentEditor({ mode: appMode }) {
     return {
       selectSameColour: () => selectMatching(colourKey),
       selectSameShape: () => selectMatching(b => b.assetId ?? b.type),
+      shuffleColours: handleRefreshSelected,
+      randomShape: handleRandomiseSelected,
+      swapShape: handleSwapSelected,
+      toggleFreeze: handleToggleLockSelected,
       paint: () => paintIds(editable(), toolOptions.paintHex),
       // Info panel edits: `changes` is merged into every editable selected block.
       setProps: (changes) => updateBlocks(editable(), b => ({ ...b, ...changes }), 'Edit Properties'),
@@ -2256,7 +2288,7 @@ export function DocumentEditor({ mode: appMode }) {
         syncHistorySize();
       },
     };
-  }, [placedBlocks, selectedIds, setSelectedIds, colourCtx, toolOptions.paintHex, updateBlocks, layerActions, paintIds, fillOpacity, showToast, pushHistory, setPlacedBlocks, syncHistorySize, groupNames, setGroupNames]);
+  }, [placedBlocks, selectedIds, setSelectedIds, colourCtx, toolOptions.paintHex, updateBlocks, layerActions, paintIds, fillOpacity, showToast, pushHistory, setPlacedBlocks, syncHistorySize, groupNames, setGroupNames, handleRefreshSelected, handleRandomiseSelected, handleSwapSelected, handleToggleLockSelected]);
 
   // ── Pointer ────────────────────────────────────────────────────────────────
   // Where the pointer is over the artboard. The last position is kept after
@@ -2413,6 +2445,7 @@ export function DocumentEditor({ mode: appMode }) {
   const overlayIds = useAppStore(s => s.overlays);
   const showRulers = useAppStore(s => s.showRulers);
   const showGuides = useAppStore(s => s.showGuides);
+  const showGrid = useAppStore(s => s.showGrid);
   // Guides snap to the artboard edges and centre, and to grid cell lines.
   const snapLines = useMemo(() => {
     const v = [0, workArea.width / 2, workArea.width];
@@ -2445,7 +2478,6 @@ export function DocumentEditor({ mode: appMode }) {
     window.addEventListener('keyup', up);
     window.addEventListener('blur', blur);
     return () => {
-  const showGrid = useAppStore(s => s.showGrid);
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
@@ -2481,6 +2513,7 @@ export function DocumentEditor({ mode: appMode }) {
       clearLayout: handleClearLayout,
       knotworkFill: handleKnotworkFill,
       knotworkRecolour: handleKnotworkRecolour,
+      knotworkSurprise: handleKnotworkSurprise,
       knotworkCanvasBgChange: handleKnotworkCanvasBgChange,
       lineworkReseed: reseedLinework,
       lineworkRecolour: recolourLinework,
@@ -2499,7 +2532,7 @@ export function DocumentEditor({ mode: appMode }) {
       imageProgress: null,
       canKnotworkFill: gridComputed !== null,
     },
-  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, lineworkSettings, updateLinework, lineworkRoles, lineworkEditLayer, lineworkPlates, reseedLinework, recolourLinework, applyLineworkPreset, surpriseLinework, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
+  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, lineworkSettings, updateLinework, lineworkRoles, lineworkEditLayer, lineworkPlates, reseedLinework, recolourLinework, applyLineworkPreset, surpriseLinework, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
 
   // The selection's colour for the control bar's Fill chip: one colour,
   // 'mixed', or null with nothing colourable selected.
@@ -2589,6 +2622,7 @@ export function DocumentEditor({ mode: appMode }) {
     // Meander
     knotworkFill: handleKnotworkFill,
     knotworkRecolour: handleKnotworkRecolour,
+    knotworkSurprise: handleKnotworkSurprise,
     // Linework
     lineworkReseed: reseedLinework,
     lineworkRecolour: recolourLinework,
@@ -2598,7 +2632,7 @@ export function DocumentEditor({ mode: appMode }) {
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, selectionActions, fillSelection, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, reseedLinework, recolourLinework, surpriseLinework, updateLinework, guides, setGuides]);
+  }), [openExport, selectionActions, fillSelection, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, updateLinework, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -2612,7 +2646,10 @@ export function DocumentEditor({ mode: appMode }) {
     canRedo: historySize.redo > 0,
     canExport: placedBlocks.length > 0,
     lineworkEditLayer,
-  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer]);
+    colorMode,
+    selectionFrozen: selectedBlocks.length > 0 && selectedBlocks.every(b => b.colorLocked),
+    selectionPinned: selectedBlocks.some(b => b.slotPins),
+  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer, colorMode, selectedBlocks]);
   useEffect(() => { setEditorBridge(editorCommands, editorStatus); }, [setEditorBridge, editorCommands, editorStatus]);
   useEffect(() => () => setEditorBridge(null, null), [setEditorBridge]);
 
@@ -2646,6 +2683,7 @@ export function DocumentEditor({ mode: appMode }) {
               backdropSettings={backdropSettings}
               gridComputed={gridComputed}
               gridSettings={gridSettings}
+              showGrid={showGrid}
               blocks={movePreview?.ok ? movePreview.blocks : placedBlocks}
               colourCtx={colourCtx}
               imagePixels={imagePixels}
@@ -2660,7 +2698,7 @@ export function DocumentEditor({ mode: appMode }) {
           overlay={
             <>
               {showRulers && <Rulers viewTransform={viewTransform} viewportSize={viewportSize} onStartDrag={startGuideDrag} />}
-              {appMode === 'gridBuilder' && (
+              {appMode === 'gridBuilder' && dockLayout === 'classic' && (
                 <SelectionToolbar
                   selectedBlocks={selectedBlocks}
                   viewTransform={viewTransform}
@@ -2683,7 +2721,6 @@ export function DocumentEditor({ mode: appMode }) {
               )}
               {tilePreviewDataUri && (
                 <div className={styles.tilePreview}>
-              showGrid={showGrid}
                   <div className={styles.tilePreviewGrid}>
                     {Array.from({ length: 9 }).map((_, i) => (
                       <img key={i} src={tilePreviewDataUri} alt="" draggable={false} />

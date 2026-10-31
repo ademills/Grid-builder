@@ -6,7 +6,7 @@ import { MODE_REGISTRY, TOOLS } from '../modes/registry';
 import { ColorPicker } from '../panels/ColorPicker';
 import { SwatchColourField } from '../panels/SwatchColourField';
 import { assetThumb, randomSeed } from '../panels/panelUtils';
-import { DiceIcon, RotateIcon, ReflectIcon } from './icons';
+import { DiceIcon, RotateIcon, ReflectIcon, WandIcon, PinIcon } from './icons';
 import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY, MEANDER_SYMMETRY, LINEWORK_SYMMETRY } from '../utils/symmetry';
 import { FILLS } from '../modes/gridBuilder/fills';
 import { mergeLineworkSettings } from '../modes/linework/settings';
@@ -151,6 +151,42 @@ function StampShape() {
   );
 }
 
+// The selection's shape: a random one from the enabled shapes, or one picked
+// from the library (shapes with a different footprint are left as they are).
+function SelectionShape() {
+  const selection = useAppStore(s => s.editorCommands?.selection);
+  const [query, setQuery] = useState('');
+  const { open, setOpen, ref: popRef } = usePopover();
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? ALL_BUILTIN_ASSETS.filter(a => a.name.toLowerCase().includes(q)) : ALL_BUILTIN_ASSETS;
+  }, [query]);
+  if (!selection) return null;
+  return (
+    <span className={styles.popAnchor} ref={popRef}>
+      <span className={styles.iconGroup}>
+        <button onClick={selection.randomShape} title="Swap for a random shape"><DiceIcon size={15} /></button>
+        <button onClick={() => { setOpen(o => !o); setQuery(''); }} title="Swap shape…" aria-expanded={open}>⇄</button>
+      </span>
+      {open && (
+        <div className={styles.popover} style={{ width: 320 }}>
+          <input className={styles.popSearch} placeholder="Search shapes…" value={query} autoFocus
+            onChange={e => setQuery(e.target.value)} spellCheck={false} />
+          <div className={styles.assetGrid}>
+            {shown.map(a => (
+              <button key={a.id} className={styles.assetCell} title={`${a.name} (${a.size})`}
+                onClick={() => { selection.swapShape(a); setOpen(false); }}>
+                <img src={assetThumb(a)} alt="" />
+                <span>{a.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 function Select({ value, options, onChange, title }) {
   return (
     <select className={styles.select} value={value} onChange={e => onChange(e.target.value)} title={title}>
@@ -238,13 +274,27 @@ function DesignOptions({ mode }) {
   return null;
 }
 
-// With a selection: its fill plus the Object menu's quick actions.
+// With a selection: its fill plus the Object menu's quick actions — in the
+// inspector layout, everything the floating selection toolbar offered.
 function SelectionActions({ mode, selectedCount }) {
   const gridDoc = mode === 'gridBuilder';
+  const selection = useAppStore(s => s.editorCommands?.selection);
+  const colorMode = useAppStore(s => s.editorStatus?.colorMode);
+  const frozen = useAppStore(s => !!s.editorStatus?.selectionFrozen);
+  const pinned = useAppStore(s => !!s.editorStatus?.selectionPinned);
   return (
     <>
       <span className={styles.count}>{selectedCount} selected</span>
       <SelectionFill />
+      {gridDoc && selection && (
+        <span className={styles.iconGroup}>
+          <button onClick={() => runCommand('select.sameColour')} title="Select every shape with the same colour"><WandIcon size={15} /></button>
+          {colorMode !== 'none' && <button onClick={selection.shuffleColours} title="Shuffle colours">↺</button>}
+          <button onClick={selection.toggleFreeze} className={frozen ? styles.iconBtnActive : ''} aria-pressed={frozen}
+            title={frozen ? 'Unfreeze colours' : 'Freeze colours (keep them through shuffles)'}>❄</button>
+          {pinned && <button onClick={() => runCommand('object.unpin')} title="Remove pinned colours"><PinIcon size={14} /></button>}
+        </span>
+      )}
       {gridDoc && (
         <span className={styles.iconGroup}>
           <button onClick={() => runCommand('object.rotateCcw')} title="Rotate 90° anticlockwise"><RotateIcon size={15} style={{ transform: 'scaleX(-1)' }} /></button>
@@ -253,6 +303,7 @@ function SelectionActions({ mode, selectedCount }) {
           <button onClick={() => runCommand('object.reflectV')} title="Reflect vertical"><ReflectIcon size={15} style={{ transform: 'rotate(90deg)' }} /></button>
         </span>
       )}
+      {gridDoc && <SelectionShape />}
       <span className={styles.iconGroup}>
         {gridDoc && <button onClick={() => runCommand('edit.duplicate')} title="Duplicate (Ctrl+D)">Duplicate</button>}
         <button onClick={() => runCommand('object.hide')}>Hide</button>
@@ -262,6 +313,10 @@ function SelectionActions({ mode, selectedCount }) {
     </>
   );
 }
+
+// Tools with no options of their own, which show the design's settings
+// instead (with nothing selected).
+const DESIGN_TOOLS = new Set(['select', 'hand', 'zoom']);
 
 // Illustrator-style control bar: the active tool's name, its options and a
 // short hint. Sits between the document tabs and the canvas.
@@ -287,7 +342,7 @@ export function ControlBar({ mode, selectedCount }) {
       ) : (
         <>
           {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionActions mode={mode} selectedCount={selectedCount} />}
-          {tool === 'select' && !selectedCount && <DesignOptions mode={mode} />}
+          {DESIGN_TOOLS.has(tool) && !selectedCount && <DesignOptions mode={mode} />}
         </>
       )}
 

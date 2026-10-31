@@ -248,6 +248,8 @@
 
 .iconGroup { display: inline-flex; }
 
+.iconGroup button.iconBtnActive { color: #fff; background: var(--chrome-accent-soft); border-color: var(--chrome-accent); }
+
 .iconGroup button + button { border-left: none; }
 .iconGroup button:first-child { border-radius: 5px 0 0 5px; }
 .iconGroup button:last-child { border-radius: 0 5px 5px 0; }

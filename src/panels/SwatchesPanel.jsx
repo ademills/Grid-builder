@@ -8,7 +8,7 @@ import { writeAse, writeGpl, writeJson } from '../utils/swatchFiles';
 import { saveBinary } from '../shell/fileIO';
 import { importSwatchLibrary } from '../shell/commands';
 import { ColorPicker } from './ColorPicker';
-import { Stepper, Toggle } from './controls';
+import { Stepper, Toggle, InfoTip } from './controls';
 import { SWATCH_MIME } from './panelUtils';
 import styles from './Panel.module.css';
 
@@ -281,7 +281,10 @@ export function SwatchesPanel() {
           </div>
         )}
         <div className={styles.swatchHeader}>
-          <div className={styles.subHeading} style={{ margin: 0, padding: 0, border: 'none', flex: 1 }}>Document · {paletteKey}</div>
+          <div className={styles.subHeading} style={{ margin: 0, padding: 0, border: 'none', flex: 1 }}>
+            Document · {paletteKey}
+            <InfoTip text="Drag a swatch onto a Layers group to recolour it" />
+          </div>
           <button className={styles.addQuickBtn} title="New swatch"
             onClick={() => { const s = newSwatch(selectedSwatch?.hex ?? '#7b61ff'); setShapeColors(prev => [...prev, s]); setSelected({ list: 'shape', id: s.id }); }}>+</button>
           <button className={styles.addQuickBtn} title="Save document swatches as a library"
@@ -299,14 +302,17 @@ export function SwatchesPanel() {
             usage={usage[selectedSwatch.id] ?? 0} showPaletteToggle />
         )}
         <div className={styles.swatchFooter}>
-          <span className={styles.gridNote} style={{ margin: 0, flex: 1 }}>Drag a swatch onto a Layers group to recolour it.</span>
+          <span style={{ flex: 1 }} />
           <ExportMenu onPick={f => exportLibrary(docLibrary(), f)} />
         </div>
 
         {isGrid && (
           <>
             <div className={styles.swatchHeader} style={{ marginTop: 12 }}>
-              <div className={styles.subHeading} style={{ margin: 0, padding: 0, border: 'none', flex: 1 }}>Block backgrounds</div>
+              <div className={styles.subHeading} style={{ margin: 0, padding: 0, border: 'none', flex: 1 }}>
+                Block backgrounds
+                <InfoTip text="Used behind shapes in Uniform colour mode" />
+              </div>
               <button className={styles.addQuickBtn} title="New background swatch"
                 onClick={() => { const s = { id: crypto.randomUUID(), hex: '#ffffff', enabled: true }; setBgColors(prev => [...prev, s]); setSelected({ list: 'bg', id: s.id }); }}>+</button>
             </div>
@@ -321,7 +327,6 @@ export function SwatchesPanel() {
               <SwatchEditor swatch={selectedSwatch} onChange={updateSelected} onDelete={deleteSelected}
                 usage={usage[selectedSwatch.id] ?? 0} showPaletteToggle />
             )}
-            <div className={styles.gridNote}>Used behind shapes in Uniform colour mode.</div>
           </>
         )}
       </div>

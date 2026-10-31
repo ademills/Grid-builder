@@ -35,6 +35,20 @@ export function Toggle({ value, onChange, title }) {
   );
 }
 
+// An ⓘ that explains a setting on hover or focus, in place of help text
+// that would otherwise sit in the panel. A native tooltip, so the panel's
+// scroll area can't clip it.
+export function InfoTip({ text }) {
+  return (
+    <span className={styles.infoTip} title={text} aria-label={text} role="img" tabIndex={0}>
+      <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+        <circle cx="10" cy="10" r="7.5" />
+        <path d="M10 9v5M10 6.2v.1" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
 // Segmented control: options = [{ key, label }]
 export function Segmented({ value, options, onChange }) {
   return (

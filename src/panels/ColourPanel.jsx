@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDocField } from '../store/useDocField';
 import { useEditor } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
-import { ImagePicker } from './controls';
+import { ImagePicker, InfoTip } from './controls';
 import { normalizeHex, hslToHex } from './panelUtils';
 import styles from './Panel.module.css';
 
@@ -80,7 +80,10 @@ export function ColourPanel() {
   return (
     <div className={styles.sectionContent}>
         <div className={styles.formRow}>
-          <span className={styles.label}>Mode</span>
+          <span className={styles.label}>
+            Mode
+            {linework && <InfoTip text="Single: every line takes the ink colour (Theme). Uniform cycles the palette over the line groups; Random, Gradient, Mesh and Image colour each group by where it sits." />}
+          </span>
           <div className={styles.modeToggle}>
             {[
               { key: 'none',     label: linework ? 'Single' : 'None' },
@@ -97,13 +100,6 @@ export function ColourPanel() {
             ))}
           </div>
         </div>
-
-        {linework && (
-          <div className={styles.gridNote} style={{ marginTop: 6 }}>
-            Single: every line takes the ink colour (Theme tab). Uniform cycles the palette over the line groups;
-            Random, Gradient, Mesh and Image colour each group by where it sits.
-          </div>
-        )}
 
         {colorMode === 'uniform' && !linework && (
           <>

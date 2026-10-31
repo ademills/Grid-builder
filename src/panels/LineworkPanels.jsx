@@ -3,7 +3,7 @@ import { PALETTES } from '../utils/colorize';
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
-import { Stepper, Toggle, Segmented, SeedField, SymmetrySelect } from './controls';
+import { Stepper, Toggle, Segmented, SeedField, SymmetrySelect, InfoTip } from './controls';
 import { LINEWORK_SYMMETRY } from '../utils/symmetry';
 import { LINEWORK_PRESETS, PLATE_ASPECTS, plateCells } from '../modes/linework/settings';
 import { MASK_SOURCES } from '../modes/linework/masks';
@@ -113,10 +113,13 @@ function PlateSize({ L, setLayer, maxCells, grid }) {
 // ── Linework generator panel ─────────────────────────────────────────────────
 
 // Design settings for the layer being edited — the base or a plate (picked
-// here or in the Layers panel, where plates are added and reordered). Every
-// change rebuilds the design at once, keeping each layer's edits.
+// in the Layers panel, where plates are added and reordered, or the control
+// bar). Every change rebuilds the design at once, keeping each layer's
+// edits. In the inspector layout the layer, Style, Symmetry and Seed are
+// left to the control bar.
 export function LineworkPanel() {
   const { linework, actions, gridComputed } = useEditor();
+  const inControlBar = useAppStore(s => s.dock.layout) === 'inspector';
   const [preset, setPreset] = useState('');
   const s = linework.settings;
   const set = (changes) => linework.update(changes);
@@ -153,13 +156,17 @@ export function LineworkPanel() {
         <Slider label="Line weight" value={s.lineRatio} min={0.1} max={0.9} step={0.01} format={pct}
           onChange={v => set({ lineRatio: v })} title="Line width as a share of each line's pitch; the rest is the gap" />
 
-        <div className={styles.subHeading}>Layer</div>
-        <Row label="Editing" title="Add, remove and reorder plates in the Layers panel">
-          <select className={styles.select} value={L.id} onChange={e => linework.setEditLayer(e.target.value)}>
-            {[...s.layers].reverse().map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-          <button className={styles.actionBtn} style={{ flex: 'none' }} onClick={linework.plates.add} title="Add a plate on top">+ Plate</button>
-        </Row>
+        <div className={styles.subHeading}>
+          Layer · {L.name}
+          {s.layers.length > 1 && <InfoTip text="Pick the layer to edit in the Layers panel or the control bar. Add and reorder plates in Layers." />}
+        </div>
+        {!inControlBar && s.layers.length > 1 && (
+          <Row label="Editing" title="Add, remove and reorder plates in the Layers panel">
+            <select className={styles.select} value={L.id} onChange={e => linework.setEditLayer(e.target.value)}>
+              {[...s.layers].reverse().map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </Row>
+        )}
 
         {plate && (
           <>
@@ -186,21 +193,25 @@ export function LineworkPanel() {
           </>
         )}
 
-        <Row label="Style">
-          <Segmented value={L.style} onChange={v => setLayer({ style: v })} options={[
-            { key: 'angular', label: 'A · Angular' }, { key: 'circuit', label: 'B · Circuit' },
-          ]} />
-        </Row>
-        <Row label="Symmetry">
-          <SymmetrySelect value={L.sym} keys={LINEWORK_SYMMETRY} onChange={v => setLayer({ sym: v })} />
-        </Row>
+        {!inControlBar && (
+          <>
+            <Row label="Style">
+              <Segmented value={L.style} onChange={v => setLayer({ style: v })} options={[
+                { key: 'angular', label: 'A · Angular' }, { key: 'circuit', label: 'B · Circuit' },
+              ]} />
+            </Row>
+            <Row label="Symmetry">
+              <SymmetrySelect value={L.sym} keys={LINEWORK_SYMMETRY} onChange={v => setLayer({ sym: v })} />
+            </Row>
+          </>
+        )}
         <Slider label="Line scale" value={L.scale} min={0.2} max={2} step={0.05} format={v => `${v}×`} onChange={v => setLayer({ scale: v })}
           title="Scales this layer's cells and lines" />
         <Row label="Swap colours"><Toggle value={L.invert} onChange={v => setLayer({ invert: v })} title="Swap ink and ground on this layer" /></Row>
         {!plate && (
           <Slider label="Frame" value={L.frame} min={0} max={1} step={0.01} format={cells} onChange={v => setLayer({ frame: v })} title="An ink border round the canvas, in cells" />
         )}
-        <SeedField value={L.seed} onChange={v => setLayer({ seed: v })} />
+        {!inControlBar && <SeedField value={L.seed} onChange={v => setLayer({ seed: v })} />}
 
         {L.style === 'angular' ? <AngularSettings L={L} setLayer={setLayer} maxCells={maxCells} /> : <CircuitSettings L={L} setLayer={setLayer} />}
 
@@ -405,7 +416,10 @@ export function LineworkThemePanel() {
         <span className={styles.paletteChooserArrow}>›</span>
       </button>
 
-      <div className={styles.subHeading}>Roles</div>
+      <div className={styles.subHeading}>
+        Roles
+        <InfoTip text="Ground on Auto follows the canvas colour. Colour modes (Colour tab) spread the palette over the line groups; the Paint Bucket recolours single groups." />
+      </div>
       <Row label="Ink">
         <RolePicker value={s.inkSwatch} auto={roles.ink} autoLabel="The first palette swatch"
           swatches={shapeColors} onChange={id => linework.update({ inkSwatch: id }, 'Ink Colour')} />
@@ -418,10 +432,6 @@ export function LineworkThemePanel() {
         <RolePicker value={s.shadowSwatch} auto="#000000" autoLabel="Black"
           swatches={shapeColors} onChange={id => linework.update({ shadowSwatch: id }, 'Shadow Colour')} />
       </Row>
-      <div className={styles.gridNote}>
-        Ground on Auto follows the canvas colour. Colour modes (Colour tab) spread the palette over the line groups;
-        the Paint Bucket recolours single groups.
-      </div>
       <button className={styles.actionBtn} style={{ width: '100%', marginTop: 6 }} onClick={actions.lineworkRecolour}
         title="Reshuffle which palette colour each group gets (Random colour mode)">
         Shuffle colours

@@ -3,7 +3,7 @@ import { hashSeed } from '../utils/textSeed';
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { useAppStore } from '../store/appStore';
-import { Stepper, SeedField, SymmetrySelect } from './controls';
+import { Stepper, SeedField, SymmetrySelect, InfoTip } from './controls';
 import { MEANDER_SYMMETRY } from '../utils/symmetry';
 import styles from './Panel.module.css';
 import { meanderCornerSettings } from '../utils/knotworkCompose';
@@ -48,9 +48,11 @@ function CornerControls({ settings, onChange }) {
 }
 
 // Meander generator: walker, symmetry, strand shape, word seeding. Markup
-// carried over from the original Meander sidebar.
+// carried over from the original Meander sidebar. In the inspector layout
+// Symmetry and Seed are left to the control bar.
 export function MeanderPanel() {
   const { actions, status, knotworkThemeColors: themePreview } = useEditor();
+  const inControlBar = useAppStore(s => s.dock.layout) === 'inspector';
   const [knotworkSettings, onKnotworkSettingsChange] = useDocSettings('knotworkSettings');
   const onKnotworkFill = actions.knotworkFill;
   const onKnotworkRecolour = actions.knotworkRecolour;
@@ -85,11 +87,13 @@ export function MeanderPanel() {
         </div>
       </div>
 
-      <div className={styles.formRow}>
-        <span className={styles.label}>Symmetry</span>
-        <SymmetrySelect value={knotworkSettings.symmetryMode} keys={MEANDER_SYMMETRY}
-          onChange={v => onKnotworkSettingsChange({ symmetryMode: v })} />
-      </div>
+      {!inControlBar && (
+        <div className={styles.formRow}>
+          <span className={styles.label}>Symmetry</span>
+          <SymmetrySelect value={knotworkSettings.symmetryMode} keys={MEANDER_SYMMETRY}
+            onChange={v => onKnotworkSettingsChange({ symmetryMode: v })} />
+        </div>
+      )}
 
       {knotworkSettings.symmetryMode === 'kaleidoscope' && (
         <div className={styles.formRow}>
@@ -257,7 +261,7 @@ export function MeanderPanel() {
       )}
 
 
-      <SeedField value={knotworkSettings.seed} onChange={seed => onKnotworkSettingsChange({ seed, seedWord: '' })} />
+      {!inControlBar && <SeedField value={knotworkSettings.seed} onChange={seed => onKnotworkSettingsChange({ seed, seedWord: '' })} />}
     </div>
 
     <div className={styles.fillBar}>
@@ -297,11 +301,10 @@ export function MeanderThemePanel() {
         <span className={styles.paletteChooserArrow}>›</span>
       </button>
       <div className={styles.formRow} style={{ marginTop: 10 }}>
-        <span className={styles.label}>Ink / paper</span>
+        <span className={styles.label}>Ink / paper<InfoTip text="Ink is the first palette colour; paper is the canvas colour (Properties)" /></span>
         <div className={styles.sliderRow}>
           <span className={styles.swatchInline} style={{ background: knotworkThemeColors.fg }} />
           <span className={styles.swatchInline} style={{ background: knotworkThemeColors.bg }} />
-          <span className={styles.gridNote} style={{ margin: 0 }}>first palette colour on the canvas colour</span>
         </div>
       </div>
       <button className={styles.actionBtn} style={{ width: '100%', marginTop: 6 }}

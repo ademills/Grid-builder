@@ -2,15 +2,17 @@ import { useState } from 'react';
 import { PRESETS } from '../gridPresets';
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
-import { Stepper, Toggle } from './controls';
+import { Stepper, Toggle, InfoTip } from './controls';
 import { SwatchColourField } from './SwatchColourField';
 import styles from './Panel.module.css';
 
-// Document-level settings, like Illustrator's Properties panel with nothing
-// selected: artboard, grid, background and quick actions. Shared by both
-// modes; mode-specific rows are switched on `mode`.
+// Document setup, like Illustrator's Properties panel with nothing selected:
+// artboard, canvas colours and grid. Shared by every mode; mode-specific rows
+// are switched on `mode`. Actions (fill gaps, flip, export) live in the
+// menus and the inspector's Generate bar, and the artboard size in the
+// status bar.
 export function PropertiesPanel() {
-  const { mode, gridComputed, validCols, workArea, actions, status } = useEditor();
+  const { mode, gridComputed, validCols, actions } = useEditor();
   const [presetKey, setPresetKey] = useDocField('presetKey');
   const [customSize, setCustomSize] = useDocField('customSize');
   const [gridSettings, setGridSettings] = useDocSettings('gridSettings');
@@ -122,10 +124,8 @@ export function PropertiesPanel() {
             </div>
           </div>
           <div className={styles.formRow}>
-            <span className={styles.label}>Opacity</span>
-            <Toggle value={fillOpacity.random} onChange={v => setFillOpacity({ random: v })}
-              title="Give each shape a random opacity when you fill" />
-            <span className={styles.gridNote} style={{ margin: '0 0 0 8px' }}>{fillOpacity.random ? 'Random' : 'Solid'}</span>
+            <span className={styles.label}>Random opacity<InfoTip text="Give each shape a random opacity when you fill. Off: every shape is solid." /></span>
+            <Toggle value={fillOpacity.random} onChange={v => setFillOpacity({ random: v })} />
           </div>
           {fillOpacity.random && (
             <div className={styles.formRow}>
@@ -144,8 +144,8 @@ export function PropertiesPanel() {
             </div>
           )}
           <div className={styles.formRow}>
-            <span className={styles.label}>Auto-fill</span>
-            <Toggle value={autoFill} onChange={setAutoFill} title="Re-fill the grid automatically whenever grid settings change" />
+            <span className={styles.label}>Auto-fill<InfoTip text="Re-fill the grid automatically whenever grid settings change" /></span>
+            <Toggle value={autoFill} onChange={setAutoFill} />
           </div>
         </>
       )}
@@ -157,22 +157,6 @@ export function PropertiesPanel() {
         </div>
       )}
 
-      <div className={styles.subHeading}>Quick actions</div>
-      <div className={styles.actionBtns}>
-        {isGrid && (
-          <>
-            <button className={styles.actionBtn} onClick={actions.fillGaps} disabled={!status.canFillGaps}>Fill Gaps</button>
-            <button className={styles.actionBtn} onClick={actions.flipH} disabled={!status.hasBlocks} title="Flip horizontally">⇔ Flip H</button>
-            <button className={styles.actionBtn} onClick={actions.flipV} disabled={!status.hasBlocks} title="Flip vertically">⇕ Flip V</button>
-          </>
-        )}
-        <button className={styles.actionBtn} onClick={actions.openExport} disabled={!status.hasBlocks}>Export As…</button>
-      </div>
-      {workArea && (
-        <div className={styles.gridNote} style={{ marginTop: 8 }}>
-          Artboard {workArea.width} × {workArea.height}px
-        </div>
-      )}
     </div>
   );
 }

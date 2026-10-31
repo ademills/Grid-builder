@@ -2,7 +2,7 @@ import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { FILLS, FILLS_BY_ID } from '../modes/gridBuilder/fills';
 import { LAYOUTS, LAYOUT_CATEGORIES } from '../utils/layouts';
-import { LayoutThumb } from './controls';
+import { LayoutThumb, InfoTip } from './controls';
 import { DiceIcon } from '../shell/icons';
 import styles from './Panel.module.css';
 
@@ -66,9 +66,9 @@ export function GeneratePanel() {
           </>
         )}
         {!fill.Settings && (
-          <div className={styles.gridNote} style={{ marginTop: 10 }}>
-            Packs the enabled shapes across the whole grid (or the active layout&apos;s grid area).
-            Shape sizes come from Max scale and Scale freq in Properties.
+          <div className={styles.subHeading}>
+            {fill.label}
+            <InfoTip text="Packs the enabled shapes across the whole grid (or the active layout's grid area). Shape sizes come from Max scale and Scale freq in Properties." />
           </div>
         )}
       </div>

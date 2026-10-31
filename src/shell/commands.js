@@ -89,7 +89,12 @@ export const COMMANDS = {
   // Generate
   'generate.fill':    { label: 'Fill', enabled: c => c.gridDoc && !!c.cmds.canFill, run: c => c.cmds.runActiveFill() },
   'generate.fillGaps': { label: 'Fill Gaps', enabled: c => c.gridDoc && !!c.cmds.canFillGaps, run: c => c.cmds.fillGaps() },
-  'generate.surprise': { label: 'Surprise Me', shortcut: 'Ctrl+Shift+R', enabled: c => c.gridDoc && !!c.cmds.canFill, run: c => c.cmds.surpriseMe() },
+  // Every mode's Surprise Me, on one shortcut.
+  'generate.surprise': {
+    label: 'Surprise Me', shortcut: 'Ctrl+Shift+R',
+    enabled: c => c.hasDoc && (c.activeDoc.mode !== 'gridBuilder' || !!c.cmds.canFill),
+    run: c => ({ knotwork: c.cmds.knotworkSurprise, linework: c.cmds.lineworkSurprise })[c.activeDoc.mode]?.() ?? c.cmds.surpriseMe(),
+  },
   'generate.clear':   { label: 'Clear Canvas', enabled: c => c.gridDoc && (c.status?.blockCount ?? 0) > 0, run: c => c.cmds.clearCanvas() },
   'generate.flipH':   { label: 'Flip Layout Horizontally', enabled: c => c.gridDoc && (c.status?.blockCount ?? 0) > 0, run: c => c.cmds.flipLayout(false) },
   'generate.flipV':   { label: 'Flip Layout Vertically', enabled: c => c.gridDoc && (c.status?.blockCount ?? 0) > 0, run: c => c.cmds.flipLayout(true) },
@@ -121,12 +126,12 @@ export const COMMANDS = {
   'view.actual':   { label: 'Actual Size', shortcut: 'Ctrl+1', inInputs: true, enabled: hasDoc, run: c => c.cmds.setZoom(1) },
   'view.rulers':   { label: 'Rulers', shortcut: 'Ctrl+R', enabled: hasDoc, checked: c => c.app.showRulers, run: c => c.app.setShowRulers(!c.app.showRulers) },
   'view.guides':   { label: 'Guides', shortcut: 'Ctrl+;', enabled: hasDoc, checked: c => c.app.showGuides, run: c => c.app.setShowGuides(!c.app.showGuides) },
+  'view.grid':     { label: 'Grid', shortcut: "Ctrl+'", enabled: hasDoc, checked: c => c.app.showGrid, run: c => c.app.setShowGrid(!c.app.showGrid) },
   'view.wheelZooms': { label: 'Scroll Wheel Zooms', checked: c => c.app.wheelZooms, run: c => c.app.setViewOption({ wheelZooms: !c.app.wheelZooms }) },
   'view.effects':  {
     label: 'Show Effects on Canvas', enabled: hasDoc,
     checked: c => !!c.activeDoc?.state.effects?.preview,
     run: c => useDocumentStore.getState().setField(c.activeDoc.id, 'effects', fx => ({ ...fx, preview: !fx.preview })),
-  'view.grid':     { label: 'Grid', shortcut: "Ctrl+'", enabled: hasDoc, checked: c => c.app.showGrid, run: c => c.app.setShowGrid(!c.app.showGrid) },
   },
   'window.effects': { label: 'Effects', enabled: hasDoc, run: c => c.app.showDockTab('effects', 'effects') },
   'view.clearGuides': { label: 'Clear Guides', enabled: c => c.hasDoc && !!c.cmds.hasGuides, run: c => c.cmds.clearGuides() },

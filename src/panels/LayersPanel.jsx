@@ -8,6 +8,7 @@ import { isShapeBlock } from '../utils/blockColours';
 import { EyeIcon, LockIcon, PinIcon, ChevronIcon } from '../shell/icons';
 import { Segmented } from './controls';
 import { SWATCH_MIME, COLOUR_MIME } from './panelUtils';
+import { colourName as describeColour } from '../utils/colourNames';
 import styles from './Panel.module.css';
 
 
@@ -204,7 +205,7 @@ export function LayersPanel() {
           const allLocked = g.lockedCount === g.items.length;
           const isOpen = open.has(g.key);
           const selectedInGroup = g.ids.filter(id => selectedIds.has(id)).length;
-          const name = g.kind === 'colour' ? (swatchName.get(g.hex.toLowerCase()) ?? null) : null;
+          const name = g.kind === 'colour' ? (swatchName.get(g.hex.toLowerCase()) ?? describeColour(g.hex)) : null;
           return (
             <div key={g.key} className={styles.layerGroup}>
               <div
@@ -357,7 +358,7 @@ export function LineworkLayersPanel() {
     );
   };
   const selectedOf = (blocks) => blocks.filter(b => selectedIds.has(b.id)).length;
-  const colourName = (hex) => swatchName.get(hex) ?? null;
+  const colourName = (hex) => swatchName.get(hex) ?? describeColour(hex);
 
   const itemRow = (b, depth) => (
     <div key={b.id}>
@@ -466,7 +467,7 @@ export function LineworkLayersPanel() {
         {isOpen && (
           <>
             {parts.map(b => groupRow(b.id, b.name ?? KIND_LABEL[b.lwKind], b.fill, [b], 1, false))}
-            {lineGroups.map(g => groupRow(`${key}:${g.hex}`, colourName(g.hex) ? `${colourName(g.hex)} ${g.hex}` : `Lines ${g.hex}`, g.hex, g.items, 1, true))}
+            {lineGroups.map(g => groupRow(`${key}:${g.hex}`, `${colourName(g.hex)} ${g.hex}`, g.hex, g.items, 1, true))}
           </>
         )}
       </div>
@@ -576,7 +577,7 @@ function VectorLayersPanel({ summary }) {
           const lockedCount = g.items.filter(b => b.locked).length;
           const allHidden = hiddenCount === g.items.length, allLocked = lockedCount === g.items.length;
           const selectedInGroup = ids.filter(id => selectedIds.has(id)).length;
-          const name = swatchName.get(g.hex) ?? null;
+          const name = swatchName.get(g.hex) ?? describeColour(g.hex);
           const isOpen = open.has(g.hex);
           return (
             <div key={g.hex} className={styles.layerGroup}>
@@ -593,7 +594,7 @@ function VectorLayersPanel({ summary }) {
                 <span className={styles.layerName}>{name ? <>{name} <span className={styles.layerHex}>{g.hex}</span></> : g.hex}</span>
                 <span className={styles.layerCount}>{selectedInGroup ? `${selectedInGroup}/` : ''}{g.items.length}</span>
                 <button className={styles.layerRecolour} onClick={e => { e.stopPropagation(); setRecolouring(r => (r === g.hex ? null : g.hex)); }}
-                  title="Replace this colour">⇄</button>
+                  title="Replace this colour. Recoloured layers keep their colour through reshapes, swatch edits and Recolour; Generate starts afresh.">⇄</button>
                 <RowToggles
                   hidden={allHidden} locked={allLocked}
                   mixedHidden={hiddenCount > 0 && !allHidden} mixedLocked={lockedCount > 0 && !allLocked}
@@ -632,9 +633,6 @@ function VectorLayersPanel({ summary }) {
           )}
         </>
       )}
-      <div className={styles.gridNote} style={{ padding: '8px 12px' }}>
-        Recoloured layers keep their colour through reshapes, swatch edits and Recolour. Generate starts afresh.
-      </div>
     </>
   );
 }
@@ -668,10 +666,10 @@ function LegacyMeanderLayers() {
             <div className={`${styles.layerRow} ${styles.layerGroupRow}`}>
               <span className={styles.layerChip} style={{ background: c.hex }} />
               <span className={styles.layerName}>
-                {c.hex.toLowerCase() === canvasBg.toLowerCase() ? <>Paper <span className={styles.layerHex}>{c.hex}</span></> : c.hex}
+                <>{c.hex.toLowerCase() === canvasBg.toLowerCase() ? 'Paper' : describeColour(c.hex)} <span className={styles.layerHex}>{c.hex}</span></>
               </span>
               <span className={styles.layerCount}>{c.count}</span>
-              <button className={styles.layerRecolour} onClick={() => setReplacing(r => (r === c.hex ? null : c.hex))} title="Replace this colour">⇄</button>
+              <button className={styles.layerRecolour} onClick={() => setReplacing(r => (r === c.hex ? null : c.hex))} title="Replace this colour (until you Generate or Recolour again)">⇄</button>
             </div>
             {replacing === c.hex && (
               <SwatchStrip
@@ -685,9 +683,6 @@ function LegacyMeanderLayers() {
             )}
           </div>
         ))}
-      </div>
-      <div className={styles.gridNote} style={{ padding: '8px 12px' }}>
-        Replacements last until you Generate or Recolour again.
       </div>
     </>
   );

@@ -59,41 +59,42 @@ function Section({ panel }) {
   );
 }
 
-// The mode's main actions, always in view at the foot of the column.
+// Each mode's further actions, in the Generate bar's ⋯ menu (command ids).
+const MORE_ACTIONS = {
+  gridBuilder: ['generate.fillGaps', 'generate.flipH', 'generate.flipV', 'separator', 'generate.clear'],
+  knotwork: ['meander.recolour'],
+  linework: ['linework.recolour'],
+};
+
+// The mode's main actions, always in view at the foot of the column: the
+// same Generate and Surprise me in every mode, plus a ⋯ menu for the rest.
 function GenerateBar({ mode }) {
   const { actions, status, fillActions } = useEditor();
   const [activeFill] = useDocField('activeFill');
 
+  let generate, surprise;
   if (mode === 'gridBuilder') {
     const fill = FILLS_BY_ID[activeFill] ?? FILLS[0];
     const action = fillActions[fill.id];
-    return (
-      <div className={styles.generateBar}>
-        <button className={styles.primaryBtn} onClick={() => action?.run()} disabled={!action?.can} title={`Run the ${fill.label} fill (pick it in the control bar or Generate)`}>
-          Generate
-        </button>
-        <button className={styles.secondaryBtn} onClick={actions.fillGaps} disabled={!status.canFillGaps} title="Fill only the empty cells">Gaps</button>
-        <button className={styles.secondaryBtn} onClick={actions.surpriseMe} disabled={!fillActions.standard?.can}
-          title="Random fill, settings, palette and seed (Ctrl+Shift+R)"><DiceIcon size={14} /> Surprise me</button>
-      </div>
-    );
+    generate = { run: () => action?.run(), can: !!action?.can, title: `Run the ${fill.label} fill (pick it in the control bar or Generate)` };
+    surprise = { run: actions.surpriseMe, can: !!fillActions.standard?.can, title: 'Random fill, settings, palette and seed (Ctrl+Shift+R)' };
+  } else if (mode === 'knotwork') {
+    generate = { run: actions.knotworkFill, can: status.canKnotworkFill, title: 'Generate a new design (keeps the seed when a word is set)' };
+    surprise = { run: actions.knotworkSurprise, can: status.canKnotworkFill, title: 'Random density, symmetry, strand shape and seed (Ctrl+Shift+R)' };
+  } else {
+    generate = { run: actions.lineworkReseed, can: true, title: 'New seeds for every layer' };
+    surprise = { run: actions.lineworkSurprise, can: true, title: 'Random preset colours, design and seeds (Ctrl+Shift+R)' };
   }
-  if (mode === 'knotwork') {
-    return (
-      <div className={styles.generateBar}>
-        <button className={styles.primaryBtn} onClick={actions.knotworkFill} disabled={!status.canKnotworkFill}
-          title="Generate a new design (keeps the seed when a word is set)">Generate</button>
-        <button className={styles.secondaryBtn} onClick={actions.knotworkRecolour} disabled={!status.hasBlocks}
-          title="Reassign colours without changing the layout">Recolour</button>
-      </div>
-    );
-  }
+
   return (
     <div className={styles.generateBar}>
-      <button className={styles.primaryBtn} onClick={actions.lineworkReseed} title="New seeds for every layer">Generate</button>
-      <button className={styles.secondaryBtn} onClick={actions.lineworkSurprise} title="Random preset colours, design and seeds">
+      <button className={styles.primaryBtn} onClick={generate.run} disabled={!generate.can} title={generate.title}>Generate</button>
+      <button className={styles.secondaryBtn} onClick={surprise.run} disabled={!surprise.can} title={surprise.title}>
         <DiceIcon size={14} /> Surprise me
       </button>
+      <PanelMenu panel={{ title: 'More', menu: MORE_ACTIONS[mode] }} up withReset={false} className={styles.secondaryBtn}>
+        <span aria-hidden="true">⋯</span>
+      </PanelMenu>
     </div>
   );
 }

@@ -36,11 +36,20 @@
 }
 
 .gridInfo {
-  padding: 5px 8px;
-  border-radius: 4px;
-  background: var(--chrome-bg-sunken);
+  margin-top: -2px;
   font-variant-numeric: tabular-nums;
 }
+
+.infoTip {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-left: 5px;
+  color: var(--chrome-text-faint);
+  cursor: help;
+}
+
+.infoTip:hover,
+.infoTip:focus-visible { color: var(--chrome-text); outline: none; }
 
 .snapNote { color: #e0a33a; }
 
