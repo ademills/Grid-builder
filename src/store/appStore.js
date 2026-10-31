@@ -27,7 +27,7 @@ function saveJson(key, value) {
 }
 
 // View options shared by every document, like Illustrator's View menu.
-const DEFAULT_VIEW = { overlays: [], showRulers: false, showGuides: true, wheelZooms: false };
+const DEFAULT_VIEW = { overlays: [], showRulers: false, showGuides: true, showGrid: true, wheelZooms: false };
 
 // `layout`: 'inspector' (one scrolling column plus a panel rail) or
 // 'classic' (stacked, tabbed panel groups).
@@ -85,7 +85,7 @@ export const useAppStore = create((set, get) => ({
   setViewOption(changes) {
     set(changes);
     const s = get();
-    saveJson(VIEW_KEY, { overlays: s.overlays, showRulers: s.showRulers, showGuides: s.showGuides, wheelZooms: s.wheelZooms });
+    saveJson(VIEW_KEY, { overlays: s.overlays, showRulers: s.showRulers, showGuides: s.showGuides, showGrid: s.showGrid, wheelZooms: s.wheelZooms });
   },
   setOverlays: (overlays) => get().setViewOption({ overlays }),
   toggleOverlay(id) {
@@ -94,6 +94,7 @@ export const useAppStore = create((set, get) => ({
   },
   setShowRulers: (showRulers) => get().setViewOption({ showRulers }),
   setShowGuides: (showGuides) => get().setViewOption({ showGuides }),
+  setShowGrid: (showGrid) => get().setViewOption({ showGrid }),
 
   // Copied shapes, shared by every document so they can be pasted into
   // another tab: { blocks } with positions relative to the copied group's

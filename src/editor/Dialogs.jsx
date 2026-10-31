@@ -209,6 +209,7 @@ const SHORTCUTS = [
   { keys: 'Scroll wheel', desc: 'Pan (Shift: sideways)' },
   { keys: 'Ctrl / Alt + scroll', desc: 'Zoom at the pointer' },
   { keys: 'Ctrl + R', desc: 'Show / hide rulers' },
+  { keys: "Ctrl + '", desc: 'Show / hide the grid' },
   { keys: 'Ctrl + ;', desc: 'Show / hide guides' },
   { keys: 'Drag from a ruler', desc: 'New guide (Shift: no snapping)' },
   { keys: '?', desc: 'Show this list' },

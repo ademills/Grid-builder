@@ -97,7 +97,7 @@ const MENUS = [
     'generate.flipH', 'generate.flipV', 'generate.clearLayout', 'generate.clear', 'separator',
     'meander.fill', 'meander.recolour'] },
   { label: 'View', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', 'view.wheelZooms', 'separator',
-    'view.rulers', 'view.guides', 'view.clearGuides', 'view.effects', 'separator', { heading: 'Overlays' },
+    'view.grid', 'view.rulers', 'view.guides', 'view.clearGuides', 'view.effects', 'separator', { heading: 'Overlays' },
     'view.overlay.thirds', 'view.overlay.golden', 'view.overlay.centre', 'view.overlay.ig45', 'view.overlay.ig916',
     'view.overlay.none'] },
   { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.inspector', 'window.resetDock'] },
@@ -112,6 +112,7 @@ function useMenus() {
   useAppStore(s => s.overlays);
   useAppStore(s => s.showRulers);
   useAppStore(s => s.showGuides);
+  useAppStore(s => s.showGrid);
   useAppStore(s => s.wheelZooms);
   useAppStore(s => s.dock.layout);
   useDocumentStore(selectActiveDoc);

@@ -126,6 +126,7 @@ export const COMMANDS = {
     label: 'Show Effects on Canvas', enabled: hasDoc,
     checked: c => !!c.activeDoc?.state.effects?.preview,
     run: c => useDocumentStore.getState().setField(c.activeDoc.id, 'effects', fx => ({ ...fx, preview: !fx.preview })),
+  'view.grid':     { label: 'Grid', shortcut: "Ctrl+'", enabled: hasDoc, checked: c => c.app.showGrid, run: c => c.app.setShowGrid(!c.app.showGrid) },
   },
   'window.effects': { label: 'Effects', enabled: hasDoc, run: c => c.app.showDockTab('effects', 'effects') },
   'view.clearGuides': { label: 'Clear Guides', enabled: c => c.hasDoc && !!c.cmds.hasGuides, run: c => c.cmds.clearGuides() },

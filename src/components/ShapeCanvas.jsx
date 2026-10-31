@@ -11,7 +11,7 @@ import styles from './Canvas.module.css';
 
 // Draws the artboard and its shapes with the 2D canvas API instead of one SVG
 // element per shape. Two canvases sit under the editor's SVG layer:
-//   background — artboard colour, background image and grid lines
+//   background — artboard colour, background image and grid lines (View › Grid)
 //   shapes     — every visible shape block, drawn from cached Path2D models
 //                (utils/shapeModel.js) in the colours its colour mode gives,
 //                plus layout wireframes
@@ -81,7 +81,7 @@ function loadImage(src, onLoad) {
 // ── Drawing ──────────────────────────────────────────────────────────────────
 
 function drawBackground(ctx, p, image) {
-  const { workArea, canvasBg, backdropSettings: bd, gridComputed, gridSettings } = p;
+  const { workArea, canvasBg, backdropSettings: bd, gridComputed, gridSettings, showGrid = true } = p;
   ctx.fillStyle = canvasBg ?? '#ffffff';
   ctx.fillRect(0, 0, workArea.width, workArea.height);
 
@@ -107,8 +107,8 @@ function drawBackground(ctx, p, image) {
     }
   }
 
-  // Grid lines (never exported).
-  if (gridComputed) {
+  // Grid lines (never exported; View › Grid hides them).
+  if (gridComputed && showGrid) {
     const { cellSize, rows, cols, gridOriginX: gx, gridOriginY: gy, gridW, gridH } = gridComputed;
     ctx.beginPath();
     for (let c = 0; c <= cols; c++) { ctx.moveTo(gx + c * cellSize, gy); ctx.lineTo(gx + c * cellSize, gy + gridH); }

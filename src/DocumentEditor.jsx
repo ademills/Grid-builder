@@ -2445,6 +2445,7 @@ export function DocumentEditor({ mode: appMode }) {
     window.addEventListener('keyup', up);
     window.addEventListener('blur', blur);
     return () => {
+  const showGrid = useAppStore(s => s.showGrid);
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
@@ -2682,6 +2683,7 @@ export function DocumentEditor({ mode: appMode }) {
               )}
               {tilePreviewDataUri && (
                 <div className={styles.tilePreview}>
+              showGrid={showGrid}
                   <div className={styles.tilePreviewGrid}>
                     {Array.from({ length: 9 }).map((_, i) => (
                       <img key={i} src={tilePreviewDataUri} alt="" draggable={false} />
