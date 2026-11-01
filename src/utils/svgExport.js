@@ -105,7 +105,7 @@ function commonFill(el) {
  * options   = { groupBy: 'colour'|'shape'|'group'|'none', reuse, precision, title,
  *               colourOf(block) → hex|null, colourName(hex) → name|null, groupNames }
  */
-export function tidySvg(svgEl, blocks, { groupBy = 'colour', reuse = false, precision = 2, title, colourOf, colourName, groupNames = {} } = {}) {
+export function tidySvg(svgEl, blocks, { groupBy = 'colour', reuse = false, precision = 3, title, colourOf, colourName, groupNames = {} } = {}) {
   const doc = svgEl.ownerDocument;
   const idFor = makeIdFactory();
   const make = (tag) => doc.createElementNS(SVG_NS, tag);

@@ -1687,7 +1687,7 @@ export function DocumentEditor({ mode: appMode }) {
       includeWireframeLayer = false,
       svgLayers = 'colour',
       svgReuse = false,
-      svgPrecision = 2,
+      svgPrecision = 3,
     } = options;
     if (!placedBlocks.length || !gridComputed) return;
 

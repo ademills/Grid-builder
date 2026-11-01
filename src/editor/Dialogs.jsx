@@ -36,7 +36,7 @@ export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayo
   const [wireframeLayer, setWireframeLayer] = useState(false);
   const [svgLayers, setSvgLayers] = useState('colour');
   const [svgReuse, setSvgReuse] = useState(false);
-  const [svgPrecision, setSvgPrecision] = useState(2);
+  const [svgPrecision, setSvgPrecision] = useState(3);
   const outScale = format === 'svg' ? 1 : scale;
 
   return (

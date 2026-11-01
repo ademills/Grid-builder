@@ -14,7 +14,7 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // Plate sides: 'equal' (size × size), 'cells' (w × h cells) or 'ratio'
   // (`aspect` with `size` as the long side, turned upright by `portrait`).
   sizing: 'equal', w: 6, h: 4, aspect: '3:2', portrait: false,
-  shadow: 'soft', depth: 0.25, rim: 0, rimInk: false,
+  shadow: 'none', depth: 0.25, rim: 0, rimInk: false,
   // Background: 'square' (corner: rounding, 0–1 of the short side's half),
   // 'none', or for circuits 'outline' | 'sticker' | 'infill' (pad: cells
   // of margin round the lines for outline and sticker).
@@ -139,8 +139,8 @@ export const LINEWORK_PRESETS = [
     name: 'Greek-key tiles', cols: 17, colours: ['#111111', '#ffffff', '#000000'],
     settings: { orientation: 'diamond', linesPerCell: 4, lineRatio: 0.55, layers: [
       L({ tile: 3, fills: ['spiral'], sym: 'mirror-both', orient: 'uniform', seed: 11 }),
-      P(1, { size: 6, shape: 'diamond', tile: 2, fills: ['split4'], sym: 'mirror-diag', orient: 'uniform', depth: 0.27, seed: 4 }),
-      P(2, { size: 3, scale: 0.6, tile: 3, fills: ['spiral'], sym: 'mirror-diag', orient: 'uniform', depth: 0.18, seed: 2 }),
+      P(1, { size: 6, shape: 'diamond', tile: 2, fills: ['split4'], sym: 'mirror-diag', orient: 'uniform', shadow: 'soft', depth: 0.27, seed: 4 }),
+      P(2, { size: 3, scale: 0.6, tile: 3, fills: ['spiral'], sym: 'mirror-diag', orient: 'uniform', shadow: 'soft', depth: 0.18, seed: 2 }),
     ] },
   },
   {
@@ -182,9 +182,9 @@ export const LINEWORK_PRESETS = [
     name: 'Stacked planes', cols: 16, colours: ['#2f8fe3', '#f7f1e3', '#6b4a1e'],
     settings: { orientation: 'square', linesPerCell: 2, lineRatio: 0.64, layers: [
       L({ tile: 4, fills: ['split2', 'chevron', 'hatch'], triFill: 'rings', angles: ['45', '135'], sym: 'mirror-diag', seed: 5 }),
-      P(1, { size: 11.3, shape: 'diamond', tile: 2, fills: ['hatch', 'split4', 'rings'], triFill: 'rings', angles: ['0', '90'], sym: 'mirror-diag', depth: 0.35, rim: 0.15, seed: 9 }),
-      P(2, { size: 6, tile: 3, fills: ['split4'], triFill: 'rings', sym: 'mirror-diag', depth: 0.3, rim: 0.15, seed: 2 }),
-      P(3, { size: 4.2, shape: 'diamond', tile: 2, fills: ['split4'], orient: 'uniform', sym: 'mirror-diag', depth: 0.25, rim: 0.12, seed: 6 }),
+      P(1, { size: 11.3, shape: 'diamond', tile: 2, fills: ['hatch', 'split4', 'rings'], triFill: 'rings', angles: ['0', '90'], sym: 'mirror-diag', shadow: 'soft', depth: 0.35, rim: 0.15, seed: 9 }),
+      P(2, { size: 6, tile: 3, fills: ['split4'], triFill: 'rings', sym: 'mirror-diag', shadow: 'soft', depth: 0.3, rim: 0.15, seed: 2 }),
+      P(3, { size: 4.2, shape: 'diamond', tile: 2, fills: ['split4'], orient: 'uniform', sym: 'mirror-diag', shadow: 'soft', depth: 0.25, rim: 0.12, seed: 6 }),
     ] },
   },
 ];
