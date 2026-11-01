@@ -209,7 +209,8 @@ function hairpin(p, q, dir, depth) {
   return out;
 }
 
-export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one) {
+// opts.band: a backing band per bundle, as circuitLayer's.
+export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one, opts = {}) {
   const S = Math.max(1, cfg.bundle ?? 1) * L.C;
   const k = Math.max(1, Math.round(S / L.p));
   const p = S / k, w = p * L.ratio;
@@ -250,8 +251,11 @@ export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one) {
     }
     if (k % 2) contours.push(...outline(strand(0), false, [capStart ? 'round' : 'butt', capEnd ? 'round' : 'butt']));
     if (!contours.length) return;
+    // Backing band: the centreline as wide as the lines (plus padding).
+    const band = opts.band == null ? null
+      : strandOutlineOf({ segs: toSegs(strand(0)), closed: false, caps: [capStart ? 'round' : 'butt', capEnd ? 'round' : 'butt'] }, width - p + w + 2 * opts.band);
     const cs = path.map(pc => nodes[pc.cell].c);
-    out.push({ index, single: false, axes: new Set(), contours, centre: mul(cs.reduce((t, c) => add(t, c), [0, 0]), 1 / cs.length) });
+    out.push({ index, single: false, axes: new Set(), contours, centre: mul(cs.reduce((t, c) => add(t, c), [0, 0]), 1 / cs.length), band });
   });
   return { bundles: out, k, crossings: 0, whole: true };
 }

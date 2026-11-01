@@ -95,6 +95,22 @@ export function clipToPlanes(P, planes) {
 
 export const rectPoly = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
 
+// A rectangle with corners rounded to radius r (clamped to fit), as a
+// polygon: each corner a quarter arc of `seg` steps.
+export function roundedRectPoly(x, y, w, h, r, seg = 8) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  if (r < 1e-6) return rectPoly(x, y, w, h);
+  const out = [];
+  const corners = [[x + w - r, y + r, -90], [x + w - r, y + h - r, 0], [x + r, y + h - r, 90], [x + r, y + r, 180]];
+  for (const [cx, cy, a0] of corners) {
+    for (let s = 0; s <= seg; s++) {
+      const a = ((a0 + (90 * s) / seg) * Math.PI) / 180;
+      out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  }
+  return out;
+}
+
 // ── Symmetry ─────────────────────────────────────────────────────────────────
 // Each mode is its group's linear maps [a, b, c, d] (x' = a x + b y,
 // y' = c x + d y, about the layer centre) plus its fundamental domain as
@@ -151,6 +167,45 @@ export function mapContour(contour, m, t = [0, 0]) {
     const p = add(applyLinear(m, c[c.length - 1]), t);
     return c[0] === 'A' ? ['A', c[1], flip ? 1 - c[2] : c[2], p] : [c[0], p];
   });
+}
+
+// Signed area of a contour's end points (arcs counted as chords): enough
+// to tell its winding.
+function contourArea(contour) {
+  const pts = contour.filter(c => c[0] !== 'Z').map(c => c[c.length - 1]);
+  return signedArea(pts);
+}
+
+// The contour traced the other way round (arc sweeps flip).
+function reverseContour(contour) {
+  const closed = contour[contour.length - 1][0] === 'Z';
+  const cmds = contour.filter(c => c[0] !== 'Z');
+  const pts = cmds.map(c => c[c.length - 1]);
+  const out = [['M', pts[pts.length - 1]]];
+  for (let i = cmds.length - 1; i >= 1; i--) {
+    const c = cmds[i];
+    out.push(c[0] === 'A' ? ['A', c[1], 1 - c[2], pts[i - 1]] : ['L', pts[i - 1]]);
+  }
+  if (closed) out.push(['Z']);
+  return out;
+}
+
+// Contours of solids that may overlap, wound so they merge under the
+// nonzero rule instead of cancelling. `groups` is a list of outlines (each
+// a list of contours): in each, the largest contour is the solid and any
+// others are holes in it.
+export function solidContours(groups) {
+  const out = [];
+  for (const g of groups) {
+    if (!g.length) continue;
+    const areas = g.map(contourArea);
+    const big = areas.reduce((bi, a, i) => (Math.abs(a) > Math.abs(areas[bi]) ? i : bi), 0);
+    g.forEach((c, i) => {
+      const wantPositive = i === big;
+      out.push((areas[i] > 0) === wantPositive ? c : reverseContour(c));
+    });
+  }
+  return out;
 }
 
 const f2 = v => Math.round(v * 100) / 100;

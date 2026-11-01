@@ -32,6 +32,18 @@ const square = (_, ctx) => (ctx.tiling ?? 'square') === 'square';
 const plate = (_, ctx) => ctx.plate;
 const masked = L => L.mask && L.mask !== 'none';
 
+// Plate backgrounds (settings.js); the band-built ones are circuit-only, and
+// an angular plate set to one draws Square.
+const BACKINGS = [
+  { key: 'square', label: 'Square' }, { key: 'outline', label: 'Outline', circuit: true },
+  { key: 'sticker', label: 'Sticker', circuit: true }, { key: 'infill', label: 'In-fill', circuit: true },
+  { key: 'none', label: 'Transparent' },
+];
+const backing = L => {
+  const b = L.backing ?? 'square';
+  return angular(L) && BACKINGS.find(o => o.key === b)?.circuit ? 'square' : b;
+};
+
 export const LINEWORK_GRID_SCHEMA = [
   {
     id: 'linework.grid', fields: [
@@ -79,17 +91,26 @@ export const LINEWORK_LAYER_SCHEMA = [
     ],
   },
   {
-    // A plate's placement: shape, size, offset, shadow and rim.
+    // A plate's placement (shape, size, offset) and background (its shape,
+    // shadow and rim).
     id: 'linework.plate', title: 'Plate', showIf: plate, fields: [
       { key: 'plateSize', type: 'custom', render: PlateSize },
       { key: 'ox', label: 'Offset X', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
       { key: 'oy', label: 'Offset Y', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
-      { key: 'shadow', label: 'Shadow', type: 'segmented',
+      { key: 'backing', label: 'Background', type: 'select', value: backing,
+        options: L => (angular(L) ? BACKINGS.filter(o => !o.circuit) : BACKINGS),
+        info: 'Square: the plate itself. Outline: one shape round all its lines, filling what they enclose. Sticker: a shape round each bundle. In-fill: just between each bundle\'s lines. Transparent: no background or shadow.' },
+      { key: 'corner', label: 'Corner radius', type: 'slider', min: 0, max: 1, step: 0.05, format: pct,
+        showIf: L => backing(L) === 'square', help: "Rounds the plate's corners (and its shadow and rim)" },
+      { key: 'pad', label: 'Padding', type: 'slider', min: 0, max: 1, step: 0.05, format: cells,
+        showIf: L => ['outline', 'sticker'].includes(backing(L)), help: 'Margin round the lines, in cells' },
+      { key: 'shadow', label: 'Shadow', type: 'segmented', showIf: L => backing(L) !== 'none',
         options: [{ key: 'none', label: 'None' }, { key: 'hard', label: 'Hard' }, { key: 'soft', label: 'Soft' }] },
       { key: 'depth', label: 'Depth', type: 'slider', min: 0, max: 1, step: 0.01, format: cells, help: 'Shadow offset, in cells',
-        showIf: L => L.shadow !== 'none' },
-      { key: 'rim', label: 'Rim', type: 'slider', min: 0, max: 0.5, step: 0.01, format: cells, help: 'Edge band round the plate, in cells' },
-      { key: 'rimInk', label: 'Rim colour', type: 'segmented', showIf: L => L.rim > 0,
+        showIf: L => backing(L) !== 'none' && L.shadow !== 'none' },
+      { key: 'rim', label: 'Rim', type: 'slider', min: 0, max: 0.5, step: 0.01, format: cells, help: 'Edge band round the plate, in cells',
+        showIf: L => backing(L) === 'square' },
+      { key: 'rimInk', label: 'Rim colour', type: 'segmented', showIf: L => backing(L) === 'square' && L.rim > 0,
         value: L => (L.rimInk ? 'ink' : 'ground'), onChange: v => ({ rimInk: v === 'ink' }),
         options: [{ key: 'ground', label: 'Ground' }, { key: 'ink', label: 'Ink' }] },
     ],

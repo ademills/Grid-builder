@@ -15,7 +15,7 @@
 // bundle, in the layer's local frame (origin at its centre, y down).
 
 import {
-  add, sub, mul, cross, perp, len, unit, rngAt, shuffle, mapContour, SYM_OPS, applyLinear,
+  add, sub, mul, cross, perp, len, unit, rngAt, shuffle, mapContour, SYM_OPS, applyLinear, rectPoly,
 } from './geometry';
 
 const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
@@ -29,9 +29,14 @@ const EPS = 1e-6;
 // (straightness, over / under, running off edges, max length), steered to
 // reach as many cells as it can; with cfg.fill, a route through every
 // cell instead (singleCircuit, no crossings).
-export function circuitLayer(L, cfg, seed, sym, insideCell) {
+// opts.band (a padding, or null): also give each bundle a backing `band` —
+// its centreline as one stroke as wide as its lines plus the padding each
+// side, round at hairpin ends (a plate's Outline / Sticker / In-fill).
+// opts.holes: also return the empty cells the bundles wall in, as `holes`
+// (rectangles reaching the bands), so an Outline backing fills them.
+export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
   if (cfg.route === 'single' && cfg.fill) {
-    const whole = singleCircuit(L, cfg, seed, sym);
+    const whole = singleCircuit(L, cfg, seed, sym, opts);
     if (whole) return whole;
   }
   const one = cfg.route === 'single';
@@ -291,9 +296,57 @@ export function circuitLayer(L, cfg, seed, sym, insideCell) {
       if (st.dot) { contours.push(dotContour(st.dot, w / 2)); continue; }
       for (const piece of cutStrand(st, cuts)) contours.push(...strandOutline(piece, w));
     }
-    if (contours.length) out.push({ index: B.index, single, axes: B.axes, contours, centre: bundleCentre(B.pcs) });
+    let band = null;
+    if (opts.band != null) {
+      const W = (k - 1) * p + w + 2 * opts.band;
+      if (single) band = [dotContour(pcs[0].c, W / 2)];
+      else {
+        const segs = [];
+        trav(pcs, 0, segs);
+        band = strandOutline({ segs, closed: false, caps: [sT === 'cap' ? 'round' : 'butt', eT === 'cap' ? 'round' : 'butt'] }, W);
+      }
+    }
+    if (contours.length) out.push({ index: B.index, single, axes: B.axes, contours, centre: bundleCentre(B.pcs), band });
   }
-  return { bundles: out, k, cols, rows, crossings: crossings.length };
+
+  // Empty cells with no way out to the layer's edge but through bundles.
+  let holes = null;
+  if (opts.holes) {
+    const used = (i, j) => {
+      const a = mx ? Math.min(i, cols - 1 - i) : i, b = my ? Math.min(j, rows - 1 - j) : j;
+      const o = occ.get(key(a, b));
+      return !!o && o.b >= 0;
+    };
+    const open = new Set(), stack = [];
+    for (let i = 0; i < cols; i++) for (const j of [0, rows - 1]) if (!used(i, j)) stack.push([i, j]);
+    for (let j = 0; j < rows; j++) for (const i of [0, cols - 1]) if (!used(i, j)) stack.push([i, j]);
+    while (stack.length) {
+      const [i, j] = stack.pop();
+      if (open.has(key(i, j))) continue;
+      open.add(key(i, j));
+      for (const [a, b] of DIRS) {
+        const x = i + a, y = j + b;
+        if (x >= 0 && y >= 0 && x < cols && y < rows && !used(x, y) && !open.has(key(x, y))) stack.push([x, y]);
+      }
+    }
+    // Grown to meet the bands, which stop a line gap (less padding) short of a cell's edge.
+    const grow = Math.max(0, (p - w) / 2 - (opts.band ?? 0)) + 0.5;
+    holes = [];
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      if (!used(i, j) && !open.has(key(i, j))) holes.push(rectPoly(ox + i * S - grow, oy + j * S - grow, S + 2 * grow, S + 2 * grow));
+    }
+    // Inside the outline everything is filled: a cell-sized square on every
+    // grid point whose four cells are all inside (bundles or walled in)
+    // closes the gaps between bands where turns meet. Points touching the
+    // outside are left, so the edge still follows the outermost paths.
+    const inside = (i, j) => i >= 0 && j >= 0 && i < cols && j < rows && !open.has(key(i, j));
+    for (let vy = 1; vy < rows; vy++) for (let vx = 1; vx < cols; vx++) {
+      if (inside(vx - 1, vy - 1) && inside(vx, vy - 1) && inside(vx - 1, vy) && inside(vx, vy)) {
+        holes.push(rectPoly(ox + (vx - 0.5) * S, oy + (vy - 0.5) * S, S, S));
+      }
+    }
+  }
+  return { bundles: out, k, cols, rows, crossings: crossings.length, holes };
 }
 
 // Hairpin end: strand at offset o turns into the strand at -o.
@@ -415,7 +468,7 @@ function mazeLoop(cE, rE, W, r, straight, mx, my) {
   return x === 0 && y === 0 ? succ : null;
 }
 
-function singleCircuit(L, cfg, seed, sym) {
+function singleCircuit(L, cfg, seed, sym, opts = {}) {
   const S = Math.max(1, cfg.bundle ?? 1) * L.C;
   const k = Math.max(1, Math.round(S / L.p));
   const p = S / k, w = p * L.ratio;
@@ -485,7 +538,13 @@ function singleCircuit(L, cfg, seed, sym) {
     if (k % 2) { const segs = []; traverse(pcs, 0, half, segs); strands.push({ segs, closed: false, caps: ['round', 'round'] }); }
   }
   const contours = strands.flatMap(st => strandOutline(st, w));
-  return { bundles: [{ index: 0, single: false, axes: new Set(), contours, centre: [0, 0] }], k, cols, rows, crossings: 0, whole: true };
+  let band = null;
+  if (opts.band != null) {
+    const segs = [];
+    traverse(pcs, 0, half, segs);
+    band = strandOutline({ segs, closed: loop, caps: ['round', 'round'] }, (k - 1) * p + w + 2 * opts.band);
+  }
+  return { bundles: [{ index: 0, single: false, axes: new Set(), contours, centre: [0, 0], band }], k, cols, rows, crossings: 0, whole: true };
 }
 
 // Splits a strand where it passes under another bundle. Cut ends are butt.
@@ -617,14 +676,15 @@ export function replicateBundles(bundles, sym) {
     const groups = new Map();
     ops.forEach((op, i) => {
       const g = find(i);
-      if (!groups.has(g)) groups.set(g, { contours: [], centres: [], copy: g });
+      if (!groups.has(g)) groups.set(g, { contours: [], centres: [], bands: [], copy: g });
       const grp = groups.get(g);
       for (const c of b.contours) grp.contours.push(mapContour(c, op));
+      if (b.band) grp.bands.push(b.band.map(c => mapContour(c, op)));
       grp.centres.push(applyLinear(op, b.centre));
     });
     for (const grp of groups.values()) {
       const centre = grp.centres.reduce((s, c) => add(s, c), [0, 0]).map(v => v / grp.centres.length);
-      out.push({ key: `${b.index}#${grp.copy}`, single: b.single, contours: grp.contours, centre });
+      out.push({ key: `${b.index}#${grp.copy}`, single: b.single, contours: grp.contours, centre, bands: grp.bands });
     }
   }
   return out;

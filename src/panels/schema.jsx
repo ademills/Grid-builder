@@ -26,8 +26,8 @@ import styles from './Panel.module.css';
 //   onChange?(v, values) — changes to apply instead of { [key]: v }
 //   render?: Component   — custom: ({ values, set, ctx }) => …
 // }
-// Section title / info / defaultOpen and field label / help / min / max
-// may also be functions of (values, ctx).
+// Section title / info / defaultOpen and field label / help / min / max /
+// options may also be functions of (values, ctx).
 
 function FieldRow({ field, values, set, ctx }) {
   const v = field.value ? field.value(values) : values[field.key];
@@ -55,12 +55,12 @@ function FieldRow({ field, values, set, ctx }) {
       control = <Toggle value={!!v} onChange={change} />;
       break;
     case 'segmented':
-      control = <Segmented value={v} onChange={change} options={field.options} />;
+      control = <Segmented value={v} onChange={change} options={resolve(field.options, values, ctx)} />;
       break;
     case 'select':
       control = (
         <select className={styles.select} value={v} onChange={e => change(e.target.value)}>
-          {field.options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          {resolve(field.options, values, ctx).map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
       );
       break;

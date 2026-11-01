@@ -15,6 +15,10 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // (`aspect` with `size` as the long side, turned upright by `portrait`).
   sizing: 'equal', w: 6, h: 4, aspect: '3:2', portrait: false,
   shadow: 'soft', depth: 0.25, rim: 0, rimInk: false,
+  // Background: 'square' (corner: rounding, 0–1 of the short side's half),
+  // 'none', or for circuits 'outline' | 'sticker' | 'infill' (pad: cells
+  // of margin round the lines for outline and sticker).
+  backing: 'square', corner: 0, pad: 0.15,
   // Any layer
   scale: 1, invert: false, style: 'angular', sym: 'mirror-both', seed: randomSeed(),
   // Base only: an ink frame round the canvas, in cells
@@ -90,6 +94,7 @@ const DESIGN_KEYS = [
   'style', 'sym', 'scale',
   'tile', 'subdiv', 'minTile', 'fills', 'triFill', 'angles', 'orient', 'outline', 'core',
   'route', 'fill', 'loop', 'bundle', 'straight', 'maxLen', 'density', 'edgeExit', 'weave', 'eyes',
+  'backing', 'corner', 'pad',
 ];
 
 // A new plate, named after the next free number, sized to fit inside

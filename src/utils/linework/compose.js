@@ -16,7 +16,7 @@ import { circuitLayer, replicateBundles } from './circuit';
 import { cellCircuitLayer } from './cellCircuit';
 import {
   add, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
-  SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds,
+  SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly, solidContours,
 } from './geometry';
 
 export const CELL = 100;
@@ -26,6 +26,13 @@ const rotation = (deg) => {
   return [c, -s, s, c];
 };
 const NAMES = { ink: 'Lines', outline: 'Outlines', ground: 'Ground', shadow: 'Shadow', rim: 'Rim' };
+
+// A plate's background (cfg.backing): 'square' (its rectangle, corners
+// rounded by cfg.corner), 'none', or — circuit plates only — one built from
+// its bundles: 'outline' (round them all, filling what they enclose),
+// 'sticker' (round each one) or 'infill' (between each one's lines).
+// Outline and sticker stand cfg.pad cells clear of the lines.
+const BANDED = { outline: 'Outline', sticker: 'Sticker', infill: 'In-fill' };
 
 // The base layer's size and rotation for the grid: the whole grid, or for a
 // diamond the largest square that fits it turned 45°.
@@ -82,24 +89,46 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     const layerPlanes = halfPlanesOf(layerRect);
     const push = (item) => items.push({ layer: li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), ...item });
 
-    // A plate's shadow and ground sit under its lines.
-    if (plate && cfg.shadow && cfg.shadow !== 'none' && (cfg.depth ?? 0) > 0) {
-      const d = cfg.depth * CELL;
-      const off = [d * Math.SQRT1_2, d * Math.SQRT1_2];
-      const P = clipToPlanes(toDesign(layerRect).map(q => add(q, off)), basePlanes);
-      const soft = cfg.shadow === 'soft';
-      if (P) push({ key: `${tag}:shadow`, name: NAMES.shadow, kind: 'shadow', contours: [polyContour(P)], blur: soft ? d * 0.6 : 0, opacity: soft ? 0.55 : 1 });
+    // A plate's background shape, its corners rounded; inset by d.
+    let backing = plate ? (cfg.backing ?? 'square') : 'square';
+    if (BANDED[backing] && cfg.style !== 'circuit') backing = 'square';
+    const banded = plate && !!BANDED[backing];
+    const radius = plate ? Math.max(0, cfg.corner ?? 0) * Math.min(lw, lh) / 2 : 0;
+    const plateShape = (d = 0) => (lw - 2 * d > 0 && lh - 2 * d > 0
+      ? roundedRectPoly(-lw / 2 + d, -lh / 2 + d, lw - 2 * d, lh - 2 * d, Math.max(0, radius - d)) : null);
+    const shadow = plate && backing !== 'none' && cfg.shadow && cfg.shadow !== 'none' && (cfg.depth ?? 0) > 0
+      ? { d: cfg.depth * CELL, soft: cfg.shadow === 'soft' } : null;
+    const shadowItem = (contours) => {
+      const off = [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2];
+      return { key: `${tag}:shadow`, name: NAMES.shadow, kind: 'shadow', contours: contours.map(c => mapContour(c, [1, 0, 0, 1], off)),
+        blur: shadow.soft ? shadow.d * 0.6 : 0, opacity: shadow.soft ? 0.55 : 1 };
+    };
+
+    // A plate's shadow and ground sit under its lines. A banded ground is
+    // only known once the bundles are built: it goes in here afterwards.
+    const groundAt = items.length;
+    if (plate ? backing === 'square' : baseGround) {
+      const P = finish(plateShape());
+      if (P) {
+        if (shadow) {
+          const S = clipToPlanes(P.map(q => add(q, [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2])), basePlanes);
+          if (S) push({ ...shadowItem([]), contours: [polyContour(S)] });
+        }
+        push({ key: `${tag}:ground`, name: NAMES.ground, kind: 'ground', contours: [polyContour(P)] });
+      }
     }
-    if (plate || baseGround) {
-      const P = finish(layerRect);
-      if (P) push({ key: `${tag}:ground`, name: NAMES.ground, kind: 'ground', contours: [polyContour(P)] });
-    }
+    // Banded grounds: each bundle's band (one group per copy), plus the
+    // cells an Outline encloses.
+    const bands = [];
+    const bandOpts = banded ? { band: backing === 'infill' ? 0 : (cfg.pad ?? 0.15) * CELL, holes: backing === 'outline' } : {};
+    const toBand = (groups) => { for (const g of groups ?? []) bands.push(g.map(c => mapContour(c, m, t))); };
 
     const tiling = settings.tiling ?? 'square';
     if (cfg.style === 'circuit' && tiling !== 'square') {
       // Circuits through hexagons, triangles or Voronoi cells (no symmetry or mask).
-      const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single');
+      const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single', bandOpts);
       for (const b of R.bundles) {
+        if (b.band) toBand([b.band]);
         push({
           key: `${tag}:c:${b.index}`, name: nameFor(li, cfg.route === 'single' ? 'Circuit' : 'Bundle'), kind: 'ink',
           contours: b.contours.map(c => mapContour(c, m, t)), centre: add(applyLinear(m, b.centre), t),
@@ -111,9 +140,11 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const S = Math.max(1, cfg.bundle ?? 1) * C;
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
       const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, bc, br) : null;
-      const R = circuitLayer(L, cfg, seed, csym, mask ? (i, j) => mask.has(`${i},${j}`) : null);
+      const R = circuitLayer(L, cfg, seed, csym, mask ? (i, j) => mask.has(`${i},${j}`) : null, bandOpts);
+      for (const P of R.holes ?? []) bands.push([polyContour(toDesign(P))]);
       // One circuit is built whole (already symmetric), so it isn't copied.
       for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym)) {
+        toBand(b.bands);
         push({
           key: `${tag}:b:${b.key}`, name: nameFor(li, cfg.route === 'single' ? 'Circuit' : b.single ? 'Eye' : 'Bundle'), kind: 'ink',
           contours: b.contours.map(c => mapContour(c, m, t)), centre: add(applyLinear(m, b.centre), t),
@@ -182,9 +213,17 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       }
     }
 
-    // A frame around the base, a rim around a plate.
+    if (banded && bands.length) {
+      const contours = solidContours(bands);
+      items.splice(groundAt, 0, ...[
+        ...(shadow ? [shadowItem(contours)] : []),
+        { key: `${tag}:ground`, name: BANDED[backing], kind: 'ground', contours },
+      ].map(it => ({ layer: li, layerId: cfg.id ?? `p${li}`, ...it })));
+    }
+
+    // A frame around the base, a rim around a plate (square backing only).
     const ring = (width) => {
-      const outer = layerRect, inner = inset(layerRect, width * CELL);
+      const outer = plateShape(), inner = plateShape(width * CELL);
       const so = finish(outer), si = inner ? finish(inner) : null;
       return so ? [polyContour(so, true), ...(si ? [polyContour(si, false)] : [])] : null;
     };
@@ -192,7 +231,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const contours = ring(cfg.frame);
       if (contours) push({ key: `${tag}:frame`, name: 'Frame', kind: 'ink', contours, centre: t });
     }
-    if (plate && (cfg.rim ?? 0) > 0) {
+    if (plate && backing === 'square' && (cfg.rim ?? 0) > 0) {
       const contours = ring(cfg.rim);
       if (contours) push({ key: `${tag}:rim`, name: NAMES.rim, kind: 'rim', contours, centre: t });
     }
