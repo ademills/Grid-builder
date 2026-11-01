@@ -163,10 +163,34 @@ function holeD(c, r, outlineArea) {
   return `M ${fmt(c.x + r)} ${fmt(c.y)} A ${fmt(r)} ${fmt(r)} 0 1 ${sweep} ${fmt(c.x - r)} ${fmt(c.y)} A ${fmt(r)} ${fmt(r)} 0 1 ${sweep} ${fmt(c.x + r)} ${fmt(c.y)} Z`;
 }
 
+// A merged end is a T-junction: the strand's end runs into a cell the same
+// strand passes straight through, at right angles. The outline overlaps
+// itself there, so the two inside corners where the end's sides meet the
+// body's side are crossings, not vertices, and roundPolygon can't reach
+// them. Each gets a fillet patch instead: the sliver between the two edges
+// and an arc of the inner-bend radius, wound like the outline (so the
+// nonzero fill adds it). end: the cell centre the end ran into (the
+// extended centreline's last point); prev: the one before it.
+function junctionFillets(end, prev, halfWidth, radius, outlineArea) {
+  const d = norm(sub(end, prev));
+  const r = Math.min(radius, Math.max(0, len(sub(end, prev)) - 2 * halfWidth));
+  if (r < 1e-3) return '';
+  const side = add(end, scale(d, -halfWidth));
+  return [1, -1].map(s => {
+    const n = scale(leftNormal(d), s);
+    const K = add(side, scale(n, halfWidth));       // the inside corner
+    let a = add(K, scale(d, -r)), b = add(K, scale(n, r));
+    if (Math.sign(cross(sub(a, K), sub(b, K))) !== Math.sign(outlineArea)) [a, b] = [b, a];
+    const q = add(add(K, scale(d, -r)), scale(n, r)); // the arc's centre
+    const sweep = cross(sub(a, q), sub(b, q)) > 0 ? 1 : 0;
+    return `M ${fmt(K.x)} ${fmt(K.y)} L ${fmt(a.x)} ${fmt(a.y)} A ${fmt(r)} ${fmt(r)} 0 0 ${sweep} ${fmt(b.x)} ${fmt(b.y)} Z`;
+  }).join(' ');
+}
+
 // points: centreline polyline (pixel space, consecutive, distinct).
 // radii: { cap, outer, inner } in the same units as points. Merged ends
-// (see findSelfMergeEnds in knotworkCompose.js) get no cap and are never
-// rounded. holeRadius > 0 punches a terminal dot at each capped end.
+// (see findSelfMergeEnds in knotworkCompose.js) get no cap; the corners
+// where they meet the strand take the inner radius (junctionFillets). holeRadius > 0 punches a terminal dot at each capped end.
 export function compileKnotworkOutline(points, halfWidth, radii, { startMerge = false, endMerge = false, holeRadius = 0 } = {}) {
   if (points.length < 2) return '';
   const sharp = simplify(buildSharpOutline(points, halfWidth, startMerge, endMerge));
@@ -180,6 +204,11 @@ export function compileKnotworkOutline(points, halfWidth, radii, { startMerge = 
     v.kind = Math.sign(turn) === Math.sign(area) ? 'outer' : 'inner';
   }
   let d = roundPolygon(sharp, { cap: radii.cap, outer: radii.outer, inner: radii.inner, butt: 0 });
+  if (radii.inner > 0) {
+    const n = points.length;
+    if (startMerge) d += ' ' + junctionFillets(points[0], points[1], halfWidth, radii.inner, area);
+    if (endMerge) d += ' ' + junctionFillets(points[n - 1], points[n - 2], halfWidth, radii.inner, area);
+  }
   if (holeRadius > 0) {
     if (!startMerge) d += ' ' + holeD(points[0], holeRadius, area);
     if (!endMerge) d += ' ' + holeD(points[points.length - 1], holeRadius, area);

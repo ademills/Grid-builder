@@ -117,7 +117,7 @@ exports[`Linework presets draw the same designs > Triangle keys 1`] = `
 exports[`Meander designs draw the same strands > default, seed 7 1`] = `
 {
   "core": "f90c4a3b",
-  "geometry": "7bf8ab6d",
+  "geometry": "0d4aff6d",
   "items": 89,
   "kinds": {
     "dot": 13,
@@ -133,7 +133,7 @@ exports[`Meander designs draw the same strands > default, seed 7 1`] = `
 exports[`Meander designs draw the same strands > four-way, seed 1234 1`] = `
 {
   "core": "f90c4a3b",
-  "geometry": "81ade1d3",
+  "geometry": "54f8a48b",
   "items": 108,
   "kinds": {
     "strand": 108,
@@ -148,7 +148,7 @@ exports[`Meander designs draw the same strands > four-way, seed 1234 1`] = `
 exports[`Meander designs draw the same strands > mirrored, seed 42 1`] = `
 {
   "core": "f90c4a3b",
-  "geometry": "367b3efc",
+  "geometry": "4d5232f8",
   "items": 116,
   "kinds": {
     "dot": 10,
@@ -164,7 +164,7 @@ exports[`Meander designs draw the same strands > mirrored, seed 42 1`] = `
 exports[`Meander designs draw the same strands > rounded corners, seed 99 1`] = `
 {
   "core": "f90c4a3b",
-  "geometry": "07f9a6b2",
+  "geometry": "38901c9f",
   "items": 83,
   "kinds": {
     "dot": 11,
