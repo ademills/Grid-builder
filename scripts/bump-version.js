@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Bumps the app version across package.json, src-tauri/tauri.conf.json and
-// src-tauri/Cargo.toml, treating major.minor as a decimal (minor 0-99) so
+// Bumps the app version across package.json, src-tauri/tauri.conf.json,
+// src-tauri/Cargo.toml and the app's own entry in src-tauri/Cargo.lock, treating major.minor as a decimal (minor 0-99) so
 // that a "+0.01" bump rolls over into the next major version: 0.99 -> 1.0.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,7 @@ if (mode !== '--minor' && mode !== '--major') {
 const tauriConfPath = join(root, 'src-tauri', 'tauri.conf.json');
 const packagePath = join(root, 'package.json');
 const cargoPath = join(root, 'src-tauri', 'Cargo.toml');
+const lockPath = join(root, 'src-tauri', 'Cargo.lock');
 
 const tauriConf = JSON.parse(readFileSync(tauriConfPath, 'utf8'));
 const [major, minor] = tauriConf.version.split('.').map(Number);
@@ -45,6 +46,10 @@ writeFileSync(packagePath, JSON.stringify(pkg, null, 2) + '\n');
 
 const cargo = readFileSync(cargoPath, 'utf8');
 writeFileSync(cargoPath, cargo.replace(/^version = "[^"]+"/m, `version = "${nextVersion}"`));
+
+// Otherwise the next cargo build changes it and leaves the tree dirty.
+const lock = readFileSync(lockPath, 'utf8');
+writeFileSync(lockPath, lock.replace(/(\[\[package\]\]\r?\nname = "app"\r?\nversion = ")[^"]+"/, `$1${nextVersion}"`));
 
 console.log(`Version bumped: ${oldVersion} -> ${nextVersion}`);
 console.log(`Next: commit, then "git tag v${nextVersion} && git push origin v${nextVersion}" to cut a release.`);
