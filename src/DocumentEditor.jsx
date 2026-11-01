@@ -1537,9 +1537,21 @@ export function DocumentEditor({ mode: appMode }) {
     },
   }), [lineworkSettings.layers, updateLinework]);
 
+  // Linework layers (ids) locked in the Layers panel: every one of their
+  // shapes is locked. Generate and Surprise Me leave these as they are.
+  const lockedLineworkLayers = useCallback(() => {
+    const all = new Map();
+    for (const b of placedBlocksRef.current) {
+      if (b.lwLayer) all.set(b.lwLayer, (all.get(b.lwLayer) ?? true) && !!b.locked);
+    }
+    return new Set([...all].filter(([, locked]) => locked).map(([id]) => id));
+  }, []);
+
   const reseedLinework = useCallback(() => {
-    updateLinework(s => ({ ...s, layers: s.layers.map(l => ({ ...l, seed: Math.floor(Math.random() * 0x80000000) })) }), 'New Seed');
-  }, [updateLinework]);
+    const locked = lockedLineworkLayers();
+    if (lineworkSettings.layers.every(l => locked.has(l.id))) { showToast('Every layer is locked: unlock one in Layers to generate it'); return; }
+    updateLinework(s => ({ ...s, layers: s.layers.map(l => (locked.has(l.id) ? l : { ...l, seed: Math.floor(Math.random() * 0x80000000) })) }), 'New Seed');
+  }, [updateLinework, lockedLineworkLayers, showToast, lineworkSettings.layers]);
 
   const recolourLinework = useCallback(() => {
     updateLinework(s => ({ ...s, colourSeed: Math.floor(Math.random() * 0x80000000) || 1 }), 'Shuffle Colours');
@@ -1566,7 +1578,11 @@ export function DocumentEditor({ mode: appMode }) {
   // Surprise Me: a random preset's colours with a random design and seeds.
   const surpriseLinework = useCallback(() => {
     const r = Math.random, pick = (a) => a[Math.floor(r() * a.length)];
-    applyLineworkPreset(pick(LINEWORK_PRESETS).name);
+    // With layers locked, only the unlocked ones are re-rolled; the preset,
+    // colours, lines and plate count stay, since they'd redraw the locked ones.
+    const locked = lockedLineworkLayers();
+    if (lineworkSettings.layers.every(l => locked.has(l.id))) { showToast('Every layer is locked: unlock one in Layers to surprise it'); return; }
+    if (!locked.size) applyLineworkPreset(pick(LINEWORK_PRESETS).name);
     const style = r() < 0.6 ? 'angular' : 'circuit';
     const allFills = ['spiral', 'rings', 'split2', 'split4', 'hatch', 'chevron'];
     const fills = () => [...allFills].sort(() => r() - 0.5).slice(0, 1 + Math.floor(r() * 3));
@@ -1578,6 +1594,10 @@ export function DocumentEditor({ mode: appMode }) {
       route: style === 'circuit' && r() < 0.3 ? 'single' : 'bundles',
       ...over,
     });
+    if (locked.size) {
+      updateLinework(s => ({ ...s, layers: s.layers.map(l => (locked.has(l.id) ? l : layer(l))) }), 'Surprise Me');
+      return;
+    }
     const nPlates = pick([0, 1, 1, 2, 2, 3]);
     updateLinework(s => {
       let size = (gridComputed?.cols ?? 12) * pick([0.55, 0.65, 0.7]);
@@ -1595,7 +1615,7 @@ export function DocumentEditor({ mode: appMode }) {
         linesPerCell: pick([2, 3, 3, 4, 5]), lineRatio: pick([0.3, 0.45, 0.55, 0.65]), layers,
       };
     }, 'Surprise Me');
-  }, [applyLineworkPreset, updateLinework, gridComputed]);
+  }, [applyLineworkPreset, updateLinework, gridComputed, lockedLineworkLayers, showToast, lineworkSettings.layers]);
 
   // Apply a predetermined layout: drop its wireframe placeholders and arm the
   // grid-area mask (used by the main Fill button). Starts from a clean canvas.
