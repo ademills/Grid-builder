@@ -150,6 +150,7 @@ export const COMMANDS = {
   'view.overlay.none':    { label: 'Hide All Overlays', enabled: c => c.hasDoc && c.app.overlays.length > 0, run: c => c.app.setOverlays([]) },
 
   // Window & Help
+  'app.palette':    { label: 'Command Palette…', shortcut: 'Ctrl+K', inInputs: true, run: c => c.app.setPaletteOpen(!c.app.paletteOpen) },
   'window.home':    { label: 'Home', run: () => useDocumentStore.getState().showHome() },
   'window.next':    { label: 'Next Document', shortcut: 'Ctrl+Tab', inInputs: true, run: () => cycleTab(1) },
   'window.prev':    { label: 'Previous Document', shortcut: 'Ctrl+Shift+Tab', inInputs: true, run: () => cycleTab(-1) },

@@ -59,6 +59,9 @@ export const useAppStore = create((set, get) => ({
     get().updateDockGroup(groupId, { tab, collapsed: false });
     set({ flyout: tab });
   },
+  // Ctrl+K command palette.
+  paletteOpen: false,
+  setPaletteOpen(paletteOpen) { set({ paletteOpen }); },
   // Panel id open in the inspector's flyout, or null.
   flyout: null,
   setFlyout(flyout) { set({ flyout }); },

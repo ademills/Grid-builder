@@ -2653,12 +2653,13 @@ export function DocumentEditor({ mode: appMode }) {
     lineworkReseed: reseedLinework,
     lineworkRecolour: recolourLinework,
     lineworkSurprise: surpriseLinework,
+    lineworkPreset: applyLineworkPreset,
     updateLinework,
     setLineworkEditLayer,
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, selectionActions, fillSelection, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, updateLinework, guides, setGuides]);
+  }), [openExport, selectionActions, fillSelection, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,

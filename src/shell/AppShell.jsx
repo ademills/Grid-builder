@@ -23,6 +23,7 @@ import { ControlBar } from './ControlBar';
 import { StatusBar } from './StatusBar';
 import { HomeScreen } from './HomeScreen';
 import { PromptDialog } from './PromptDialog';
+import { CommandPalette } from './CommandPalette';
 import styles from './Shell.module.css';
 
 const isTypingTarget = (el) =>
@@ -133,7 +134,7 @@ const MENUS = [
     'view.overlay.thirds', 'view.overlay.golden', 'view.overlay.centre', 'view.overlay.ig45', 'view.overlay.ig916',
     'view.overlay.none', 'separator', { heading: 'Pasteboard' },
     'view.pasteboard.dark', 'view.pasteboard.grey', 'view.pasteboard.light'] },
-  { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.resetDock'] },
+  { label: 'Window', items: ['app.palette', 'separator', 'window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.resetDock'] },
   { label: 'Help', items: ['help.shortcuts', 'separator', 'help.diagnostics'] },
 ];
 
@@ -227,6 +228,7 @@ export function AppShell() {
       )}
       <StatusBar doc={activeDoc} />
       <PromptDialog />
+      <CommandPalette />
       {dropping && <div className={styles.dropOverlay}><span>Drop to open</span></div>}
     </div>
   );
