@@ -14,7 +14,7 @@ const app = () => useAppStore.getState();
 
 // `state` overrides document defaults (e.g. a palette from the home screen).
 export function newDocument(mode, { presetKey, state } = {}) {
-  return docs().createDocument(mode, { state: { ...(presetKey ? { presetKey } : {}), ...state } });
+  return docs().createDocument(mode, { state: { ...(presetKey ? { presetKey } : {}), ...state }, fresh: true });
 }
 
 function openParsed(text, path, fileName) {

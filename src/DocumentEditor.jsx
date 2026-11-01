@@ -1256,13 +1256,17 @@ export function DocumentEditor({ mode: appMode }) {
   // A new seed (typed, the dice, or one picked from the seed history) lays
   // the design out again, like a seed change in the other modes. Generate
   // and Surprise Me build their own design and record their seed up front.
+  // knotSeedRef: the seed the current design was laid out with.
   const knotSeedRef = useRef(null);
   useEffect(() => {
-    const prev = knotSeedRef.current;
-    knotSeedRef.current = knotworkSettings.seed;
-    if (prev === null || prev === knotworkSettings.seed) return;
-    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock)) return;
+    // The live seed, not this render's: an effect re-run (React StrictMode)
+    // mustn't record a seed that Generate has already replaced.
+    const seed = useDocumentStore.getState().docs[docId]?.state.knotworkSettings?.seed ?? knotworkSettings.seed;
+    if (knotSeedRef.current === null) { knotSeedRef.current = seed; return; }
+    if (knotSeedRef.current === seed) return;
+    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock)) { knotSeedRef.current = seed; return; }
     const timer = setTimeout(() => {
+      knotSeedRef.current = seed;
       regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'New Seed', { keepFill: false });
     }, 60);
     return () => clearTimeout(timer);
@@ -1840,6 +1844,25 @@ export function DocumentEditor({ mode: appMode }) {
     run: (settings) => runFill(f.id, settings),
     can: canShapeFill && (f.image !== 'required' || !!imagePixels),
   }])), [canShapeFill, imagePixels, runFill]);
+
+  // A new document opens with a design: Grid Pattern runs the Standard fill
+  // (once the shapes have loaded), Meander generates, and Linework builds
+  // its own as soon as it opens. That first design isn't an unsaved change.
+  const fresh = useDocumentStore(s => !!s.docs[docId]?.fresh);
+  const freshRan = useRef(false);
+  useEffect(() => {
+    if (!fresh || freshRan.current || !gridComputed) return;
+    const settle = () => useDocumentStore.getState().settleFresh(docId);
+    if (appMode === 'linework') {
+      if (placedBlocks.some(b => b.genSig)) settle();
+      return;
+    }
+    if (appMode === 'gridBuilder' && !fillActions.standard?.can) return;
+    freshRan.current = true;
+    if (appMode === 'gridBuilder') runFill('standard').then(settle);
+    else { handleKnotworkFill(); setTimeout(settle, 0); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fresh, gridComputed, fillActions, placedBlocks]);
 
   // ── Layers ─────────────────────────────────────────────────────────────────
   // Blocks to outline on the canvas while a Layers row is hovered.

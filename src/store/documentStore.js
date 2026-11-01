@@ -24,8 +24,9 @@ export const useDocumentStore = create((set, get) => ({
   order: [],
   activeId: null,
 
-  // overrides: { id?, state?, name?, filePath?, dirty? }. A restored tab
-  // keeps its id (autosaves are keyed by it) and its unsaved flag.
+  // overrides: { id?, state?, name?, filePath?, dirty?, fresh? }. A restored
+  // tab keeps its id (autosaves are keyed by it) and its unsaved flag. A
+  // fresh document (File › New) generates a first design when it opens.
   createDocument(mode, overrides = {}) {
     untitledCounter[mode] = (untitledCounter[mode] ?? 0) + 1;
     // Restored "Untitled Grid 3" moves the count on, so new tabs don't repeat it.
@@ -41,6 +42,7 @@ export const useDocumentStore = create((set, get) => ({
       name: overrides.name ?? `Untitled ${MODES[mode].shortLabel} ${untitledCounter[mode]}`,
       filePath: overrides.filePath ?? null,
       dirty: !!overrides.dirty,
+      fresh: !!overrides.fresh,
       state,
     };
     set(s => ({ docs: { ...s.docs, [id]: doc }, order: [...s.order, id], activeId: id }));
@@ -95,6 +97,12 @@ export const useDocumentStore = create((set, get) => ({
         },
       },
     }));
+  },
+
+  // A fresh document's first design is in: it's no longer fresh, and the
+  // design it opened with doesn't count as an unsaved change.
+  settleFresh(id) {
+    set(s => (s.docs[id] ? { docs: { ...s.docs, [id]: { ...s.docs[id], fresh: false, dirty: false } } } : s));
   },
 
   markSaved(id, { filePath, name }) {
