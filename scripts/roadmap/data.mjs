@@ -247,6 +247,8 @@ export const SHIPPED = [
     also: 'First automated tests (29), generator snapshots and a native smoke test.' },
   { ver: '1.9.0', date: '1 Nov', title: 'Finish the UI pass', items: ['1.8','1.18','1.19','1.20','2.5','4.21','4.22','12.1','12.2','12.3','12.4','12.5','12.6','12.8'],
     also: 'Grid Pattern fills as schemas, full circuits on non-square cells, Meander plates. Plates default to no shadow; SVG export to 3 decimals.' },
+  { ver: '1.9.1', date: '1 Nov', title: 'Base backgrounds', items: [],
+    also: 'Circuit backgrounds (Outline, Sticker, In-fill, Transparent, with shadow) for the base layer too.' },
 ];
 
 // Proposed releases. Order is the suggestion.
