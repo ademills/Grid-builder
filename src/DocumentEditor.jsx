@@ -33,7 +33,7 @@ import { useLibraryStore } from './store/libraryStore';
 import { isTauri } from './shell/fileIO';
 import { runCommand } from './shell/commands';
 import { useDocField, useDocId } from './store/useDocField';
-import { useAppStore } from './store/appStore';
+import { useAppStore, PASTEBOARDS } from './store/appStore';
 import { buildSwatchMap, resolvePins, blockColourBreakdown, blockSlotColours, dominantColour } from './utils/blockColours';
 import { shapeTransform, unTransformUV, rotateBlock } from './utils/blockTransform';
 import { slotAt } from './utils/slotCoverage';
@@ -479,7 +479,7 @@ export function DocumentEditor({ mode: appMode }) {
   const viewTransform = storedView ?? DEFAULT_VIEW;
   const [viewportSize, setViewportSize] = useState(null);
   const activeTool = useAppStore(s => s.toolOverride ?? s.activeTool);
-  const [bgColor] = useDocField('bgColor');
+  const bgColor = useAppStore(s => PASTEBOARDS[s.pasteboard] ?? PASTEBOARDS.dark);
   const [canvasBg, setCanvasBg] = useDocField('canvasBg');
   const [maxScale] = useDocField('maxScale');
   const [scaleFreq] = useDocField('scaleFreq');

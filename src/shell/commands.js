@@ -131,6 +131,9 @@ export const COMMANDS = {
   'view.rulers':   { label: 'Rulers', shortcut: 'Ctrl+R', enabled: hasDoc, checked: c => c.app.showRulers, run: c => c.app.setShowRulers(!c.app.showRulers) },
   'view.guides':   { label: 'Guides', shortcut: 'Ctrl+;', enabled: hasDoc, checked: c => c.app.showGuides, run: c => c.app.setShowGuides(!c.app.showGuides) },
   'view.grid':     { label: 'Grid', shortcut: "Ctrl+'", enabled: hasDoc, checked: c => c.app.showGrid, run: c => c.app.setShowGrid(!c.app.showGrid) },
+  ...Object.fromEntries(['dark', 'grey', 'light'].map(k => [`view.pasteboard.${k}`, {
+    label: k[0].toUpperCase() + k.slice(1), checked: c => c.app.pasteboard === k, run: c => c.app.setViewOption({ pasteboard: k }),
+  }])),
   'view.wheelZooms': { label: 'Scroll Wheel Zooms', checked: c => c.app.wheelZooms, run: c => c.app.setViewOption({ wheelZooms: !c.app.wheelZooms }) },
   'view.effects':  {
     label: 'Show Effects on Canvas', enabled: hasDoc,

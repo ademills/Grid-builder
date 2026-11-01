@@ -24,7 +24,6 @@ export function PropertiesPanel() {
   const [autoFill, setAutoFill] = useDocField('autoFill');
   const [fillOpacity, setFillOpacity] = useDocSettings('fillOpacity');
   const [canvasBg, setCanvasBg] = useDocField('canvasBg');
-  const [bgColor, setBgColor] = useDocField('bgColor');
   const [showTilePreview, setShowTilePreview] = useDocField('showTilePreview');
   const isGrid = mode === 'gridBuilder';
   const isMeander = mode === 'knotwork';
@@ -77,15 +76,9 @@ export function PropertiesPanel() {
           </div>
         </div>
       )}
-      <div className={styles.formRowPair}>
-        <div className={styles.stackedField}>
-          <span className={styles.label}>Canvas</span>
-          <SwatchColourField value={canvasBg} onChange={onCanvasBg} title="Canvas colour — a document swatch or any colour" />
-        </div>
-        <div className={styles.stackedField}>
-          <span className={styles.label}>Pasteboard</span>
-          <SwatchColourField value={bgColor} onChange={setBgColor} title="Pasteboard colour — a document swatch or any colour" />
-        </div>
+      <div className={styles.formRow}>
+        <span className={styles.label}>Canvas</span>
+        <SwatchColourField value={canvasBg} onChange={onCanvasBg} title="Canvas colour — a document swatch or any colour" />
       </div>
       </Section>
 

@@ -34,6 +34,8 @@ export function createDefaultDocState() {
     fillOpacity: { random: false, min: 0.4, max: 1 },
     // Ruler guides, in artboard px: v = vertical lines (x), h = horizontal (y).
     guides: { v: [], h: [] },
+    // No longer used: the pasteboard is a View setting (appStore). Kept so
+    // files round-trip unchanged.
     bgColor: '#2d2d2d',
     canvasBg: '#ffffff',
 

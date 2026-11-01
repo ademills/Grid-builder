@@ -27,7 +27,9 @@ function saveJson(key, value) {
 }
 
 // View options shared by every document, like Illustrator's View menu.
-const DEFAULT_VIEW = { overlays: [], showRulers: false, showGuides: true, showGrid: true, wheelZooms: false };
+// pasteboard: the area round the artboard, a key of PASTEBOARDS.
+const DEFAULT_VIEW = { overlays: [], showRulers: false, showGuides: true, showGrid: true, wheelZooms: false, pasteboard: 'dark' };
+export const PASTEBOARDS = { dark: '#2d2d2d', grey: '#535353', light: '#d4d4d4' };
 
 function loadDock() {
   try { const { width = 300, groups = {} } = JSON.parse(localStorage.getItem(DOCK_KEY) || '{}'); return { width, groups }; }
@@ -78,7 +80,7 @@ export const useAppStore = create((set, get) => ({
   setViewOption(changes) {
     set(changes);
     const s = get();
-    saveJson(VIEW_KEY, { overlays: s.overlays, showRulers: s.showRulers, showGuides: s.showGuides, showGrid: s.showGrid, wheelZooms: s.wheelZooms });
+    saveJson(VIEW_KEY, { overlays: s.overlays, showRulers: s.showRulers, showGuides: s.showGuides, showGrid: s.showGrid, wheelZooms: s.wheelZooms, pasteboard: s.pasteboard });
   },
   setOverlays: (overlays) => get().setViewOption({ overlays }),
   toggleOverlay(id) {
