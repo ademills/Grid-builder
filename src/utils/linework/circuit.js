@@ -395,10 +395,11 @@ const bundleCentre = (pcs) => {
 // The whole layer as a single bundle: the same cells, strands, turns and
 // hairpin ends as Bundles, but one route that runs through every cell once
 // without crossing itself. The route traces round a random maze (spanning
-// tree) on a half-resolution grid; an odd leftover column or row is taken
-// in by detours. Mirror symmetry builds half the maze and mirrors it,
-// bridged by one edge across the axis, when the grid divides evenly
-// (any leftover then becomes a margin). The route is cut into a path with
+// tree) on a half-resolution grid, so it covers an even number of columns
+// and rows: an odd leftover column or row becomes a margin, half a cell each
+// side. (Taking it in instead needs a zigzag somewhere, which read as a
+// wiggle along the edge.) Mirror symmetry builds half the maze and mirrors
+// it, bridged by one edge across the axis, when the halves divide evenly. The route is cut into a path with
 // two hairpin ends, or kept as a closed loop. Returns null when the layer
 // is too small, to fall back to bundles.
 
@@ -482,35 +483,20 @@ function singleCircuit(L, cfg, seed, sym, opts = {}) {
   const wantX = sym === 'mirror-x' || sym === 'mirror-both', wantY = sym === 'mirror-y' || sym === 'mirror-both';
   const mx = wantX && (even(cols) / 2) % 2 === 0;
   const my = !mx && wantY && (even(rows) / 2) % 2 === 0;
-  if (mx || my) { cols = even(cols); rows = even(rows); }
-  const cE = even(cols), rE = even(rows), W = cols;
-  const id = (x, y) => y * W + x;
-  const succ = mazeLoop(cE, rE, W, r, straight, mx, my);
+  cols = even(cols); rows = even(rows);
+  const W = cols;
+  const succ = mazeLoop(cols, rows, W, r, straight, mx, my);
   if (!succ) return null;
 
-  // Leftover column / row: the loop's last column always links each pair of
-  // cells vertically (and its last row each pair across), so each link can
-  // detour out through the two leftover cells beside it.
-  const detour = (a, b, a2, b2) => {
-    if (succ.get(a) === b) { succ.set(a, a2); succ.set(a2, b2); succ.set(b2, b); }
-    else if (succ.get(b) === a) { succ.set(b, b2); succ.set(b2, a2); succ.set(a2, a); }
-  };
-  if (cols > cE) for (let y = 0; y < rE; y += 2) detour(id(cE - 1, y), id(cE - 1, y + 1), id(cE, y), id(cE, y + 1));
-  if (rows > rE) for (let x = 0; x < cE; x += 2) detour(id(x, rE - 1), id(x + 1, rE - 1), id(x, rE), id(x + 1, rE));
-
-  // Order the cells, then cut the loop into a path (or keep it closed). With
-  // an odd number of cells the last corner joins the path as its end.
-  const corner = cols > cE && rows > rE ? id(cols - 1, rows - 1) : null;
-  const loop = cfg.loop && corner == null;
+  // Order the cells, then cut the loop into a path (or keep it closed).
+  const loop = !!cfg.loop;
   let first = 0;
-  if (corner != null) first = succ.get(id(cols - 2, rows - 1));
-  else if (!loop) {
+  if (!loop) {
     let skip = Math.floor(r() * succ.size);
     for (first = 0; skip-- > 0;) first = succ.get(first);
   }
   const order = [first];
   for (let c = succ.get(first); c !== first; c = succ.get(c)) order.push(c);
-  if (corner != null) order.push(corner);
 
   const ox = -cols * S / 2, oy = -rows * S / 2;
   const cells = order.map(c => [c % W, Math.floor(c / W)]);
