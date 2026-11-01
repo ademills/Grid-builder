@@ -15,7 +15,7 @@
 // bundle, in the layer's local frame (origin at its centre, y down).
 
 import {
-  add, sub, mul, cross, perp, len, unit, rngAt, shuffle, mapContour, SYM_OPS, applyLinear, rectPoly,
+  add, sub, mul, dot, cross, perp, len, unit, rngAt, shuffle, mapContour, SYM_OPS, applyLinear, rectPoly, polyContour,
 } from './geometry';
 
 const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
@@ -299,11 +299,11 @@ export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
     let band = null;
     if (opts.band != null) {
       const W = (k - 1) * p + w + 2 * opts.band;
-      if (single) band = [dotContour(pcs[0].c, W / 2)];
+      if (single) band = [polyContour(discPoly(pcs[0].c, W / 2))];
       else {
         const segs = [];
         trav(pcs, 0, segs);
-        band = strandOutline({ segs, closed: false, caps: [sT === 'cap' ? 'round' : 'butt', eT === 'cap' ? 'round' : 'butt'] }, W);
+        band = bandContours(segs, W / 2, [sT === 'cap', eT === 'cap'], false);
       }
     }
     if (contours.length) out.push({ index: B.index, single, axes: B.axes, contours, centre: bundleCentre(B.pcs), band });
@@ -542,7 +542,7 @@ function singleCircuit(L, cfg, seed, sym, opts = {}) {
   if (opts.band != null) {
     const segs = [];
     traverse(pcs, 0, half, segs);
-    band = strandOutline({ segs, closed: loop, caps: ['round', 'round'] }, (k - 1) * p + w + 2 * opts.band);
+    band = bandContours(segs, ((k - 1) * p + w) / 2 + opts.band, [true, true], loop);
   }
   return { bundles: [{ index: 0, single: false, axes: new Set(), contours, centre: [0, 0], band }], k, cols, rows, crossings: 0, whole: true };
 }
@@ -647,11 +647,70 @@ function strandOutline(strand, w) {
   return [c];
 }
 
+// ── Backing bands ────────────────────────────────────────────────────────────
+// A bundle's backing (a plate's Outline / Sticker / In-fill): its centreline
+// widened by hw each side. Built as separate solid pieces — a rectangle per
+// straight, a pie slice or ring segment per turn, a disc per round end and
+// per corner — all wound the same way, so pieces and neighbouring bands
+// merge under the nonzero rule. (Offsetting the centreline as one outline
+// folds inside-out wherever a turn is tighter than hw, and those folds
+// would cut holes where bands overlap.)
+
+const STEPS = 12; // points per quarter turn
+
+export function discPoly(c, r) {
+  return Array.from({ length: STEPS * 4 }, (_, i) => {
+    const a = (i / (STEPS * 4)) * Math.PI * 2;
+    return [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)];
+  });
+}
+
+// segs: { t: 'L', a, b } and { t: 'A', a, b, K, sweep } (SVG sweep, y down).
+// ends: [round start, round end]. Returns contours.
+export function bandContours(segs, hw, ends, closed) {
+  const polys = [];
+  const angle = (p, K) => Math.atan2(p[1] - K[1], p[0] - K[0]);
+  for (const s of segs) {
+    if (s.t === 'L') {
+      const n = mul(perp(unit(sub(s.b, s.a))), hw);
+      polys.push([add(s.a, n), add(s.b, n), sub(s.b, n), sub(s.a, n)]);
+      continue;
+    }
+    const r0 = len(sub(s.a, s.K));
+    const a0 = angle(s.a, s.K);
+    let da = angle(s.b, s.K) - a0;
+    if (s.sweep) { while (da <= 0) da += Math.PI * 2; } else { while (da >= 0) da -= Math.PI * 2; }
+    const n = Math.max(2, Math.ceil((Math.abs(da) / (Math.PI / 2)) * STEPS));
+    const at = (r, i) => { const t = a0 + (da * i) / n; return [s.K[0] + r * Math.cos(t), s.K[1] + r * Math.sin(t)]; };
+    const outer = Array.from({ length: n + 1 }, (_, i) => at(r0 + hw, i));
+    const ri = r0 - hw;
+    const inner = ri > 1e-6 ? Array.from({ length: n + 1 }, (_, i) => at(ri, n - i)) : [s.K];
+    polys.push([...outer, ...inner]);
+  }
+  // Round the corners between pieces that meet at an angle, and the ends.
+  const tangentAt = (s, end) => (s.t === 'L' ? unit(sub(s.b, s.a)) : (() => {
+    const rv = sub(end === 'a' ? s.a : s.b, s.K);
+    const t = unit(perp(rv));
+    return s.sweep ? t : mul(t, -1);
+  })());
+  for (let i = 0; i < segs.length; i++) {
+    const next = segs[i + 1] ?? (closed ? segs[0] : null);
+    if (next && dot(tangentAt(segs[i], 'b'), tangentAt(next, 'a')) < 0.9995) polys.push(discPoly(segs[i].b, hw));
+  }
+  if (!closed && segs.length) {
+    if (ends[0]) polys.push(discPoly(segs[0].a, hw));
+    if (ends[1]) polys.push(discPoly(segs[segs.length - 1].b, hw));
+  }
+  return polys.map(P => polyContour(P, true));
+}
+
 function dotContour(c, r) {
   return [['M', [c[0] + r, c[1]]], ['A', r, 1, [c[0] - r, c[1]]], ['A', r, 1, [c[0] + r, c[1]]], ['Z']];
 }
 
 // ── Symmetry ─────────────────────────────────────────────────────────────────
+
+const solid = (contour) => polyContour(contour.filter(c => c[0] !== 'Z').map(c => c[c.length - 1]), true);
 
 const sameOp = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
 const compose = (a, b) => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3]];
@@ -679,7 +738,8 @@ export function replicateBundles(bundles, sym) {
       if (!groups.has(g)) groups.set(g, { contours: [], centres: [], bands: [], copy: g });
       const grp = groups.get(g);
       for (const c of b.contours) grp.contours.push(mapContour(c, op));
-      if (b.band) grp.bands.push(b.band.map(c => mapContour(c, op)));
+      // Band pieces are polygons: rewound solid, since a mirror reverses them.
+      if (b.band) grp.bands.push(b.band.map(c => solid(mapContour(c, op))));
       grp.centres.push(applyLinear(op, b.centre));
     });
     for (const grp of groups.values()) {

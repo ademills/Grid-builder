@@ -17,7 +17,7 @@
 
 import { add, sub, mul, dot, cross, perp, len, unit, rngAt, shuffle, signedArea } from './geometry';
 import { tilingCells, centroid } from './tilings';
-import { strandOutlineOf } from './circuit';
+import { strandOutlineOf, bandContours } from './circuit';
 
 const EPS = 1e-6;
 const SQRT3 = Math.sqrt(3);
@@ -253,7 +253,7 @@ export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one, opts = {
     if (!contours.length) return;
     // Backing band: the centreline as wide as the lines (plus padding).
     const band = opts.band == null ? null
-      : strandOutlineOf({ segs: toSegs(strand(0)), closed: false, caps: [capStart ? 'round' : 'butt', capEnd ? 'round' : 'butt'] }, width - p + w + 2 * opts.band);
+      : bandContours(toSegs(strand(0)), (width - p + w) / 2 + opts.band, [capStart, capEnd], false);
     const cs = path.map(pc => nodes[pc.cell].c);
     out.push({ index, single: false, axes: new Set(), contours, centre: mul(cs.reduce((t, c) => add(t, c), [0, 0]), 1 / cs.length), band });
   });

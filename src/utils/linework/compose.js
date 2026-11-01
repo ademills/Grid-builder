@@ -16,7 +16,7 @@ import { circuitLayer, replicateBundles } from './circuit';
 import { cellCircuitLayer } from './cellCircuit';
 import {
   add, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
-  SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly, solidContours,
+  SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly,
 } from './geometry';
 
 export const CELL = 100;
@@ -214,7 +214,8 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     }
 
     if (banded && bands.length) {
-      const contours = solidContours(bands);
+      // Every piece is a solid wound the same way, so they merge where they meet.
+      const contours = bands.flat();
       items.splice(groundAt, 0, ...[
         ...(shadow ? [shadowItem(contours)] : []),
         { key: `${tag}:ground`, name: BANDED[backing], kind: 'ground', contours },

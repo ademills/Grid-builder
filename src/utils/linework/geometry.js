@@ -169,45 +169,6 @@ export function mapContour(contour, m, t = [0, 0]) {
   });
 }
 
-// Signed area of a contour's end points (arcs counted as chords): enough
-// to tell its winding.
-function contourArea(contour) {
-  const pts = contour.filter(c => c[0] !== 'Z').map(c => c[c.length - 1]);
-  return signedArea(pts);
-}
-
-// The contour traced the other way round (arc sweeps flip).
-function reverseContour(contour) {
-  const closed = contour[contour.length - 1][0] === 'Z';
-  const cmds = contour.filter(c => c[0] !== 'Z');
-  const pts = cmds.map(c => c[c.length - 1]);
-  const out = [['M', pts[pts.length - 1]]];
-  for (let i = cmds.length - 1; i >= 1; i--) {
-    const c = cmds[i];
-    out.push(c[0] === 'A' ? ['A', c[1], 1 - c[2], pts[i - 1]] : ['L', pts[i - 1]]);
-  }
-  if (closed) out.push(['Z']);
-  return out;
-}
-
-// Contours of solids that may overlap, wound so they merge under the
-// nonzero rule instead of cancelling. `groups` is a list of outlines (each
-// a list of contours): in each, the largest contour is the solid and any
-// others are holes in it.
-export function solidContours(groups) {
-  const out = [];
-  for (const g of groups) {
-    if (!g.length) continue;
-    const areas = g.map(contourArea);
-    const big = areas.reduce((bi, a, i) => (Math.abs(a) > Math.abs(areas[bi]) ? i : bi), 0);
-    g.forEach((c, i) => {
-      const wantPositive = i === big;
-      out.push((areas[i] > 0) === wantPositive ? c : reverseContour(c));
-    });
-  }
-  return out;
-}
-
 const f2 = v => Math.round(v * 100) / 100;
 export function pathD(contours) {
   let d = '';
