@@ -471,6 +471,10 @@ const isTypingTarget = (el) =>
 // document store (read via useDocField); the shell mounts one editor at a
 // time, keyed by document id, so per-document effects start fresh on every
 // tab switch instead of reacting to the previous document's values.
+// Raise when the Linework generator draws the same settings differently, so
+// saved designs are rebuilt on open (2: backing bands that merge, v1.7.2).
+const LINEWORK_ENGINE = 2;
+
 export function DocumentEditor({ mode: appMode }) {
   const docId = useDocId();
   const [storedView, setViewTransform] = useDocField('viewTransform');
@@ -1416,13 +1420,14 @@ export function DocumentEditor({ mode: appMode }) {
     return mask;
   }, [gridComputed, fillSettingsById, imagePixels, silhouetteSettings]);
 
-  // Everything a Linework design is built from, hashed.
+  // Everything a Linework design is built from, hashed. LINEWORK_ENGINE is
+  // part of it, so a design saved by an older generator rebuilds on open.
   const lineworkSig = useMemo(() => {
     if (!isLinework || !gridComputed) return null;
     const masks = lineworkSettings.layers.map(l => (l.mask && l.mask !== 'none' && l.mask !== 'word'
       ? (l.mask === 'silhouette' ? silhouetteSettings : fillSettingsById[l.mask]) : null));
     const str = JSON.stringify([
-      lineworkSettings, gridComputed.cols, gridComputed.rows, colorMode, activePalette, lineworkRoles,
+      LINEWORK_ENGINE, lineworkSettings, gridComputed.cols, gridComputed.rows, colorMode, activePalette, lineworkRoles,
       colorMode === 'gradient' ? activeGradientSettings : null, colorMode === 'mesh' ? meshSettings : null,
       colorMode === 'image' ? imageSrc : null,
       lineworkSettings.inkFromImage ? [backdropSrc, backdropSettings.fit, !!backdropPixels] : null,
