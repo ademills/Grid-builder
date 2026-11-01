@@ -84,15 +84,24 @@ export function plateCells(cfg, grid = null) {
   return [size, size];
 }
 
-// A new plate, named after the next free number and sized to fit inside
-// whatever is under it.
+// A layer's design settings: what a new plate copies from the layer it's
+// added on top of (its placement, seed, frame and mask are its own).
+const DESIGN_KEYS = [
+  'style', 'sym', 'scale',
+  'tile', 'subdiv', 'minTile', 'fills', 'triFill', 'angles', 'orient', 'outline', 'core',
+  'route', 'fill', 'loop', 'bundle', 'straight', 'maxLen', 'density', 'edgeExit', 'weave', 'eyes',
+];
+
+// A new plate, named after the next free number, sized to fit inside
+// whatever is under it, and drawn in the same style and settings.
 export function newPlate(layers, over = {}) {
   const used = new Set(layers.map(l => l.name));
   let n = layers.length;
   while (used.has(`Plate ${n}`)) n++;
   const under = layers[layers.length - 1];
   const size = layers.length > 1 ? Math.max(1, Math.round(Math.min(...plateCells(under)) * 0.6 * 2) / 2) : 6;
-  return lineworkLayerDefaults({ id: newId(), name: `Plate ${n}`, size, ...over });
+  const design = Object.fromEntries(DESIGN_KEYS.filter(k => under?.[k] !== undefined).map(k => [k, under[k]]));
+  return lineworkLayerDefaults({ ...design, id: newId(), name: `Plate ${n}`, size, ...over });
 }
 
 // Fills older or partial settings out to the full shape. Documents from

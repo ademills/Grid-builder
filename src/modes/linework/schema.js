@@ -2,10 +2,12 @@ import { LINEWORK_SYMMETRY } from '../../utils/symmetry';
 import { MASK_SOURCES } from './masks';
 import { PlateSize, DiamondNote, MaskWord, MaskFillSettings, EditLayer } from './schemaFields';
 
-// Linework's settings as data (see panels/schema.jsx): the document-wide
-// grid and lines, and the settings of the layer being edited (the base or a
-// plate). ctx: { plate, tiling, layers, layerCount, setEditLayer, maxCells,
-// grid, diamondCells, word, setWord }.
+// Linework's settings as data (see panels/schema.jsx). The document-wide
+// grid and lines go in Properties (LINEWORK_GRID_SCHEMA in its Grid section,
+// LINEWORK_LINES_SCHEMA as its own section); the Linework panel holds only
+// the layer being edited, base or plate (LINEWORK_LAYER_SCHEMA).
+// ctx: { plate, tiling, layers, layerCount, setEditLayer, maxCells, grid,
+// diamondCells, word, setWord }.
 
 const pct = v => `${Math.round(v * 100)}%`;
 const cells = v => `${+v.toFixed(2)}`;
@@ -32,10 +34,23 @@ const masked = L => L.mask && L.mask !== 'none';
 
 export const LINEWORK_GRID_SCHEMA = [
   {
-    id: 'linework.grid', title: 'Grid & lines', fields: [
+    id: 'linework.grid', fields: [
       { key: 'orientation', label: 'Orientation', type: 'segmented',
-        options: [{ key: 'square', label: 'Square' }, { key: 'diamond', label: 'Diamond 45°' }] },
+        options: [{ key: 'square', label: 'Square' }, { key: 'diamond', label: 'Diamond 45°' }],
+        help: 'Lay the design on the grid square, or turned 45° as a diamond' },
       { key: 'diamondNote', type: 'custom', render: DiamondNote, showIf: (_, ctx) => !!ctx.diamondCells },
+      { key: 'tiling', label: 'Cells', type: 'select', options: TILING_OPTIONS, value: s => s.tiling ?? 'square',
+        info: 'The cells every Linework layer is built on. Angular tiles take the cell shape at their Tile size; circuits run through the cells. Crossings, symmetry and masks for circuits need square cells.' },
+      { key: 'regularity', label: 'Regularity', type: 'slider', min: 0, max: 1, step: 0.25, format: pct,
+        value: s => s.regularity ?? 0.5, showIf: s => s.tiling === 'voronoi',
+        help: '0%: scattered cells of every size; 100%: relaxed into even, honeycomb-like cells' },
+    ],
+  },
+];
+
+export const LINEWORK_LINES_SCHEMA = [
+  {
+    id: 'linework.lines', title: 'Lines', fields: [
       { key: 'linesPerCell', label: 'Lines per cell', type: 'number', min: 1, max: 12,
         help: 'How many lines fit across one grid cell' },
       { key: 'lineRatio', label: 'Line weight', type: 'slider', min: 0.1, max: 0.9, step: 0.01, format: pct,
@@ -51,20 +66,9 @@ export const LINEWORK_LAYER_SCHEMA = [
     fields: [
       // In the control bar instead while the inspector layout is on.
       { key: 'editLayer', type: 'custom', render: EditLayer, bar: true, showIf: (_, ctx) => ctx.layerCount > 1 },
-      { key: 'plateSize', type: 'custom', render: PlateSize, showIf: plate },
-      { key: 'ox', label: 'Offset X', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells, showIf: plate },
-      { key: 'oy', label: 'Offset Y', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells, showIf: plate },
-      { key: 'shadow', label: 'Shadow', type: 'segmented', showIf: plate,
-        options: [{ key: 'none', label: 'None' }, { key: 'hard', label: 'Hard' }, { key: 'soft', label: 'Soft' }] },
-      { key: 'depth', label: 'Depth', type: 'slider', min: 0, max: 1, step: 0.01, format: cells, help: 'Shadow offset, in cells',
-        showIf: (L, ctx) => ctx.plate && L.shadow !== 'none' },
-      { key: 'rim', label: 'Rim', type: 'slider', min: 0, max: 0.5, step: 0.01, format: cells, help: 'Edge band round the plate, in cells', showIf: plate },
-      { key: 'rimInk', label: 'Rim colour', type: 'segmented', showIf: (L, ctx) => ctx.plate && L.rim > 0,
-        value: L => (L.rimInk ? 'ink' : 'ground'), onChange: v => ({ rimInk: v === 'ink' }),
-        options: [{ key: 'ground', label: 'Ground' }, { key: 'ink', label: 'Ink' }] },
-      { key: 'style', label: 'Style', type: 'segmented', bar: true,
-        options: [{ key: 'angular', label: 'A · Angular' }, { key: 'circuit', label: 'B · Circuit' }],
-        barOptions: [{ key: 'angular', label: 'Angular' }, { key: 'circuit', label: 'Circuit' }] },
+      // Style decides the sections below, so it heads the layer, in the panel.
+      { key: 'style', label: 'Style', type: 'segmented',
+        options: [{ key: 'angular', label: 'Angular' }, { key: 'circuit', label: 'Circuit' }] },
       { key: 'sym', label: 'Symmetry', type: 'symmetry', keys: LINEWORK_SYMMETRY, bar: true },
       { key: 'scale', label: 'Line scale', type: 'slider', min: 0.2, max: 2, step: 0.05, format: v => `${v}×`,
         help: "Scales this layer's cells and lines" },
@@ -72,6 +76,22 @@ export const LINEWORK_LAYER_SCHEMA = [
       { key: 'frame', label: 'Frame', type: 'slider', min: 0, max: 1, step: 0.01, format: cells,
         help: 'An ink border round the canvas, in cells', showIf: (_, ctx) => !ctx.plate },
       { key: 'seed', label: 'Seed', type: 'seed', bar: true },
+    ],
+  },
+  {
+    // A plate's placement: shape, size, offset, shadow and rim.
+    id: 'linework.plate', title: 'Plate', showIf: plate, fields: [
+      { key: 'plateSize', type: 'custom', render: PlateSize },
+      { key: 'ox', label: 'Offset X', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
+      { key: 'oy', label: 'Offset Y', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
+      { key: 'shadow', label: 'Shadow', type: 'segmented',
+        options: [{ key: 'none', label: 'None' }, { key: 'hard', label: 'Hard' }, { key: 'soft', label: 'Soft' }] },
+      { key: 'depth', label: 'Depth', type: 'slider', min: 0, max: 1, step: 0.01, format: cells, help: 'Shadow offset, in cells',
+        showIf: L => L.shadow !== 'none' },
+      { key: 'rim', label: 'Rim', type: 'slider', min: 0, max: 0.5, step: 0.01, format: cells, help: 'Edge band round the plate, in cells' },
+      { key: 'rimInk', label: 'Rim colour', type: 'segmented', showIf: L => L.rim > 0,
+        value: L => (L.rimInk ? 'ink' : 'ground'), onChange: v => ({ rimInk: v === 'ink' }),
+        options: [{ key: 'ground', label: 'Ground' }, { key: 'ink', label: 'Ink' }] },
     ],
   },
   {

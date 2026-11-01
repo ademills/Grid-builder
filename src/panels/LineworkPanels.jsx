@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { useEditor } from '../editor/EditorContext';
 import { SettingsForm } from './schema';
 import { LINEWORK_PRESETS } from '../modes/linework/settings';
-import { LINEWORK_GRID_SCHEMA, LINEWORK_LAYER_SCHEMA } from '../modes/linework/schema';
+import { LINEWORK_LAYER_SCHEMA } from '../modes/linework/schema';
 import { DiceIcon } from '../shell/icons';
 import styles from './Panel.module.css';
 
-// Design settings: the document's grid and lines, then the layer being
-// edited — the base or a plate (picked in the Layers panel, where plates
-// are added and reordered, or the control bar). Every change rebuilds the
-// design at once, keeping each layer's edits. Drawn from the Linework
-// schemas, which the control bar also uses.
+// The layer being edited — the base or a plate (picked in the Layers panel,
+// where plates are added and reordered, or the control bar). Every change
+// rebuilds the design at once, keeping each layer's edits. The document's
+// grid and lines are in Properties. Drawn from LINEWORK_LAYER_SCHEMA, which
+// the control bar also uses.
 export function LineworkPanel() {
   const { linework, actions, gridComputed } = useEditor();
   const [preset, setPreset] = useState('');
@@ -44,7 +44,6 @@ export function LineworkPanel() {
             {LINEWORK_PRESETS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
           </select>
         </div>
-        <SettingsForm schema={LINEWORK_GRID_SCHEMA} values={s} set={set} ctx={ctx} />
         <SettingsForm schema={LINEWORK_LAYER_SCHEMA} values={L} set={setLayer} ctx={ctx} />
       </div>
 

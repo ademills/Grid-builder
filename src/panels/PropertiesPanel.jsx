@@ -4,40 +4,14 @@ import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { Stepper, Toggle, InfoTip, Section } from './controls';
 import { SwatchColourField } from './SwatchColourField';
-import { TILING_OPTIONS } from '../modes/linework/schema';
+import { SettingsForm } from './schema';
+import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA } from '../modes/linework/schema';
 import styles from './Panel.module.css';
-
-// Linework's cell shape, shared by every layer and both styles.
-function LineworkCells({ linework }) {
-  const { tiling = 'square', regularity = 0.5 } = linework.settings;
-  return (
-    <>
-      <div className={styles.formRow}>
-        <span className={styles.label}>
-          Cells
-          <InfoTip text="The cells every Linework layer is built on. Angular tiles take the cell shape at their Tile size; circuits run through the cells. Crossings, symmetry and masks for circuits need square cells." />
-        </span>
-        <select className={styles.select} value={tiling} onChange={e => linework.update({ tiling: e.target.value }, 'Cells')}>
-          {TILING_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
-        </select>
-      </div>
-      {tiling === 'voronoi' && (
-        <div className={styles.formRow} title="0%: scattered cells of every size; 100%: relaxed into even, honeycomb-like cells">
-          <span className={styles.label}>Regularity</span>
-          <div className={styles.sliderRow}>
-            <input type="range" className={styles.slider} min={0} max={1} step={0.25} value={regularity}
-              onChange={e => linework.update({ regularity: +e.target.value }, 'Regularity')} />
-            <span className={styles.sliderVal}>{Math.round(regularity * 100)}%</span>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
 
 // Document setup, like Illustrator's Properties panel with nothing selected:
 // artboard, canvas colours and grid. Shared by every mode; mode-specific rows
-// are switched on `mode`. Actions (fill gaps, flip, export) live in the
+// are switched on `mode` (Linework adds its orientation, cell shape and
+// lines, which every layer shares). Actions (fill gaps, flip, export) live in the
 // menus and the inspector's Generate bar, and the artboard size in the
 // status bar.
 export function PropertiesPanel() {
@@ -54,6 +28,9 @@ export function PropertiesPanel() {
   const [showTilePreview, setShowTilePreview] = useDocField('showTilePreview');
   const isGrid = mode === 'gridBuilder';
   const isMeander = mode === 'knotwork';
+  const lw = mode === 'linework' && linework
+    ? { values: linework.settings, set: changes => linework.update(changes), ctx: { diamondCells: linework.diamondCells } }
+    : null;
 
   // Typed-but-uncommitted width/height; reset whenever the stored size changes.
   const [rawWidth, setRawWidth] = useState(String(customSize?.width ?? ''));
@@ -130,7 +107,7 @@ export function PropertiesPanel() {
         </div>
       )}
       {validCols === null && <div className={styles.gridNote}>Any column count is valid for this layout.</div>}
-      {mode === 'linework' && linework && <LineworkCells linework={linework} />}
+      {lw && <SettingsForm schema={LINEWORK_GRID_SCHEMA} {...lw} />}
       {isMeander && (
         <div className={styles.formRow}>
           <span className={styles.label}>Tile preview</span>
@@ -138,6 +115,8 @@ export function PropertiesPanel() {
         </div>
       )}
       </Section>
+
+      {lw && <SettingsForm schema={LINEWORK_LINES_SCHEMA} {...lw} />}
 
       {isGrid && (
         <Section id="properties.shapes" title="Shapes" info="How Generate sizes and shades the shapes it places">

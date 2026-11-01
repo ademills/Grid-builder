@@ -86,7 +86,7 @@ export function PlateSize({ values: L, set, ctx }) {
 }
 
 export function DiamondNote({ ctx }) {
-  return <div className={styles.gridNote}>Diamond: {ctx.diamondCells} × {ctx.diamondCells} cells, set by the grid in Properties.</div>;
+  return <div className={styles.gridNote}>Diamond: {ctx.diamondCells} × {ctx.diamondCells} cells, from the columns above.</div>;
 }
 
 // The "word" mask's own settings (document-wide, in lineworkSettings.word).
