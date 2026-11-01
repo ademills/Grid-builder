@@ -13,7 +13,8 @@
 import { plateCells } from '../../modes/linework/settings';
 import { angularLayer } from './angular';
 import { circuitLayer, replicateBundles } from './circuit';
-import { cellCircuitLayer } from './cellCircuit';
+import { cellCircuitLayer, cellCircuitSize } from './cellCircuit';
+import { tilingCells } from './tilings';
 import {
   add, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
   SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly,
@@ -50,17 +51,49 @@ export function baseFrame(settings, grid) {
 // baseGround: include a ground item for the base layer (ground split from canvas).
 // areas: cell rects { x, y, w, h } the base layer fills (a page layout's grid
 // areas); the whole grid by default. Plates sit on the first area.
-export function composeLinework(settings, grid, { maskFor = () => null, baseGround = false, areas = null } = {}) {
-  const W = grid.cols * CELL, H = grid.rows * CELL;
-  const frames = (areas?.length ? areas : [{ x: 0, y: 0, w: grid.cols, h: grid.rows }]).map(a => {
+// The base layer's frame in each area: its size, rotation and centre.
+function baseFrames(settings, grid, areas) {
+  return (areas?.length ? areas : [{ x: 0, y: 0, w: grid.cols, h: grid.rows }]).map(a => {
     const base = baseFrame(settings, { cols: a.w, rows: a.h });
     const baseM = rotation(base.rot);
     const centre = [(a.x + a.w / 2) * CELL, (a.y + a.h / 2) * CELL];
     const basePlanes = halfPlanesOf(rectPoly(-base.w / 2, -base.h / 2, base.w, base.h).map(p => add(applyLinear(baseM, p), centre)));
     return { base, baseM, centre, basePlanes };
   });
-  const n = Math.max(1, settings.linesPerCell ?? 3);
-  const ratio = Math.min(0.95, Math.max(0.05, settings.lineRatio ?? 0.5));
+}
+
+const lineSize = (settings) => ({
+  n: Math.max(1, settings.linesPerCell ?? 3),
+  ratio: Math.min(0.95, Math.max(0.05, settings.lineRatio ?? 0.5)),
+});
+
+// The base layer's cells (hexagons, triangles or Voronoi) as polygons in
+// design units, for View › Grid to draw. Built with the same size, seed and
+// symmetry as the layer itself. Null for square cells.
+export function lineworkGridCells(settings, grid, { areas = null } = {}) {
+  const tiling = settings.tiling ?? 'square';
+  const cfg = settings.layers?.[0];
+  if (tiling === 'square' || !cfg) return null;
+  const { n, ratio } = lineSize(settings);
+  return baseFrames(settings, grid, areas).flatMap(({ base, baseM, centre }) => {
+    const C = CELL * (cfg.scale ?? 1);
+    const L = { w: base.w, h: base.h, C, p: C / n, ratio };
+    const seed = cfg.seed | 0, regularity = settings.regularity ?? 0.5;
+    let cells;
+    if (cfg.style === 'circuit') {
+      cells = tilingCells(tiling, L.w, L.h, cellCircuitSize(L, cfg, tiling), { seed, regularity });
+    } else {
+      const sym = fitSymmetry(cfg.sym ?? 'none', L.w, L.h);
+      cells = tilingCells(tiling, L.w, L.h, Math.max(1, cfg.tile) * C, { seed, ops: SYM_OPS[sym], planes: SYM_DOMAIN[sym], regularity });
+    }
+    return cells.map(c => c.P.map(p => add(applyLinear(baseM, p), centre)));
+  });
+}
+
+export function composeLinework(settings, grid, { maskFor = () => null, baseGround = false, areas = null } = {}) {
+  const W = grid.cols * CELL, H = grid.rows * CELL;
+  const frames = baseFrames(settings, grid, areas);
+  const { n, ratio } = lineSize(settings);
   const items = [];
   const counts = {};
   const nameFor = (layer, label) => {

@@ -81,7 +81,7 @@ function loadImage(src, onLoad) {
 // ── Drawing ──────────────────────────────────────────────────────────────────
 
 function drawBackground(ctx, p, image) {
-  const { workArea, canvasBg, backdropSettings: bd, gridComputed, gridSettings, showGrid = true } = p;
+  const { workArea, canvasBg, backdropSettings: bd, gridComputed, gridSettings, gridCells, showGrid = true } = p;
   ctx.fillStyle = canvasBg ?? '#ffffff';
   ctx.fillRect(0, 0, workArea.width, workArea.height);
 
@@ -111,8 +111,17 @@ function drawBackground(ctx, p, image) {
   if (gridComputed && showGrid) {
     const { cellSize, rows, cols, gridOriginX: gx, gridOriginY: gy, gridW, gridH } = gridComputed;
     ctx.beginPath();
-    for (let c = 0; c <= cols; c++) { ctx.moveTo(gx + c * cellSize, gy); ctx.lineTo(gx + c * cellSize, gy + gridH); }
-    for (let r = 0; r <= rows; r++) { ctx.moveTo(gx, gy + r * cellSize); ctx.lineTo(gx + gridW, gy + r * cellSize); }
+    if (gridCells) {
+      // Linework's hexagon, triangle or Voronoi cells, in design units (100 per grid cell).
+      const k = cellSize / 100;
+      for (const P of gridCells) {
+        P.forEach(([x, y], i) => (i ? ctx.lineTo(gx + x * k, gy + y * k) : ctx.moveTo(gx + x * k, gy + y * k)));
+        ctx.closePath();
+      }
+    } else {
+      for (let c = 0; c <= cols; c++) { ctx.moveTo(gx + c * cellSize, gy); ctx.lineTo(gx + c * cellSize, gy + gridH); }
+      for (let r = 0; r <= rows; r++) { ctx.moveTo(gx, gy + r * cellSize); ctx.lineTo(gx + gridW, gy + r * cellSize); }
+    }
     ctx.strokeStyle = 'rgba(0, 100, 220, 0.2)';
     ctx.lineWidth = 0.75;
     ctx.stroke();

@@ -209,14 +209,25 @@ function hairpin(p, q, dir, depth) {
   return out;
 }
 
-// opts.band: a backing band per bundle, as circuitLayer's.
-export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one, opts = {}) {
+// A bundle's strand count, pitch and width for layer L.
+function bundleSize(L, cfg) {
   const S = Math.max(1, cfg.bundle ?? 1) * L.C;
   const k = Math.max(1, Math.round(S / L.p));
-  const p = S / k, w = p * L.ratio;
-  const width = k * p;
-  // Cell size: a regular cell's edge is a little wider than the bundle.
-  const T = tiling === 'triangle' ? width * 1.3 : width * 1.15 * SQRT3;
+  const p = S / k;
+  return { k, p, width: k * p };
+}
+
+// Cell size: a regular cell's edge is a little wider than the bundle.
+export function cellCircuitSize(L, cfg, tiling) {
+  const { width } = bundleSize(L, cfg);
+  return tiling === 'triangle' ? width * 1.3 : width * 1.15 * SQRT3;
+}
+
+// opts.band: a backing band per bundle, as circuitLayer's.
+export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one, opts = {}) {
+  const { k, p, width } = bundleSize(L, cfg);
+  const w = p * L.ratio;
+  const T = cellCircuitSize(L, cfg, tiling);
   const cells = tilingCells(tiling, L.w, L.h, T, { seed, regularity });
   const nodes = cellGraph(cells, width * 1.02, L.w, L.h);
   const r = rngAt(seed, 77);

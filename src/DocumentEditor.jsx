@@ -47,7 +47,7 @@ import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { SymmetryAxes, MoveGhost } from './components/ToolOverlays';
 import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
 import { tidySvg } from './utils/svgExport';
-import { composeLinework, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL } from './utils/linework/compose';
+import { composeLinework, lineworkGridCells, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL } from './utils/linework/compose';
 import { colourItems as lineworkColours } from './utils/linework/colour';
 import { pathD, contoursBounds } from './utils/linework/geometry';
 import { computeLineworkMask } from './modes/linework/masks';
@@ -1432,13 +1432,21 @@ export function DocumentEditor({ mode: appMode }) {
     return `${h.toString(36)}-${str.length.toString(36)}`;
   }, [isLinework, gridComputed, lineworkSettings, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imageSrc, backdropSrc, backdropSettings.fit, backdropPixels, fillSettingsById, silhouetteSettings, silhouetteTick, imagePixels, activeLayoutId]);
 
+  // With a page layout active, a Linework design fills the layout's grid areas.
+  const lineworkAreas = useMemo(() => (activeLayout && gridComputed
+    ? computeLayoutRegions(activeLayout, gridComputed).filter(r => r.role === 'grid').map(({ x, y, w, h }) => ({ x, y, w, h }))
+    : null), [activeLayout, gridComputed]);
+
+  // Hexagon, triangle or Voronoi cells for View › Grid (square cells use the plain grid).
+  const lineworkCells = useMemo(() => {
+    if (!isLinework || !gridComputed) return null;
+    return lineworkGridCells(lineworkSettings, gridComputed, { areas: lineworkAreas });
+  }, [isLinework, gridComputed, lineworkSettings, lineworkAreas]);
+
   const buildLineworkBlocks = useCallback((settings, sig) => {
     if (!gridComputed) return null;
     const { cols, rows, cellSize, gridOriginX, gridOriginY } = gridComputed;
-    // With a page layout active, the design fills the layout's grid areas.
-    const areas = activeLayout
-      ? computeLayoutRegions(activeLayout, gridComputed).filter(r => r.role === 'grid').map(({ x, y, w, h }) => ({ x, y, w, h }))
-      : null;
+    const areas = lineworkAreas;
     const { width, height, items } = composeLinework(settings, { cols, rows }, {
       maskFor: lineworkMaskFor(settings), baseGround: !!settings.groundSwatch, areas,
     });
@@ -1459,7 +1467,7 @@ export function DocumentEditor({ mode: appMode }) {
       ...(it.opacity != null && it.opacity < 1 ? { opacity: it.opacity } : {}),
       ...(it.layer > 0 ? { groupId: `linework-plate-${it.layerId}` } : {}),
     }));
-  }, [gridComputed, activeLayout, lineworkMaskFor, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imagePixels, backdropPixels, backdropSettings.fit]);
+  }, [gridComputed, lineworkAreas, lineworkMaskFor, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imagePixels, backdropPixels, backdropSettings.fit]);
 
   const lineworkLast = useRef(null);   // the settings the current blocks were built from
   const lineworkLabel = useRef(null);  // history label for the next settings change
@@ -2702,6 +2710,7 @@ export function DocumentEditor({ mode: appMode }) {
               gridComputed={gridComputed}
               gridSettings={gridSettings}
               showGrid={showGrid}
+              gridCells={lineworkCells}
               blocks={movePreview?.ok ? movePreview.blocks : placedBlocks}
               colourCtx={colourCtx}
               imagePixels={imagePixels}
