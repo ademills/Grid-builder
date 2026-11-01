@@ -1515,7 +1515,10 @@ export function DocumentEditor({ mode: appMode }) {
       lineworkLabel.current = null;
       // Layout wireframes stay; the generated layers are replaced.
       const wireframes = placedBlocksRef.current.filter(b => b.type === 'wireframe');
-      const blocks = [...wireframes, ...carryGeneratedEdits(next, placedBlocksRef.current, { keepFill: false, swatchMap })];
+      // A new size (columns, rows, border) moves the tiles: edits follow them by place.
+      const before = placedBlocksRef.current.find(b => b.lwLayer);
+      const byPosition = !!before && !!next[0] && (before.viewW !== next[0].viewW || before.viewH !== next[0].viewH);
+      const blocks = [...wireframes, ...carryGeneratedEdits(next, placedBlocksRef.current, { keepFill: false, swatchMap, byPosition })];
       placedBlocksRef.current = blocks;
       setPlacedBlocks(blocks);
       lineworkLast.current = lineworkSettings;
