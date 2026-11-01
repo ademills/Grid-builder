@@ -1253,6 +1253,22 @@ export function DocumentEditor({ mode: appMode }) {
   // seedWord is set, in which case the whole point is that the same word
   // always reproduces the same design, so the word-derived seed already in
   // knotworkSettings.seed is left alone.
+  // A new seed (typed, the dice, or one picked from the seed history) lays
+  // the design out again, like a seed change in the other modes. Generate
+  // and Surprise Me build their own design and record their seed up front.
+  const knotSeedRef = useRef(null);
+  useEffect(() => {
+    const prev = knotSeedRef.current;
+    knotSeedRef.current = knotworkSettings.seed;
+    if (prev === null || prev === knotworkSettings.seed) return;
+    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock)) return;
+    const timer = setTimeout(() => {
+      regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'New Seed', { keepFill: false });
+    }, 60);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [knotworkSettings.seed]);
+
   const handleKnotworkFill = useCallback(() => {
     if (!gridComputed) return;
     const seed = knotworkSettings.seedWord ? knotworkSettings.seed : Math.floor(Math.random() * 0x80000000);
@@ -1260,6 +1276,7 @@ export function DocumentEditor({ mode: appMode }) {
     // the scatter layout is deliberately not reproduced from the word hash.
     const letterArrangementSeed = Math.floor(Math.random() * 0x80000000);
     const nextSettings = { ...knotworkSettings, seed, letterArrangementSeed };
+    knotSeedRef.current = seed;
     setKnotworkSettings(nextSettings);
     const blocks = buildKnotworkBlocks({ ...nextSettings, ...knotworkThemeColors });
     if (!blocks) return;
@@ -1329,6 +1346,7 @@ export function DocumentEditor({ mode: appMode }) {
       letterArrangementSeed: Math.floor(r() * 0x80000000), colorSeed: Math.floor(r() * 0x80000000) || 1,
     };
     knotShapeRef.current = shapeSigOf(nextSettings);
+    knotSeedRef.current = nextSettings.seed;
     setKnotworkSettings(nextSettings);
     const blocks = buildKnotworkBlocks({ ...nextSettings, ...knotworkThemeColors });
     if (!blocks) return;

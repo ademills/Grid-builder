@@ -14,6 +14,7 @@ import { runCommand } from './commands';
 import { BarFields } from '../panels/schema';
 import { MEANDER_SCHEMA } from '../modes/meander/schema';
 import { LINEWORK_LAYER_SCHEMA } from '../modes/linework/schema';
+import { SeedHistoryButton } from '../panels/SeedHistory';
 import styles from './ControlBar.module.css';
 
 // Closes a popover on outside click / Escape.
@@ -203,6 +204,7 @@ function SeedInput({ value, onChange }) {
     <span className={styles.seed}>
       <input type="number" value={value} onChange={e => onChange(+e.target.value || 0)} title="Seed" />
       <button onClick={() => onChange(randomSeed())} title="New random seed"><DiceIcon size={14} /></button>
+      <SeedHistoryButton />
     </span>
   );
 }

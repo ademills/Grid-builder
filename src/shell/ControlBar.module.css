@@ -280,8 +280,12 @@
 
 .seed button {
   border-left: none;
-  border-radius: 0 5px 5px 0;
+  border-radius: 0;
 }
+
+.seed button:last-child { border-radius: 0 5px 5px 0; }
+
+.seed button:disabled { color: var(--chrome-text-faint); cursor: default; }
 
 .seed button:hover,
 .iconGroup button:hover { color: var(--chrome-text); background: var(--chrome-bg-hover); }

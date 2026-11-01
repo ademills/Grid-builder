@@ -5,6 +5,7 @@ import { randomSeed } from './panelUtils';
 import { symmetryOptions, normaliseSymmetry } from '../utils/symmetry';
 import { useAppStore } from '../store/appStore';
 import { scrubDrag } from './scrub';
+import { SeedHistoryButton } from './SeedHistory';
 import styles from './Panel.module.css';
 
 const NUMBER = /-?\d*\.?\d+/;
@@ -190,6 +191,7 @@ export function SeedField({ value, onChange }) {
           value={value}
           onChange={e => onChange(+e.target.value || 0)} />
         <button className={styles.actionBtn} title="Randomise seed" onClick={() => onChange(randomSeed())}>⟳</button>
+        <SeedHistoryButton className={styles.actionBtn} />
       </div>
     </div>
   );

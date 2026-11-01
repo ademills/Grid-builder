@@ -14,6 +14,7 @@ import { useSliderValueTyping } from '../panels/sliderTyping';
 import { useSliderLabelScrub } from '../panels/scrub';
 import { isTauri } from './fileIO';
 import { startSession, flushSession } from './session';
+import { startSeedHistory } from './seedHistory';
 import { recordError } from './diagnostics';
 import { DocumentErrorBoundary } from './DocumentErrorBoundary';
 import { MenuBar } from './MenuBar';
@@ -183,6 +184,7 @@ export function AppShell() {
   const activeMode = activeDoc?.mode ?? null;
 
   useEffect(startSession, []);
+  useEffect(startSeedHistory, []);
   useUpdateCheck();
   useCloseGuard();
   useSliderValueTyping();
