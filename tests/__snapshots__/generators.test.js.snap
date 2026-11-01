@@ -1,0 +1,178 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Linework presets draw the same designs > Circuit weave 1`] = `
+{
+  "geometry": "a792a4af",
+  "items": 5,
+  "kinds": {
+    "ink": 5,
+  },
+  "size": [
+    1500,
+    2100,
+  ],
+}
+`;
+
+exports[`Linework presets draw the same designs > Greek-key tiles 1`] = `
+{
+  "geometry": "43b14434",
+  "items": 114,
+  "kinds": {
+    "ground": 2,
+    "ink": 104,
+    "outline": 6,
+    "shadow": 2,
+  },
+  "size": [
+    1700,
+    2400,
+  ],
+}
+`;
+
+exports[`Linework presets draw the same designs > Labyrinth mandala 1`] = `
+{
+  "geometry": "86699df9",
+  "items": 102,
+  "kinds": {
+    "ground": 1,
+    "ink": 100,
+    "rim": 1,
+  },
+  "size": [
+    2400,
+    3400,
+  ],
+}
+`;
+
+exports[`Linework presets draw the same designs > Maze diamond 1`] = `
+{
+  "geometry": "31f8d54a",
+  "items": 22,
+  "kinds": {
+    "ground": 1,
+    "ink": 19,
+    "outline": 2,
+  },
+  "size": [
+    2000,
+    2800,
+  ],
+}
+`;
+
+exports[`Linework presets draw the same designs > Op chevron 1`] = `
+{
+  "geometry": "827d19cc",
+  "items": 6,
+  "kinds": {
+    "ground": 1,
+    "ink": 3,
+    "outline": 2,
+  },
+  "size": [
+    1200,
+    1700,
+  ],
+}
+`;
+
+exports[`Linework presets draw the same designs > Stacked planes 1`] = `
+{
+  "geometry": "4235fb05",
+  "items": 193,
+  "kinds": {
+    "ground": 3,
+    "ink": 176,
+    "outline": 8,
+    "rim": 3,
+    "shadow": 3,
+  },
+  "size": [
+    1600,
+    2300,
+  ],
+}
+`;
+
+exports[`Linework presets draw the same designs > Triangle keys 1`] = `
+{
+  "geometry": "623edcc8",
+  "items": 338,
+  "kinds": {
+    "ground": 2,
+    "ink": 328,
+    "outline": 6,
+    "rim": 2,
+  },
+  "size": [
+    1700,
+    2400,
+  ],
+}
+`;
+
+exports[`Meander designs draw the same strands > default, seed 7 1`] = `
+{
+  "core": "f90c4a3b",
+  "geometry": "7bf8ab6d",
+  "items": 89,
+  "kinds": {
+    "dot": 13,
+    "strand": 76,
+  },
+  "size": [
+    2400,
+    3200,
+  ],
+}
+`;
+
+exports[`Meander designs draw the same strands > four-way, seed 1234 1`] = `
+{
+  "core": "f90c4a3b",
+  "geometry": "81ade1d3",
+  "items": 108,
+  "kinds": {
+    "strand": 108,
+  },
+  "size": [
+    2400,
+    3200,
+  ],
+}
+`;
+
+exports[`Meander designs draw the same strands > mirrored, seed 42 1`] = `
+{
+  "core": "f90c4a3b",
+  "geometry": "367b3efc",
+  "items": 116,
+  "kinds": {
+    "dot": 10,
+    "strand": 106,
+  },
+  "size": [
+    2400,
+    3200,
+  ],
+}
+`;
+
+exports[`Meander designs draw the same strands > rounded corners, seed 99 1`] = `
+{
+  "core": "f90c4a3b",
+  "geometry": "07f9a6b2",
+  "items": 83,
+  "kinds": {
+    "dot": 11,
+    "strand": 72,
+  },
+  "size": [
+    2400,
+    3200,
+  ],
+}
+`;
