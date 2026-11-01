@@ -45,6 +45,7 @@ const BACKINGS = [
   { key: 'sticker', label: 'Sticker', circuit: true }, { key: 'infill', label: 'In-fill', circuit: true },
   { key: 'none', label: 'Transparent' },
 ];
+const BANDED_KEYS = Object.fromEntries(BACKINGS.filter(o => o.circuit).map(o => [o.key, true]));
 const backing = L => {
   const b = L.backing ?? 'square';
   return angular(L) && BACKINGS.find(o => o.key === b)?.circuit ? 'square' : b;
@@ -96,6 +97,23 @@ export const LINEWORK_LAYER_SCHEMA = [
       { key: 'frame', label: 'Frame', type: 'slider', min: 0, max: 1, step: 0.01, format: cells,
         help: 'An ink border round the canvas, in cells', showIf: (_, ctx) => !ctx.plate },
       { key: 'seed', label: 'Seed', type: 'seed', bar: true, surprise: r => Math.floor(r() * 0x80000000) },
+    ],
+  },
+  {
+    // The base layer's background, for circuits: Square is its ground (the
+    // whole canvas, when Ground has its own colour); the banded ones and
+    // their shadow follow the bundles.
+    id: 'linework.base', title: 'Background', showIf: (L, ctx) => !ctx.plate && !angular(L), fields: [
+      { key: 'backing', label: 'Background', type: 'select', value: backing, options: BACKINGS,
+        info: 'Square: the whole canvas in the Ground colour. Outline: one shape round all the lines, filling what they enclose. Sticker: a shape round each bundle. In-fill: just between each bundle\'s lines. Transparent: no ground.' },
+      { key: 'groundNote', type: 'note', showIf: (L, ctx) => backing(L) !== 'none' && !ctx.groundSplit,
+        text: 'The ground uses the canvas colour, so it won\'t show: give Ground its own colour in the Colour panel.' },
+      { key: 'pad', label: 'Padding', type: 'slider', min: 0, max: 1, step: 0.05, format: cells,
+        showIf: L => ['outline', 'sticker'].includes(backing(L)), help: 'Margin round the lines, in cells' },
+      { key: 'shadow', label: 'Shadow', type: 'segmented', showIf: L => !!BANDED_KEYS[backing(L)],
+        options: [{ key: 'none', label: 'None' }, { key: 'hard', label: 'Hard' }, { key: 'soft', label: 'Soft' }] },
+      { key: 'depth', label: 'Depth', type: 'slider', min: 0, max: 1, step: 0.01, format: cells, help: 'Shadow offset, in cells',
+        showIf: L => !!BANDED_KEYS[backing(L)] && L.shadow !== 'none' },
     ],
   },
   {

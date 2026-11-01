@@ -122,14 +122,17 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     const layerPlanes = halfPlanesOf(layerRect);
     const push = (item) => items.push({ layer: li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), ...item });
 
-    // A plate's background shape, its corners rounded; inset by d.
-    let backing = plate ? (cfg.backing ?? 'square') : 'square';
+    // A plate's background shape, its corners rounded; inset by d. The base
+    // layer takes the same backings: Square is its ground when split from
+    // the canvas (as before), the banded ones follow its bundles.
+    let backing = cfg.backing ?? 'square';
     if (BANDED[backing] && cfg.style !== 'circuit') backing = 'square';
-    const banded = plate && !!BANDED[backing];
+    const banded = !!BANDED[backing];
     const radius = plate ? Math.max(0, cfg.corner ?? 0) * Math.min(lw, lh) / 2 : 0;
     const plateShape = (d = 0) => (lw - 2 * d > 0 && lh - 2 * d > 0
       ? roundedRectPoly(-lw / 2 + d, -lh / 2 + d, lw - 2 * d, lh - 2 * d, Math.max(0, radius - d)) : null);
-    const shadow = plate && backing !== 'none' && cfg.shadow && cfg.shadow !== 'none' && (cfg.depth ?? 0) > 0
+    // The base casts a shadow only from a banded ground (a square one fills the canvas).
+    const shadow = (plate ? backing !== 'none' : banded) && cfg.shadow && cfg.shadow !== 'none' && (cfg.depth ?? 0) > 0
       ? { d: cfg.depth * CELL, soft: cfg.shadow === 'soft' } : null;
     const shadowItem = (contours) => {
       const off = [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2];
@@ -140,7 +143,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     // A plate's shadow and ground sit under its lines. A banded ground is
     // only known once the bundles are built: it goes in here afterwards.
     const groundAt = items.length;
-    if (plate ? backing === 'square' : baseGround) {
+    if (plate ? backing === 'square' : baseGround && backing === 'square') {
       const P = finish(plateShape());
       if (P) {
         if (shadow) {

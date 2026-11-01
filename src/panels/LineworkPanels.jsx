@@ -21,6 +21,7 @@ export function LineworkPanel() {
   }));
   const ctx = {
     plate: L.id !== 'base',
+    groundSplit: !!s.groundSwatch,
     tiling: s.tiling ?? 'square',
     layers: s.layers,
     layerCount: s.layers.length,
