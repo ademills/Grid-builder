@@ -78,8 +78,10 @@ export async function readProjectAt(path) {
 }
 
 // Writes project JSON. With a path, saves in place; without one, asks where.
+// `text` can be a function of the chosen path ('' for a browser download).
 // Resolves to the saved path, '' for a browser download, or null if cancelled.
 export async function writeProject(text, { path, suggestedName }) {
+  const textFor = typeof text === 'function' ? text : () => text;
   const defaultName = `${(suggestedName || 'Untitled').replace(/[\\/:*?"<>|]/g, '-')}.${PROJECT_EXTENSION}`;
   if (isTauri) {
     let target = path;
@@ -87,10 +89,10 @@ export async function writeProject(text, { path, suggestedName }) {
       target = await tauriSaveDialog({ title: 'Save Project', defaultPath: defaultName, filters: PROJECT_FILTERS });
       if (!target) return null;
     }
-    await writeTextFile(target, text);
+    await writeTextFile(target, textFor(target));
     return target;
   }
-  const blob = new Blob([text], { type: 'application/json' });
+  const blob = new Blob([textFor('')], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = defaultName;

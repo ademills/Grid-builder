@@ -7,6 +7,7 @@ import { useAppStore } from '../store/appStore';
 import { useDocumentStore } from '../store/documentStore';
 import { newDocument, openDocument, openRecent } from './documentActions';
 import { isTauri } from './fileIO';
+import { useRecoveryStore, openRecovered, discardRecovered } from './session';
 import { FolderIcon, CloseIcon } from './icons';
 import styles from './HomeScreen.module.css';
 
@@ -205,6 +206,39 @@ function timeAgo(ts) {
   return days === 1 ? 'yesterday' : `${days} days ago`;
 }
 
+// Autosaved documents that no tab owns (kept for seven days).
+function RecoverSection() {
+  const items = useRecoveryStore(s => s.items);
+  if (!items.length) return null;
+  return (
+    <section className={styles.recent}>
+      <h3 className={styles.sectionTitle}>Recover unsaved documents</h3>
+      <div className={styles.recentGrid}>
+        {items.map(r => {
+          const def = MODE_REGISTRY[r.mode] ?? MODE_REGISTRY.gridBuilder;
+          return (
+            <div key={r.id} className={styles.recentCard}>
+              <button className={styles.recentOpen} onClick={() => openRecovered(r.id)} title="Open this autosave in a new tab">
+                <span className={styles.recentThumb}><def.mark size={30} /></span>
+                <span className={styles.recentMeta}>
+                  <span className={styles.recentName}>{r.name}</span>
+                  <span className={styles.recentSub}>
+                    <span className={styles.recentDot} style={{ background: def.accent }} />
+                    {def.label} · autosaved {timeAgo(r.at)}
+                  </span>
+                </span>
+              </button>
+              <button className={styles.recentRemove} onClick={() => discardRecovered(r.id)} title="Discard this autosave">
+                <CloseIcon />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function HomeScreen() {
   const recentFiles = useAppStore(s => s.recentFiles);
   const removeRecentFile = useAppStore(s => s.removeRecentFile);
@@ -231,6 +265,8 @@ export function HomeScreen() {
             <FolderIcon /> Open…
           </button>
         </header>
+
+        <RecoverSection />
 
         <NewDocument sizeKey={sizeKey} setSizeKey={setSizeKey} custom={custom} setCustom={setCustom} size={size} />
 

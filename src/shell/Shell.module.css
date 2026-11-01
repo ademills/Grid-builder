@@ -439,3 +439,22 @@
   font-size: 14px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
 }
+
+/* A document whose editor crashed (DocumentErrorBoundary) */
+.docError {
+  max-width: 520px;
+  margin: 12vh auto 0;
+  padding: 22px 24px;
+  background: var(--chrome-bg-raised);
+  border: 1px solid var(--chrome-border);
+  border-radius: 8px;
+  color: var(--chrome-text);
+}
+.docError h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+.docError p { margin: 0 0 12px; color: var(--chrome-text-dim); line-height: 1.45; }
+.docError pre {
+  margin: 0 0 16px; padding: 8px 10px; max-height: 120px; overflow: auto;
+  background: var(--chrome-bg); border-radius: 5px;
+  font-size: 12px; white-space: pre-wrap; color: var(--chrome-text-dim);
+}
+.docErrorActions { display: flex; flex-wrap: wrap; gap: 8px; }

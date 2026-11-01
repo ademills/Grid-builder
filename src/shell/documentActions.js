@@ -83,12 +83,16 @@ function rememberRecent(id, thumbnail) {
   app().addRecentFile({ path: doc.filePath, name: doc.name, mode: doc.mode, thumbnail: thumbnail ?? null });
 }
 
+// The project text for a file at `path`, named after that file so it opens
+// under the same name (a browser download has no path: keep the doc's name).
+const projectFor = doc => path => serializeProject(path ? { ...doc, name: fileNameFromPath(path) } : doc);
+
 // Resolves to true when the document was written, false if cancelled/failed.
 export async function saveDocument(id = docs().activeId, { saveAs = false } = {}) {
   const doc = docs().docs[id];
   if (!doc) return false;
   try {
-    const path = await writeProject(serializeProject(doc), {
+    const path = await writeProject(projectFor(doc), {
       path: saveAs ? null : doc.filePath,
       suggestedName: doc.name,
     });
@@ -111,6 +115,50 @@ export async function saveDocument(id = docs().activeId, { saveAs = false } = {}
     alert(`Save failed.\n\n${err.message ?? err}`);
     return false;
   }
+}
+
+// Writes the document to a new file without switching its tab to that file.
+export async function saveCopy(id = docs().activeId) {
+  const doc = docs().docs[id];
+  if (!doc) return false;
+  try {
+    const path = await writeProject(projectFor(doc), { path: null, suggestedName: `${doc.name} copy` });
+    if (path === null) return false;
+    const name = path ? fileNameFromPath(path) : `${doc.name} copy`;
+    if (path && isTauri) app().addRecentFile({ path, name, mode: doc.mode, thumbnail: null });
+    app().showToast(`Saved a copy as ${name}`);
+    return true;
+  } catch (err) {
+    alert(`Save failed.\n\n${err.message ?? err}`);
+    return false;
+  }
+}
+
+// Opens a copy of the document in a new untitled tab, with unsaved changes
+// so closing it asks first. Round-trips through the file format so the copy
+// shares nothing with the original.
+export function duplicateDocument(id = docs().activeId) {
+  const doc = docs().docs[id];
+  if (!doc) return null;
+  const { mode, state } = parseProject(serializeProject(doc));
+  return docs().createDocument(mode, { state, name: `${doc.name} copy`, dirty: true });
+}
+
+// Closes several tabs one after another, stopping if a save prompt is cancelled.
+async function closeMany(ids) {
+  for (const id of ids) {
+    if (!(await closeDocument(id))) return false;
+  }
+  return true;
+}
+
+export function closeOtherDocuments(id) {
+  return closeMany(docs().order.filter(x => x !== id));
+}
+
+export function closeDocumentsToRight(id) {
+  const { order } = docs();
+  return closeMany(order.slice(order.indexOf(id) + 1));
 }
 
 // Closes a tab, asking to save first when it has unsaved changes.

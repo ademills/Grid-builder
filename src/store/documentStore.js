@@ -26,9 +26,14 @@ export const useDocumentStore = create((set, get) => ({
   order: [],
   activeId: null,
 
+  // overrides: { id?, state?, name?, filePath?, dirty? }. A restored tab
+  // keeps its id (autosaves are keyed by it) and its unsaved flag.
   createDocument(mode, overrides = {}) {
     untitledCounter[mode] = (untitledCounter[mode] ?? 0) + 1;
-    const id = crypto.randomUUID();
+    // Restored "Untitled Grid 3" moves the count on, so new tabs don't repeat it.
+    const n = overrides.name?.match(new RegExp(`^Untitled ${MODES[mode].shortLabel} (\\d+)$`))?.[1];
+    if (n) untitledCounter[mode] = Math.max(untitledCounter[mode], +n);
+    const id = overrides.id && !get().docs[overrides.id] ? overrides.id : crypto.randomUUID();
     const state = { ...createDefaultDocState(mode), ...(overrides.state ?? {}) };
     // Snap the column count to one that tiles this artboard now, so the
     // editor's own snapping doesn't flag a brand-new document as modified.
@@ -37,7 +42,7 @@ export const useDocumentStore = create((set, get) => ({
       id, mode,
       name: overrides.name ?? `Untitled ${MODES[mode].shortLabel} ${untitledCounter[mode]}`,
       filePath: overrides.filePath ?? null,
-      dirty: false,
+      dirty: !!overrides.dirty,
       state,
     };
     set(s => ({ docs: { ...s.docs, [id]: doc }, order: [...s.order, id], activeId: id }));

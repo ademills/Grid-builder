@@ -13,6 +13,9 @@ import { useFileDrop } from './fileDrop';
 import { useSliderValueTyping } from '../panels/sliderTyping';
 import { useSliderLabelScrub } from '../panels/scrub';
 import { isTauri } from './fileIO';
+import { startSession, flushSession } from './session';
+import { recordError } from './diagnostics';
+import { DocumentErrorBoundary } from './DocumentErrorBoundary';
 import { MenuBar } from './MenuBar';
 import { TabBar } from './TabBar';
 import { ToolBar } from './ToolBar';
@@ -36,13 +39,22 @@ function useUpdateCheck() {
   }, []);
 }
 
-// Never lose unsaved work to the window's close button.
+// Never lose unsaved work to the window's close button. In the desktop app
+// quitting saves the session (open tabs and their unsaved changes come back
+// next launch), so it only asks if that couldn't be written. Tauri waits for
+// this handler before closing the window.
 function useCloseGuard() {
   useEffect(() => {
     if (isTauri) {
       const win = getCurrentWindow();
       let unlisten;
       win.onCloseRequested(async (event) => {
+        try {
+          await flushSession();
+          return;
+        } catch (err) {
+          recordError(err, 'saving the session on quit');
+        }
         const dirty = dirtyDocuments();
         if (!dirty.length) return;
         event.preventDefault();
@@ -104,7 +116,8 @@ function useShellShortcuts(activeId, activeMode) {
 // Menu structure: command ids, 'separator', or { heading }.
 const MENUS = [
   { label: 'File', items: ['file.newGrid', 'file.newMeander', 'file.newLinework', 'separator', 'file.open', 'recent', 'separator',
-    'file.save', 'file.saveAs', 'separator', 'file.export', 'file.exportSvg', 'separator', 'file.close'] },
+    'file.save', 'file.saveAs', 'file.saveCopy', 'file.duplicate', 'separator', 'file.export', 'file.exportSvg', 'separator',
+    'file.close', 'file.closeOthers'] },
   { label: 'Edit', items: ['edit.undo', 'edit.redo', 'separator', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate',
     'separator', 'edit.delete'] },
   { label: 'Object', items: ['object.group', 'object.ungroup', 'separator',
@@ -120,7 +133,7 @@ const MENUS = [
     'view.overlay.thirds', 'view.overlay.golden', 'view.overlay.centre', 'view.overlay.ig45', 'view.overlay.ig916',
     'view.overlay.none'] },
   { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.inspector', 'window.resetDock'] },
-  { label: 'Help', items: ['help.shortcuts'] },
+  { label: 'Help', items: ['help.shortcuts', 'separator', 'help.diagnostics'] },
 ];
 
 function useMenus() {
@@ -167,6 +180,7 @@ export function AppShell() {
   const activeId = activeDoc?.id ?? null;
   const activeMode = activeDoc?.mode ?? null;
 
+  useEffect(startSession, []);
   useUpdateCheck();
   useCloseGuard();
   useSliderValueTyping();
@@ -196,7 +210,9 @@ export function AppShell() {
           <div className={styles.workspace}>
             <ToolBar mode={activeMode} />
             <main className={styles.stage}>
-              <DocumentEditor key={activeId} mode={activeMode} />
+              <DocumentErrorBoundary key={activeId} docId={activeId} docName={activeDoc.name}>
+                <DocumentEditor mode={activeMode} />
+              </DocumentErrorBoundary>
             </main>
           </div>
         </DocContext.Provider>

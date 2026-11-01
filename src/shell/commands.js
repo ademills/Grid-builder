@@ -1,10 +1,11 @@
 import { useAppStore } from '../store/appStore';
 import { useDocumentStore, selectActiveDoc } from '../store/documentStore';
 import {
-  newDocument, openDocument, saveDocument, closeDocument, cycleTab,
+  newDocument, openDocument, saveDocument, saveCopy, duplicateDocument, closeDocument, closeOtherDocuments, cycleTab,
 } from './documentActions';
 import { pickAndReadBinary } from './fileIO';
 import { importSwatchBuffer } from './fileDrop';
+import { exportDiagnostics } from './diagnostics';
 
 // Every command the app can run, in one place. The menu bar, keyboard
 // shortcuts, right-click menu and panel ☰ menus all look commands up here by
@@ -53,7 +54,10 @@ export const COMMANDS = {
   'file.saveAs':    { label: 'Save As…', shortcut: 'Ctrl+Shift+S', inInputs: true, enabled: c => !!c.activeDoc, run: c => saveDocument(c.activeDoc.id, { saveAs: true }) },
   'file.export':    { label: 'Export As…', shortcut: 'Ctrl+Shift+E', inInputs: true, enabled: c => c.hasDoc && !!c.status?.canExport, run: c => c.cmds.openExport() },
   'file.exportSvg': { label: 'Quick Export SVG…', enabled: c => c.hasDoc && !!c.status?.canExport, run: c => c.cmds.exportSvg() },
+  'file.saveCopy':  { label: 'Save a Copy…', enabled: c => !!c.activeDoc, run: c => saveCopy(c.activeDoc.id) },
+  'file.duplicate': { label: 'Duplicate Document', enabled: c => !!c.activeDoc, run: c => duplicateDocument(c.activeDoc.id) },
   'file.close':     { label: 'Close', shortcut: 'Ctrl+W', inInputs: true, enabled: c => !!c.activeDoc, run: c => closeDocument(c.activeDoc.id) },
+  'file.closeOthers': { label: 'Close Others', enabled: c => !!c.activeDoc && useDocumentStore.getState().order.length > 1, run: c => closeOtherDocuments(c.activeDoc.id) },
 
   // Edit
   'edit.undo':      { label: 'Undo', shortcut: 'Ctrl+Z', enabled: c => c.hasDoc && !!c.status?.canUndo, run: c => c.cmds.undo() },
@@ -151,6 +155,7 @@ export const COMMANDS = {
     run: c => c.app.setDockLayout(c.app.dock.layout === 'classic' ? 'inspector' : 'classic') },
   'window.resetDock': { label: 'Reset Panel Layout', run: c => c.app.resetDock() },
   'help.shortcuts': { label: 'Keyboard Shortcuts', shortcut: '?', enabled: hasDoc, run: c => c.cmds.toggleShortcuts() },
+  'help.diagnostics': { label: 'Export Diagnostics…', run: () => exportDiagnostics() },
 };
 
 // Opens a swatch file and adds its libraries; resolves to how many were
