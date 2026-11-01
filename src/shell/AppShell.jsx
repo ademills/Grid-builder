@@ -132,7 +132,7 @@ const MENUS = [
     'view.grid', 'view.rulers', 'view.guides', 'view.clearGuides', 'view.effects', 'separator', { heading: 'Overlays' },
     'view.overlay.thirds', 'view.overlay.golden', 'view.overlay.centre', 'view.overlay.ig45', 'view.overlay.ig916',
     'view.overlay.none'] },
-  { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.inspector', 'window.resetDock'] },
+  { label: 'Window', items: ['window.home', 'window.next', 'window.prev', 'separator', 'window.history', 'window.effects', 'separator', 'window.resetDock'] },
   { label: 'Help', items: ['help.shortcuts', 'separator', 'help.diagnostics'] },
 ];
 
@@ -146,7 +146,6 @@ function useMenus() {
   useAppStore(s => s.showGuides);
   useAppStore(s => s.showGrid);
   useAppStore(s => s.wheelZooms);
-  useAppStore(s => s.dock.layout);
   useDocumentStore(selectActiveDoc);
   const recentFiles = useAppStore(s => s.recentFiles);
 

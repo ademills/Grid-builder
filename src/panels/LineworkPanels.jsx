@@ -3,7 +3,6 @@ import { useEditor } from '../editor/EditorContext';
 import { SettingsForm } from './schema';
 import { LINEWORK_PRESETS } from '../modes/linework/settings';
 import { LINEWORK_LAYER_SCHEMA } from '../modes/linework/schema';
-import { DiceIcon } from '../shell/icons';
 import styles from './Panel.module.css';
 
 // The layer being edited — the base or a plate (picked in the Layers panel,
@@ -45,14 +44,6 @@ export function LineworkPanel() {
           </select>
         </div>
         <SettingsForm schema={LINEWORK_LAYER_SCHEMA} values={L} set={setLayer} ctx={ctx} />
-      </div>
-
-      <div className={styles.fillBar}>
-        <button className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} onClick={actions.lineworkReseed}
-          title="New seeds for every layer">▶ New Design</button>
-        <button className={styles.actionBtn} onClick={actions.lineworkSurprise} title="Random preset colours, design and seeds">
-          <DiceIcon size={14} /> Surprise
-        </button>
       </div>
     </>
   );

@@ -1,7 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Canvas } from './components/Canvas';
 import { ContextMenu } from './components/ContextMenu';
-import { Dock } from './shell/Dock';
 import { Inspector } from './shell/Inspector';
 import { MODE_REGISTRY } from './modes/registry';
 import { EditorContext } from './editor/EditorContext';
@@ -10,7 +9,6 @@ import { AnimationLayer } from './components/AnimationLayer';
 import { ShapeCanvas } from './components/ShapeCanvas';
 import { createAudioAnalyser } from './utils/audioAnalysis';
 import { PlacedBlocks } from './components/PlacedBlocks';
-import { SelectionToolbar } from './components/SelectionToolbar';
 import { Overlays } from './components/Overlays';
 import { GuideLines, Rulers } from './components/RulersGuides';
 import { useGuideDrag } from './hooks/useGuideDrag';
@@ -1070,7 +1068,6 @@ export function DocumentEditor({ mode: appMode }) {
 
   // ── Fill ───────────────────────────────────────────────────────────────────
   const showToast = useAppStore(s => s.showToast);
-  const dockLayout = useAppStore(s => s.dock.layout);
   const assetUsageCounts = useMemo(() => {
     const counts = {};
     for (const b of placedBlocks) counts[b.assetId] = (counts[b.assetId] ?? 0) + 1;
@@ -2722,27 +2719,6 @@ export function DocumentEditor({ mode: appMode }) {
           overlay={
             <>
               {showRulers && <Rulers viewTransform={viewTransform} viewportSize={viewportSize} onStartDrag={startGuideDrag} />}
-              {appMode === 'gridBuilder' && dockLayout === 'classic' && (
-                <SelectionToolbar
-                  selectedBlocks={selectedBlocks}
-                  viewTransform={viewTransform}
-                  gridComputed={gridComputed}
-                  colorMode={colorMode}
-                  paintHex={toolOptions.paintHex}
-                  onDelete={handleDeleteSelected}
-                  onRefresh={handleRefreshSelected}
-                  onRandomise={handleRandomiseSelected}
-                  onSwap={handleSwapSelected}
-                  onToggleLock={handleToggleLockSelected}
-                  onRotate={() => selectionActions.rotate(true)}
-                  onReflect={() => selectionActions.reflect(false)}
-                  onSelectSame={selectionActions.selectSameColour}
-                  onPaint={selectionActions.paint}
-                  onHide={selectionActions.hide}
-                  onLock={selectionActions.lock}
-                  onUnpin={selectionActions.unpin}
-                />
-              )}
               {tilePreviewDataUri && (
                 <div className={styles.tilePreview}>
                   <div className={styles.tilePreviewGrid}>
@@ -2834,9 +2810,7 @@ export function DocumentEditor({ mode: appMode }) {
 
       </div>
 
-      {dockLayout === 'classic'
-        ? <Dock groups={MODE_REGISTRY[appMode].dock} />
-        : <Inspector mode={appMode} groups={MODE_REGISTRY[appMode].dock} />}
+      <Inspector mode={appMode} groups={MODE_REGISTRY[appMode].dock} />
 
       {showExport && (
         <ExportDialog

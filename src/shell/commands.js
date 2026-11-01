@@ -151,8 +151,6 @@ export const COMMANDS = {
   'window.next':    { label: 'Next Document', shortcut: 'Ctrl+Tab', inInputs: true, run: () => cycleTab(1) },
   'window.prev':    { label: 'Previous Document', shortcut: 'Ctrl+Shift+Tab', inInputs: true, run: () => cycleTab(-1) },
   'window.history':  { label: 'History', enabled: hasDoc, run: c => c.app.showDockTab('properties', 'history') },
-  'window.inspector': { label: 'Inspector Panel Layout', checked: c => c.app.dock.layout !== 'classic',
-    run: c => c.app.setDockLayout(c.app.dock.layout === 'classic' ? 'inspector' : 'classic') },
   'window.resetDock': { label: 'Reset Panel Layout', run: c => c.app.resetDock() },
   'help.shortcuts': { label: 'Keyboard Shortcuts', shortcut: '?', enabled: hasDoc, run: c => c.cmds.toggleShortcuts() },
   'help.diagnostics': { label: 'Export Diagnostics…', run: () => exportDiagnostics() },

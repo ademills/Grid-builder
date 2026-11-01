@@ -3,7 +3,6 @@ import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { FILLS, FILLS_BY_ID } from '../modes/gridBuilder/fills';
 import { LAYOUTS, LAYOUT_CATEGORIES } from '../utils/layouts';
 import { LayoutThumb, InfoTip } from './controls';
-import { DiceIcon } from '../shell/icons';
 import styles from './Panel.module.css';
 
 const GROUPS = [...new Set(FILLS.map(f => f.group))];
@@ -23,7 +22,7 @@ function FillSettingsHost({ fill, run }) {
 // Grid Pattern fills: pick one, tune it, Fill. One dropdown (with the
 // experimental fills in their own group), then that fill's settings.
 export function GeneratePanel() {
-  const { fillActions, actions, status } = useEditor();
+  const { fillActions } = useEditor();
   const [activeFill, setActiveFill] = useDocField('activeFill');
   const fill = FILLS_BY_ID[activeFill] ?? FILLS[0];
   const action = fillActions[fill.id];
@@ -57,21 +56,6 @@ export function GeneratePanel() {
           <div className={styles.gridNote}>Experimental — this fill may change or be removed.</div>
         )}
         {fill.Settings && <FillSettingsHost key={fill.id} fill={fill} run={action?.can ? action.run : null} />}
-      </div>
-
-      <div className={styles.fillBar}>
-        <button
-          className={`${styles.actionBtn} ${styles.actionBtnPrimary}`}
-          onClick={() => action?.run()}
-          disabled={!action?.can}
-        >▶ Fill — {fill.label}</button>
-        <button className={styles.actionBtn} onClick={actions.fillGaps} disabled={!status.canFillGaps} title="Fill only the empty cells">
-          Gaps
-        </button>
-        <button className={styles.actionBtn} onClick={actions.surpriseMe} disabled={!fillActions.standard?.can}
-          title="Random fill, settings, palette and seed (Ctrl+Shift+R). Keeps the grid size and enabled shapes.">
-          <DiceIcon size={14} /> Surprise
-        </button>
       </div>
     </>
   );

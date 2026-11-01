@@ -1568,7 +1568,6 @@
 
 /* The inspector layout pins the Generate buttons under its column, so
    panels drop their own. */
-[data-layout='inspector'] .fillBar { display: none; }
 
 /* Slider readouts can be clicked to type a value (panels/sliderTyping.js). */
 input[type='range'] + .sliderVal {

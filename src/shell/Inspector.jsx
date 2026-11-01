@@ -3,7 +3,7 @@ import { useAppStore } from '../store/appStore';
 import { useDocField } from '../store/useDocField';
 import { useEditor } from '../editor/EditorContext';
 import { FILLS, FILLS_BY_ID } from '../modes/gridBuilder/fills';
-import { PanelMenu } from './Dock';
+import { PanelMenu } from './PanelMenu';
 import {
   DiceIcon, CloseIcon, LayersIcon, HistoryIcon, InfoIcon, LayoutsIcon, SwatchesIcon, PaletteIcon,
   ShapesIcon, EffectsIcon, ImageIcon, AnimationIcon, AudioIcon,
@@ -14,7 +14,7 @@ import styles from './Inspector.module.css';
 // mode's generator, Colour) as folding sections in one scrolling column,
 // with the mode's Generate buttons pinned underneath. Every other panel
 // sits on an icon rail beside it and opens as a flyout. Built from the
-// same registry `dock` groups as the classic Dock: the first panel of each
+// registry `dock` groups: the first panel of each
 // group that starts expanded goes in the column, the rest go on the rail.
 
 const RAIL_ICONS = {

@@ -316,7 +316,6 @@ export function ControlBar({ mode, selectedCount }) {
   const tool = useAppStore(s => s.toolOverride ?? s.activeTool);
   const options = useAppStore(s => s.toolOptions);
   const setToolOption = useAppStore(s => s.setToolOption);
-  const layout = useAppStore(s => s.dock.layout);
   const def = TOOLS[tool];
   if (!def || !MODE_REGISTRY[mode].tools.includes(tool)) return <div className={styles.bar} />;
   const Icon = def.icon;
@@ -326,17 +325,8 @@ export function ControlBar({ mode, selectedCount }) {
       <span className={styles.toolName}><Icon size={15} /> {def.label}</span>
       <span className={styles.sep} />
 
-      {layout === 'classic' ? (
-        <>
-          {tool === 'select' && <span className={styles.hint}>{selectedCount ? `${selectedCount} selected` : 'Click or drag on the canvas to select shapes'}</span>}
-          {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionFill />}
-        </>
-      ) : (
-        <>
-          {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionActions mode={mode} selectedCount={selectedCount} />}
-          {DESIGN_TOOLS.has(tool) && !selectedCount && <DesignOptions mode={mode} />}
-        </>
-      )}
+      {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionActions mode={mode} selectedCount={selectedCount} />}
+      {DESIGN_TOOLS.has(tool) && !selectedCount && <DesignOptions mode={mode} />}
 
       {tool === 'wand' && (
         <>

@@ -1,4 +1,3 @@
-import { useAppStore } from '../store/appStore';
 import { NumberField, Toggle, Segmented, SymmetrySelect, SeedField, Section, InfoTip, Chips } from './controls';
 import { symmetryOptions, normaliseSymmetry } from '../utils/symmetry';
 import { visible, changesFor, resolve } from './schemaUtils';
@@ -93,18 +92,16 @@ function FieldRow({ field, values, set, ctx }) {
   );
 }
 
-// The fields the panel shows: visible ones, minus those the control bar
-// carries while the inspector layout is on.
-function panelFields(fields, values, ctx, inBar) {
-  return fields.filter(f => visible(f, values, ctx) && !(inBar && f.bar));
+// The fields the panel shows: visible ones, minus those the control bar carries.
+function panelFields(fields, values, ctx) {
+  return fields.filter(f => visible(f, values, ctx) && !f.bar);
 }
 
 // Renders a schema's sections into a panel. `set(changes)` merges changes.
 export function SettingsForm({ schema, values, set, ctx = {} }) {
-  const inBar = useAppStore(s => s.dock.layout) === 'inspector';
   return schema.map(sec => {
     if (!visible(sec, values, ctx)) return null;
-    const fields = panelFields(sec.fields, values, ctx, inBar);
+    const fields = panelFields(sec.fields, values, ctx);
     if (!fields.length) return null;
     const body = fields.map(f => <FieldRow key={f.key ?? f.label} field={f} values={values} set={set} ctx={ctx} />);
     if (!sec.title) return <div key={sec.id}>{body}</div>;
