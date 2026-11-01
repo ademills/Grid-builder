@@ -2,6 +2,7 @@ import { hashSeed } from '../../utils/textSeed';
 import { MEANDER_SYMMETRY } from '../../utils/symmetry';
 import { range, oneOf } from '../../panels/schemaUtils';
 import { CornerControls, WordColour } from './schemaFields';
+import { maxPlateSize } from '../../utils/meanderPlates';
 
 // Meander's settings (knotworkSettings), as data for the inspector, the
 // control bar and Surprise Me (see panels/schema.jsx).
@@ -59,6 +60,42 @@ export const MEANDER_SCHEMA = [
       { key: 'letterColour', type: 'custom', render: WordColour, showIf: letters },
       { key: 'letterColourExclusive', label: 'Word colour only', type: 'toggle', showIf: letters,
         help: "Keep this colour only on the word's strands, or let the rest of the fill use it too" },
+    ],
+  },
+];
+
+// One plate over the design (knotworkSettings.plates[i]; see
+// utils/meanderPlates.js), edited in the Meander panel's Plates section.
+// ctx: { grid, maxCells, base } (grid: { cols, rows }; base: the main design's settings).
+const cells = v => `${+(+v).toFixed(1)}`;
+const backed = p => p.backing !== 'none';
+export const MEANDER_PLATE_SCHEMA = [
+  {
+    id: 'meander.plate', fields: [
+      { key: 'name', label: 'Name', type: 'text' },
+      { key: 'enabled', label: 'Show', type: 'toggle' },
+      { key: 'shape', label: 'Shape', type: 'segmented',
+        options: [{ key: 'square', label: 'Square' }, { key: 'diamond', label: 'Diamond 45°' }] },
+      { key: 'cols', label: p => (p.shape === 'diamond' ? 'Size' : 'Width'), type: 'number', min: 2,
+        max: (p, c) => maxPlateSize(p.shape, c.grid, 'cols'), help: 'In grid cells (a plate too big for the grid shrinks to fit)',
+        value: (p, c) => Math.min(p.cols, maxPlateSize(p.shape, c.grid, 'cols')) },
+      { key: 'rows', label: 'Height', type: 'number', min: 2, max: (p, c) => maxPlateSize(p.shape, c.grid, 'rows'),
+        value: (p, c) => Math.min(p.rows, maxPlateSize(p.shape, c.grid, 'rows')),
+        showIf: p => p.shape !== 'diamond', help: 'In grid cells' },
+      { key: 'ox', label: 'Offset X', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
+      { key: 'oy', label: 'Offset Y', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
+      { key: 'backing', label: 'Background', type: 'segmented',
+        options: [{ key: 'square', label: 'Solid' }, { key: 'none', label: 'Transparent' }] },
+      { key: 'corner', label: 'Corner radius', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: backed },
+      { key: 'shadow', label: 'Shadow', type: 'segmented', showIf: backed,
+        options: [{ key: 'none', label: 'None' }, { key: 'hard', label: 'Hard' }, { key: 'soft', label: 'Soft' }] },
+      { key: 'depth', label: 'Depth', type: 'slider', min: 0, max: 1, step: 0.01, format: cells, help: 'Shadow offset, in cells',
+        showIf: p => backed(p) && p.shadow !== 'none' },
+      { key: 'rim', label: 'Rim', type: 'slider', min: 0, max: 0.5, step: 0.01, format: cells, showIf: backed,
+        help: 'An edge band in the ink colour, in cells' },
+      { key: 'symmetryMode', label: 'Symmetry', type: 'symmetry', keys: MEANDER_SYMMETRY,
+        value: (p, ctx) => p.symmetryMode ?? ctx?.base?.symmetryMode ?? 'none' },
+      { key: 'seed', label: 'Seed', type: 'seed' },
     ],
   },
 ];

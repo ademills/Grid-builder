@@ -130,6 +130,8 @@ export function createDefaultDocState() {
       letterRandomSize: true, letterRandomPlacement: true, letterAlign: 'center',
       weaveAsLetters: false, letterSize: 0.7,
       letterColour: null, letterColourExclusive: false,
+      // Plates over the main design (utils/meanderPlates.js).
+      plates: [],
     },
     showTilePreview: false,
 

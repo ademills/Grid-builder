@@ -32,7 +32,7 @@ import styles from './Panel.module.css';
 // options may also be functions of (values, ctx).
 
 function FieldRow({ field, values, set, ctx }) {
-  const v = field.value ? field.value(values) : values[field.key];
+  const v = field.value ? field.value(values, ctx) : values[field.key];
   const min = resolve(field.min, values, ctx), max = resolve(field.max, values, ctx);
   const label = resolve(field.label, values, ctx);
   const change = (nv) => set(changesFor(field, nv, values));

@@ -16,6 +16,7 @@ import { PRESETS, computeGrid, getValidCols, snapCols } from './gridPresets';
 import { extractPalette } from './utils/kmeans';
 import { composeKnotworkLayers } from './utils/knotworkCompose';
 import { buildMeanderBlocks, carryGeneratedEdits, isMeanderBlock, vectorTransform, vectorAt } from './utils/meanderBlocks';
+import { composeMeanderPlates } from './utils/meanderPlates';
 import { LAYOUTS, computeGridMask, computeLayoutRegions, buildWireframeBlocks, wireframeRects } from './utils/layouts';
 import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift } from './utils/colorize';
 import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
@@ -1235,7 +1236,11 @@ export function DocumentEditor({ mode: appMode }) {
   const buildKnotworkBlocks = useCallback((fullSettings) => {
     if (!gridComputed) return null;
     const localGrid = { cols: gridComputed.cols, rows: gridComputed.rows, cellSize: 100, gridOriginX: 0, gridOriginY: 0 };
-    return buildMeanderBlocks(composeKnotworkLayers(localGrid, fullSettings), gridComputed);
+    // The main design, then any plates stacked over it.
+    return [
+      ...buildMeanderBlocks(composeKnotworkLayers(localGrid, fullSettings), gridComputed),
+      ...composeMeanderPlates(fullSettings, gridComputed),
+    ];
   }, [gridComputed]);
 
   // Rebuilds the current design in place (same seed, so same layout),
@@ -1340,6 +1345,25 @@ export function DocumentEditor({ mode: appMode }) {
     return () => clearTimeout(knotShapeTimer.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [knotShapeSig]);
+
+  // Plate edits (Meander panel › Plates) rebuild the design in place, keeping
+  // each strand's edits; each plate is a named group.
+  const knotPlates = knotworkSettings.plates ?? [];
+  const knotPlatesSig = JSON.stringify(knotPlates);
+  const knotPlatesRef = useRef(null);
+  useEffect(() => {
+    const prev = knotPlatesRef.current;
+    knotPlatesRef.current = knotPlatesSig;
+    const names = Object.fromEntries(knotPlates.map(p => [`meander-plate-${p.id}`, p.name]));
+    if (Object.entries(names).some(([id, name]) => groupNames[id] !== name)) setGroupNames(n => ({ ...n, ...names }));
+    if (prev === null || prev === knotPlatesSig) return;
+    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock)) return;
+    const timer = setTimeout(() => {
+      regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'Plates', { keepFill: true });
+    }, 60);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [knotPlatesSig]);
 
   // Surprise Me for Meander: every setting MEANDER_SCHEMA gives a `surprise`
   // (walker, symmetry, strand shape, a fresh seed) as one Generate. The
