@@ -44,6 +44,7 @@ import { planMove, moveLimits } from './utils/moveBlocks';
 import { symmetricPoints, symmetricPlacements, normaliseSymmetry } from './utils/symmetry';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
+import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA, LINEWORK_LAYER_SCHEMA } from './modes/linework/schema';
 import { SymmetryAxes, MoveGhost } from './components/ToolOverlays';
 import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
 import { tidySvg } from './utils/svgExport';
@@ -1612,36 +1613,30 @@ export function DocumentEditor({ mode: appMode }) {
     const locked = lockedLineworkLayers();
     if (lineworkSettings.layers.every(l => locked.has(l.id))) { showToast('Every layer is locked: unlock one in Layers to surprise it'); return; }
     if (!locked.size) applyLineworkPreset(pick(LINEWORK_PRESETS).name);
-    const style = r() < 0.6 ? 'angular' : 'circuit';
-    const allFills = ['spiral', 'rings', 'split2', 'split4', 'hatch', 'chevron'];
-    const fills = () => [...allFills].sort(() => r() - 0.5).slice(0, 1 + Math.floor(r() * 3));
-    const layer = (l, over) => ({
-      ...l, style, seed: Math.floor(r() * 0x80000000), mask: 'none',
-      sym: style === 'circuit' ? pick(['mirror-both', 'mirror-x', 'none']) : pick(['mirror-both', 'mirror-diag', 'mirror-diag', 'rotate4']),
-      tile: pick([1, 2, 2, 3, 4]), fills: fills(), triFill: pick(['spiral', 'rings', 'mix']), orient: pick(['uniform', 'random']),
-      subdiv: pick([0, 0, 0.2, 0.4]), bundle: pick([1, 1, 2]), straight: 0.4 + r() * 0.4, weave: pick(['off', 'alternate']),
-      route: style === 'circuit' && r() < 0.3 ? 'single' : 'bundles',
-      ...over,
-    });
-    if (locked.size) {
-      updateLinework(s => ({ ...s, layers: s.layers.map(l => (locked.has(l.id) ? l : layer(l))) }), 'Surprise Me');
-      return;
-    }
-    const nPlates = pick([0, 1, 1, 2, 2, 3]);
     updateLinework(s => {
+      // Each layer's settings come from the schema's surprise picks; plates
+      // keep the first re-rolled layer's style so the design hangs together.
+      const tiling = s.tiling ?? 'square';
+      let style;
+      const roll = (l, plate) => {
+        const out = { ...l, ...surpriseValues(LINEWORK_LAYER_SCHEMA, l, r, { plate, tiling, style }) };
+        style ??= out.style;
+        return out;
+      };
+      if (locked.size) return { ...s, layers: s.layers.map((l, i) => (locked.has(l.id) ? l : roll(l, i > 0))) };
+
+      // The design's structure: how many plates, their size, shape and scale.
+      const layers = [roll({ ...s.layers[0], frame: 0 }, false)];
       let size = (gridComputed?.cols ?? 12) * pick([0.55, 0.65, 0.7]);
-      const layers = [layer(s.layers[0], { frame: 0 })];
-      for (let i = 1; i <= nPlates; i++) {
-        layers.push(layer(newPlate(layers), {
-          size: Math.round(size * 2) / 2, shape: pick(['square', 'diamond']), ox: 0, oy: 0,
-          shadow: pick(['soft', 'soft', 'hard', 'none']), depth: 0.15 + r() * 0.25, rim: pick([0, 0, 0.1, 0.15]),
+      for (let i = 0, n = pick([0, 1, 1, 2, 2, 3]); i < n; i++) {
+        layers.push(roll({
+          ...newPlate(layers), size: Math.round(size * 2) / 2, shape: pick(['square', 'diamond']), ox: 0, oy: 0,
           scale: pick([1, 1, 0.75, 0.5]), edgeExit: 0,
-        }));
+        }, true));
         size *= pick([0.5, 0.6]);
       }
       return {
-        ...s, orientation: r() < 0.5 ? 'diamond' : 'square',
-        linesPerCell: pick([2, 3, 3, 4, 5]), lineRatio: pick([0.3, 0.45, 0.55, 0.65]), layers,
+        ...s, ...surpriseValues(LINEWORK_GRID_SCHEMA, s, r), ...surpriseValues(LINEWORK_LINES_SCHEMA, s, r), layers,
       };
     }, 'Surprise Me');
   }, [applyLineworkPreset, updateLinework, gridComputed, lockedLineworkLayers, showToast, lineworkSettings.layers]);

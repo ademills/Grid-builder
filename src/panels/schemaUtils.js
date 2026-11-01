@@ -25,7 +25,7 @@ export function surpriseValues(schema, values, r = Math.random, ctx = {}) {
     if (!visible(sec, next, ctx)) continue;
     for (const f of sec.fields) {
       if (!f.surprise || !visible(f, next, ctx)) continue;
-      const out = f.type === 'custom' ? f.surprise(r, next) : changesFor(f, f.surprise(r, next), next);
+      const out = f.type === 'custom' ? f.surprise(r, next, ctx) : changesFor(f, f.surprise(r, next, ctx), next);
       Object.assign(changes, out);
       next = { ...next, ...out };
     }
