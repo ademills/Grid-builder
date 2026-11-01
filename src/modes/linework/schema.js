@@ -30,10 +30,11 @@ export const TILING_OPTIONS = [
 const usesFill = (L, keys) => keys.some(k => L.fills?.includes(k) || L.maskFills?.includes(k));
 const angular = L => L.style !== 'circuit';
 const single = L => L.style === 'circuit' && L.route === 'single';
-const filled = (L, ctx) => single(L) && L.fill && square(L, ctx);
-// Square cells (Properties › Grid › Cells), where subdivision, crossings,
-// every-cell routes and masks work.
+const filled = L => single(L) && L.fill;
+// Square cells (Properties › Grid › Cells), where angular subdivision works.
 const square = (_, ctx) => (ctx.tiling ?? 'square') === 'square';
+// Triangles have no straight way through a cell, so circuits can't cross there.
+const canCross = (_, ctx) => ctx.tiling !== 'triangle';
 const plate = (_, ctx) => ctx.plate;
 const masked = L => L.mask && L.mask !== 'none';
 
@@ -57,7 +58,7 @@ export const LINEWORK_GRID_SCHEMA = [
         help: 'Lay the design on the grid square, or turned 45° as a diamond', surprise: oneOf(['square', 'diamond']) },
       { key: 'diamondNote', type: 'custom', render: DiamondNote, showIf: (_, ctx) => !!ctx.diamondCells },
       { key: 'tiling', label: 'Cells', type: 'select', options: TILING_OPTIONS, value: s => s.tiling ?? 'square',
-        info: 'The cells every Linework layer is built on. Angular tiles take the cell shape at their Tile size; circuits run through the cells. Crossings, symmetry and masks for circuits need square cells.' },
+        info: 'The cells every Linework layer is built on. Angular tiles take the cell shape at their Tile size; circuits run through the cells.' },
       { key: 'regularity', label: 'Regularity', type: 'slider', min: 0, max: 1, step: 0.25, format: pct,
         value: s => s.regularity ?? 0.5, showIf: s => s.tiling === 'voronoi',
         help: '0%: scattered cells of every size; 100%: relaxed into even, honeycomb-like cells' },
@@ -150,27 +151,27 @@ export const LINEWORK_LAYER_SCHEMA = [
         // One circuit wants room to run: lift a short max length to no limit.
         onChange: (v, L) => ({ route: v, ...(v === 'single' && (L.maxLen ?? 40) < 200 ? { maxLen: 200 } : {}) }),
         surprise: r => (r() < 0.3 ? 'single' : 'bundles') },
-      { key: 'fill', label: 'Fill every cell', type: 'toggle', showIf: (L, ctx) => single(L) && square(L, ctx),
+      { key: 'fill', label: 'Fill every cell', type: 'toggle', showIf: single,
         help: 'Route through every cell exactly once (an odd column or row is left as a margin, half each side). It then never crosses itself, so over / under and running off edges are off' },
-      { key: 'loop', label: 'Closed loop', type: 'toggle', showIf: (L, ctx) => single(L) && L.fill && square(L, ctx),
+      { key: 'loop', label: 'Closed loop', type: 'toggle', showIf: filled,
         help: 'Join the circuit into a loop with no ends, instead of two hairpin ends' },
       { key: 'bundle', label: 'Bundle size', type: 'number', min: 1, max: 8,
         help: 'Cells per bundle; a bundle carries Lines per cell × this many strands', surprise: oneOf([1, 1, 2]) },
       { key: 'straight', label: 'Straightness', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, surprise: range(0.4, 0.8, 0.05) },
       { key: 'maxLen', label: 'Max length', type: 'slider', min: 1, max: 200, step: 1, format: v => (v >= 200 ? 'No limit' : v),
-        help: 'Longest run, in bundles', showIf: (L, ctx) => !filled(L, ctx) },
+        help: 'Longest run, in bundles', showIf: L => !filled(L) },
       { key: 'density', label: 'Density', type: 'slider', min: 0.05, max: 1, step: 0.05, format: pct, showIf: L => !single(L) },
-      { key: 'edgeExit', label: 'Run off edges', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: (L, ctx) => !filled(L, ctx),
+      { key: 'edgeExit', label: 'Run off edges', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: L => !filled(L),
         help: 'Chance a bundle runs off the edge instead of turning back (only when the grid holds whole bundles)' },
-      { key: 'weave', label: 'Over / under', type: 'segmented', showIf: (L, ctx) => !filled(L, ctx) && square(L, ctx),
+      { key: 'weave', label: 'Over / under', type: 'segmented', showIf: (L, ctx) => !filled(L) && canCross(L, ctx),
         options: [{ key: 'off', label: 'Off' }, { key: 'alternate', label: 'Alternate' }, { key: 'random', label: 'Random' }],
         surprise: oneOf(['off', 'alternate']) },
-      { key: 'eyes', label: 'Single-cell eyes', type: 'toggle', showIf: (L, ctx) => !single(L) && square(L, ctx) },
+      { key: 'eyes', label: 'Single-cell eyes', type: 'toggle', showIf: L => !single(L) },
     ],
   },
   {
     // A route through every cell has nothing for a mask to steer.
-    id: 'linework.mask', title: 'Region mask', showIf: (L, ctx) => !filled(L, ctx) && (angular(L) || square(L, ctx)), defaultOpen: masked,
+    id: 'linework.mask', title: 'Region mask', showIf: L => !filled(L), defaultOpen: masked,
     info: 'Confine part of the design to a shape, image or word. Angular tiles inside it take their own fills; circuit bundles route inside it first.',
     fields: [
       { key: 'mask', label: 'Mask', type: 'select',

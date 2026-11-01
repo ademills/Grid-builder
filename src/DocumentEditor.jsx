@@ -471,8 +471,9 @@ const isTypingTarget = (el) =>
 // time, keyed by document id, so per-document effects start fresh on every
 // tab switch instead of reacting to the previous document's values.
 // Raise when the Linework generator draws the same settings differently, so
-// saved designs are rebuilt on open (2: backing bands that merge, v1.7.2).
-const LINEWORK_ENGINE = 2;
+// saved designs are rebuilt on open (2: backing bands that merge, v1.7.2;
+// 3: One circuit margins and circuits on hex/triangle/Voronoi cells, v1.9).
+const LINEWORK_ENGINE = 3;
 
 export function DocumentEditor({ mode: appMode }) {
   const docId = useDocId();

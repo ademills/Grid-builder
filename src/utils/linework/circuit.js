@@ -705,7 +705,21 @@ const AXIS_MIRROR = { x: [-1, 0, 0, 1], y: [1, 0, 0, -1] };
 // Copies each bundle by the symmetry's maps. A bundle that runs onto a
 // mirror axis continues as its own mirror image there, so those copies are
 // joined into one item.
-export function replicateBundles(bundles, sym) {
+// A contour traced the other way round (arcs flip their sweep).
+function reverseContour(contour) {
+  const closed = contour[contour.length - 1][0] === 'Z';
+  const steps = contour.filter(c => c[0] !== 'Z');
+  const pts = steps.map(c => c[c.length - 1]);
+  const out = [['M', pts[pts.length - 1]]];
+  for (let i = steps.length - 1; i >= 1; i--) out.push(steps[i][0] === 'A' ? ['A', steps[i][1], 1 - steps[i][2], pts[i - 1]] : ['L', pts[i - 1]]);
+  if (closed) out.push(['Z']);
+  return out;
+}
+
+// keepWinding: mirrored copies are traced the other way round too, so they
+// wind like the original. Where a strand overlaps its mirror image across an
+// axis, the nonzero fill then fills the overlap instead of cancelling it.
+export function replicateBundles(bundles, sym, { keepWinding = false } = {}) {
   const ops = SYM_OPS[sym] ?? SYM_OPS.none;
   const out = [];
   for (const b of bundles) {
@@ -723,7 +737,8 @@ export function replicateBundles(bundles, sym) {
       const g = find(i);
       if (!groups.has(g)) groups.set(g, { contours: [], centres: [], bands: [], copy: g });
       const grp = groups.get(g);
-      for (const c of b.contours) grp.contours.push(mapContour(c, op));
+      const flip = keepWinding && op[0] * op[3] - op[1] * op[2] < 0;
+      for (const c of b.contours) grp.contours.push(flip ? reverseContour(mapContour(c, op)) : mapContour(c, op));
       // Band pieces are polygons: rewound solid, since a mirror reverses them.
       if (b.band) grp.bands.push(b.band.map(c => solid(mapContour(c, op))));
       grp.centres.push(applyLinear(op, b.centre));

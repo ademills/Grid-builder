@@ -157,19 +157,25 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     const toBand = (groups) => { for (const g of groups ?? []) bands.push(g.map(c => mapContour(c, m, t))); };
 
     const tiling = settings.tiling ?? 'square';
+    // Circuit symmetry: mirrors only; rotations become their mirror equivalent.
+    const csym = sym === 'mirror-x' || sym === 'mirror-y' || sym === 'none' ? sym : 'mirror-both';
     if (cfg.style === 'circuit' && tiling !== 'square') {
-      // Circuits through hexagons, triangles or Voronoi cells (no symmetry or mask).
-      const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single', bandOpts);
-      for (const b of R.bundles) {
-        if (b.band) toBand([b.band]);
+      // Circuits through hexagons, triangles or Voronoi cells. The mask is
+      // read on a bundle-sized grid, each cell by its centre.
+      const S = Math.max(1, cfg.bundle ?? 1) * C;
+      const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
+      const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, bc, br) : null;
+      const inside = mask ? (x, y) => mask.has(`${Math.floor((x + bc * S / 2) / S)},${Math.floor((y + br * S / 2) / S)}`) : null;
+      const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single',
+        { ...bandOpts, sym: csym, inside, maskOutside: cfg.maskOutside });
+      for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym, { keepWinding: true })) {
+        toBand(b.bands);
         push({
-          key: `${tag}:c:${b.index}`, name: nameFor(li, cfg.route === 'single' ? 'Circuit' : 'Bundle'), kind: 'ink',
+          key: `${tag}:c:${b.key}`, name: nameFor(li, cfg.route === 'single' ? 'Circuit' : b.single ? 'Eye' : 'Bundle'), kind: 'ink',
           contours: b.contours.map(c => mapContour(c, m, t)), centre: add(applyLinear(m, b.centre), t),
         });
       }
     } else if (cfg.style === 'circuit') {
-      // Circuit symmetry: mirrors only; rotations become their mirror equivalent.
-      const csym = sym === 'mirror-x' || sym === 'mirror-y' || sym === 'none' ? sym : 'mirror-both';
       const S = Math.max(1, cfg.bundle ?? 1) * C;
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
       const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, bc, br) : null;
