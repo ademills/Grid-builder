@@ -1172,7 +1172,10 @@ export function DocumentEditor({ mode: appMode }) {
     if (!activeAssets.length || !gridComputed) return;
     // A few attempts, since some random settings leave nothing to fill.
     for (let attempt = 0; attempt < 6; attempt++) {
-      const { fill, settings, palette } = pickSurprise({ canUseImage: !!imagePixels, libraries: useLibraryStore.getState().libraries });
+      const { fill, settings, palette } = pickSurprise({
+        canUseImage: !!imagePixels, libraries: useLibraryStore.getState().libraries,
+        settingsOf: key => useDocumentStore.getState().docs[docId]?.state[key],
+      });
       const state = useDocumentStore.getState().docs[docId]?.state;
       if (!state) return;
       const merged = fill.settingsKey ? { ...state[fill.settingsKey], ...settings } : undefined;

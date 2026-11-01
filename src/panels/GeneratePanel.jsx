@@ -3,6 +3,7 @@ import { useEditor, useDocSettings } from '../editor/EditorContext';
 import { FILLS, FILLS_BY_ID } from '../modes/gridBuilder/fills';
 import { LAYOUTS, LAYOUT_CATEGORIES } from '../utils/layouts';
 import { LayoutThumb, InfoTip } from './controls';
+import { SettingsForm } from './schema';
 import styles from './Panel.module.css';
 
 const GROUPS = [...new Set(FILLS.map(f => f.group))];
@@ -11,12 +12,11 @@ const GROUPS = [...new Set(FILLS.map(f => f.group))];
 // every seeded fill. Undo and Surprise Me change seeds without re-running.
 function FillSettingsHost({ fill, run }) {
   const [settings, setSettings] = useDocSettings(fill.settingsKey);
-  const { Settings } = fill;
   const set = (changes) => {
     setSettings(changes);
     if ('seed' in changes && run) run({ ...settings, ...changes });
   };
-  return settings ? <Settings s={settings} set={set} /> : null;
+  return settings ? <SettingsForm schema={fill.schema} values={settings} set={set} /> : null;
 }
 
 // Grid Pattern fills: pick one, tune it, Fill. One dropdown (with the
@@ -33,7 +33,7 @@ export function GeneratePanel() {
         <div className={styles.formRow}>
           <span className={styles.label}>
             Fill
-            {!fill.Settings && <InfoTip text="Standard packs the enabled shapes across the whole grid (or the active layout's grid area). Shape sizes come from Max scale and Scale freq in Properties." />}
+            {!fill.schema && <InfoTip text="Standard packs the enabled shapes across the whole grid (or the active layout's grid area). Shape sizes come from Max scale and Scale freq in Properties." />}
           </span>
           <select className={styles.select} value={fill.id} onChange={e => setActiveFill(e.target.value)}>
             {GROUPS.map(group => (
@@ -55,7 +55,7 @@ export function GeneratePanel() {
         {fill.group === 'Experimental' && (
           <div className={styles.gridNote}>Experimental — this fill may change or be removed.</div>
         )}
-        {fill.Settings && <FillSettingsHost key={fill.id} fill={fill} run={action?.can ? action.run : null} />}
+        {fill.schema && <FillSettingsHost key={fill.id} fill={fill} run={action?.can ? action.run : null} />}
       </div>
     </>
   );

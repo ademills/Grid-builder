@@ -12,9 +12,11 @@ import styles from './Panel.module.css';
 // section = { id, title, info?, defaultOpen?, showIf?(values, ctx), fields: [field] }
 // field = {
 //   key, label, type: 'slider' | 'number' | 'toggle' | 'segmented' | 'select'
-//                     | 'chips' | 'symmetry' | 'seed' | 'text' | 'custom',
+//                     | 'choices' | 'chips' | 'symmetry' | 'seed' | 'text'
+//                     | 'note' | 'custom',
 //   min, max, step, format?(v)       — slider / number
-//   options: [{ key, label }]        — segmented / select (symmetry: `keys`;
+//   options: [{ key, label }]        — segmented / select / choices (a grid
+//                                      of buttons; symmetry: `keys`;
 //                                      chips: [[key, label]], value a list)
 //   value?(values) — the control's value when it isn't values[key]
 //   help?    — tooltip on the row; info? — an ⓘ beside the label
@@ -24,6 +26,7 @@ import styles from './Panel.module.css';
 //   surprise?(r, values) — Surprise Me's value for it (r: random 0–1)
 //   onChange?(v, values) — changes to apply instead of { [key]: v }
 //   render?: Component   — custom: ({ values, set, ctx }) => …
+//   text?    — note: a line of explanation
 // }
 // Section title / info / defaultOpen and field label / help / min / max /
 // options may also be functions of (values, ctx).
@@ -35,6 +38,7 @@ function FieldRow({ field, values, set, ctx }) {
   const change = (nv) => set(changesFor(field, nv, values));
   if (field.type === 'custom') { const C = field.render; return <C values={values} set={set} ctx={ctx} />; }
   if (field.type === 'seed') return <SeedField value={v} onChange={change} />;
+  if (field.type === 'note') return <div className={styles.gridNote}>{resolve(field.text, values, ctx)}</div>;
 
   let control;
   switch (field.type) {
@@ -61,6 +65,16 @@ function FieldRow({ field, values, set, ctx }) {
         <select className={styles.select} value={v} onChange={e => change(e.target.value)}>
           {resolve(field.options, values, ctx).map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
+      );
+      break;
+    case 'choices':
+      control = (
+        <div className={styles.modeGrid2col}>
+          {resolve(field.options, values, ctx).map(o => (
+            <button key={String(o.key)} className={`${styles.modeBtn} ${v === o.key ? styles.modeBtnActive : ''}`}
+              onClick={() => change(o.key)} title={o.title}>{o.label}</button>
+          ))}
+        </div>
       );
       break;
     case 'symmetry':

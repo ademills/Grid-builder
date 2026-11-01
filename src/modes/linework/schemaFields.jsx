@@ -1,5 +1,6 @@
 import { useDocSettings } from '../../editor/EditorContext';
 import { Segmented, Toggle } from '../../panels/controls';
+import { SettingsForm } from '../../panels/schema';
 import { PLATE_ASPECTS, plateCells } from './settings';
 import { MASK_SOURCES } from './masks';
 import styles from '../../panels/Panel.module.css';
@@ -128,18 +129,17 @@ export function MaskFillSettings({ values }) {
       {fill.image === 'required' && (
         <div className={styles.gridNote}>Needs Image colour mode with an image loaded (Colour panel).</div>
       )}
-      {fill.Settings && <FillSettings fill={fill} />}
+      {fill.schema && <FillSettings fill={fill} />}
     </>
   );
 }
 
 function FillSettings({ fill }) {
   const [settings, setSettings] = useDocSettings(fill.settingsKey);
-  const { Settings } = fill;
   return settings ? (
     <>
       <div className={styles.gridNote}>{fill.label} settings — shared with Grid Pattern&apos;s {fill.label} fill.</div>
-      <Settings s={settings} set={setSettings} />
+      <SettingsForm schema={fill.schema} values={settings} set={setSettings} />
     </>
   ) : null;
 }
