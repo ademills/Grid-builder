@@ -69,7 +69,7 @@ for (const s of sections) s.items.sort((a, b) => +a.id.split('.')[1] - +b.id.spl
 const all = sections.flatMap(s => s.items);
 const byId = Object.fromEntries(all.map(i => [i.id, i]));
 for (const it of all) {
-  const r = it.isNew ? ['open', null, ''] : REVIEW[it.id];
+  const r = REVIEW[it.id] ?? (it.isNew ? ['open', null, ''] : null);
   if (!r) throw new Error('No review for ' + it.id);
   [it.status, it.ver, it.note] = r;
 }
@@ -208,9 +208,9 @@ const html = `<title>Pattern Studio Roadmap</title>
 
 <div class="wrap">
   <header class="top">
-    <p class="eyebrow">Mills Pattern Studio · v1.7.2 released · reviewed 1 Nov 2026</p>
+    <p class="eyebrow">Mills Pattern Studio · v${SHIPPED.at(-1).ver} released ${SHIPPED.at(-1).date} · review written 1 Nov 2026 at v1.7.2</p>
     <h1>Pattern Studio Roadmap</h1>
-    <p class="lede">The original ${origCount} ideas, checked against the code as it stands after ten releases in eleven days, plus ${newCount} new items from this review. Each card says what shipped, what's left, and whether it's still worth doing. The proposed releases below are a suggestion. Mark items as cut as you go, then copy what's left.</p>
+    <p class="lede">The original ${origCount} ideas, checked against the code as it stands at v1.7.2, plus ${newCount} new items from this review. Each card says what shipped, what's left, and whether it's still worth doing. The proposed releases below are a suggestion. Mark items as cut as you go, then copy what's left.</p>
     ${overview}
   </header>
 

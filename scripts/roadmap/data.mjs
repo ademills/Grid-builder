@@ -5,20 +5,23 @@
 // [status, version-or-null, note]
 // status: shipped | partial | open | hold | cut (cut = suggested cut)
 export const REVIEW = {
+  '0.4': ['shipped', '1.8.0', 'A crash in one editor stays in its tab, with Reload Document, Close Tab and Export Diagnostics.'],
+  '0.5': ['shipped', '1.8.0', 'tauri-plugin-persisted-scope remembers folders opened through a dialog, so files on other drives reopen after a restart.'],
+  '0.9': ['partial', '1.8.0', 'npm test runs 29 Vitest tests: project round-trips in every mode, legacy files, swatch formats, the document store and generator snapshots. UI behaviour is still covered only by the native smoke test.'],
+  '1.1': ['shipped', '1.8.0', 'Autosave every 2 minutes; tabs reopen silently with unsaved changes; a toast after a crash; orphaned autosaves offered on Home for 7 days. Quitting no longer asks, because nothing is lost.'],
+  '1.2': ['shipped', '1.8.0', "File › Save a Copy and Duplicate Document, also on the tab menu. Saved files are now named after their file."],
+  '1.3': ['shipped', '1.8.0', 'Close, Close Others, Close to the Right, Duplicate, Save a Copy, Reveal in Explorer, Copy Path.'],
+  '11.4': ['shipped', '1.8.0', 'Help › Export Diagnostics writes the version, open documents (no artwork) and recent errors to a text file.'],
+  '0.11': ['shipped', '1.8.0', 'Release build checked through WebView2: generate in every mode, duplicate, quit and relaunch, crash and recover (17 checks).'],
+  '0.12': ['shipped', '1.8.0', 'Snapshots of the seven Linework presets and four Meander designs in tests/generators.test.js.'],
   '0.1': ['shipped', '1.2.0', 'Refactor verified in a native Tauri build and committed one phase at a time.'],
   '0.2': ['shipped', '1.7.0', 'Resolved by removing the dead Intensity slider (and the disabled jitter/tension sliders) in the shared-controls pass.'],
   '0.3': ['shipped', '1.2.0', 'Native Save and Export work since the Tauri-detection fix. The one failure since then was Controlled Folder Access blocking Documents, not the app scope. Check the Defender log first if it recurs.'],
-  '0.4': ['open', null, 'Still worth doing. With three modes and generator engines, a crash in one tab currently takes the whole window down. Pair with 1.1.'],
-  '0.5': ['open', null, 'Still valid and small. Recent files outside your home folder still fail to reopen after a restart.'],
   '0.6': ['partial', '1.3.0', 'The canvas renderer pauses when the window is hidden. Deterministic, seeded frames are still missing, and animated export (8.1) needs them. Fold the rest into the Motion release.'],
   '0.7': ['shipped', '1.3.0', 'Superseded. Shapes now draw on a 2D canvas from Path2D models, which beat both SVG approaches (fill 2,446 → 55 ms at 40 columns).'],
   '0.8': ['shipped', '1.3.0', 'Fills run in a worker. Live preview (4.13) is no longer blocked.'],
-  '0.9': ['open', null, 'Raised to high priority. There are still no tests, and three modes, schema-driven settings and generator versioning (LINEWORK_ENGINE) are exactly the things that break silently between releases.'],
   '0.10': ['shipped', '1.2.0', '74 commands now live in shell/commands.js. Palette, macros and MCP can build on it directly.'],
 
-  '1.1': ['open', null, 'High priority. Releases are coming every day or two, and an unsaved Linework or Meander design is the most expensive thing to lose.'],
-  '1.2': ['open', null, 'Still valid. Duplicating a tab is the quickest way to try a variant now that designs regenerate in place.'],
-  '1.3': ['open', null, 'Still valid and small. Bundle it with 1.2.'],
   '1.4': ['shipped', '1.2.0', 'Projects open in a tab, images become the reference, .ase and .gpl files import. Dropping an .svg still does nothing; that waits for 5.1.'],
   '1.5': ['shipped', '1.2.0', 'Shows the document name and an unsaved-changes dot.'],
   '1.6': ['cut', null, 'Low value for one person with a few tabs open. The tab names and mode accent colours already tell tabs apart.'],
@@ -144,7 +147,6 @@ export const REVIEW = {
   '11.1': ['hold', null, 'Only if someone else will use it.'],
   '11.2': ['cut', null, 'No non-Windows users.'],
   '11.3': ['cut', null, 'Decided: a permanent Defender path exclusion and a per-machine install in Program Files, no signing.'],
-  '11.4': ['open', null, 'Small, and useful with 0.4: the error boundary can offer it.'],
 };
 
 // New items from this review. sec = section number.
@@ -228,13 +230,12 @@ export const SHIPPED = [
     also: 'Square, Outline, Sticker, In-fill and Transparent backings. Generate leaves locked layers alone.' },
   { ver: '1.7.2', date: '1 Nov', title: 'Backing merge', items: [],
     also: 'Overlapping backings merge. Older Linework saves rebuild on open.' },
+  { ver: '1.8.0', date: '1 Nov', title: 'Safety net', items: ['0.4','0.5','0.11','0.12','1.1','1.2','1.3','11.4'],
+    also: 'First automated tests (29), generator snapshots and a native smoke test.' },
 ];
 
 // Proposed releases. Order is the suggestion.
 export const PLAN = [
-  { ver: '1.8', name: 'Safety net', theme: 'Nothing gets lost, nothing breaks silently',
-    items: ['0.11','0.12','1.1','0.4','11.4','1.2','1.3','0.5'],
-    why: 'Seven releases in eleven days with no tests and no autosave. Do this before more features.' },
   { ver: '1.9', name: 'Finish the UI pass', theme: 'One way to do each thing',
     items: ['4.21','4.22','1.18','1.19','1.20','2.5','1.8','12.1','12.8','12.2','12.3','12.5','12.4','12.6'],
     why: 'Closes UI review step 4 and its leftovers, and clears the Linework and Meander follow-ups. Grid Pattern catches up with the other two modes.' },
