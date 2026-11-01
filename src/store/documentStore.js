@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createDefaultDocState, NON_DIRTY_FIELDS, MODES } from './docDefaults';
-import { PRESETS, getValidCols } from '../gridPresets';
+import { PRESETS, getValidCols, snapCols } from '../gridPresets';
 
 // Open documents (one per tab) plus which one is active.
 //
@@ -15,10 +15,8 @@ function snapGridCols(state, mode) {
   const preset = PRESETS.find(p => p.key === state.presetKey);
   const workArea = state.presetKey === 'custom' || !preset ? state.customSize : preset;
   const valid = getValidCols(workArea, state.gridSettings.borderPct, mode === 'knotwork' ? 160 : 80);
-  const cols = state.gridSettings.cols;
-  if (!valid || valid.includes(cols)) return state.gridSettings;
-  const nearest = valid.reduce((a, b) => (Math.abs(b - cols) < Math.abs(a - cols) ? b : a));
-  return { ...state.gridSettings, cols: nearest };
+  const cols = snapCols(valid, state.gridSettings.cols);
+  return cols === state.gridSettings.cols ? state.gridSettings : { ...state.gridSettings, cols };
 }
 
 export const useDocumentStore = create((set, get) => ({

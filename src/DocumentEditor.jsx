@@ -12,7 +12,7 @@ import { PlacedBlocks } from './components/PlacedBlocks';
 import { Overlays } from './components/Overlays';
 import { GuideLines, Rulers } from './components/RulersGuides';
 import { useGuideDrag } from './hooks/useGuideDrag';
-import { PRESETS, computeGrid, getValidCols } from './gridPresets';
+import { PRESETS, computeGrid, getValidCols, snapCols } from './gridPresets';
 import { extractPalette } from './utils/kmeans';
 import { composeKnotworkLayers } from './utils/knotworkCompose';
 import { buildMeanderBlocks, carryGeneratedEdits, isMeanderBlock, vectorTransform, vectorAt } from './utils/meanderBlocks';
@@ -511,11 +511,8 @@ export function DocumentEditor({ mode: appMode }) {
   useEffect(() => {
     if (!validCols) return;
     setGridSettings(prev => {
-      if (validCols.includes(prev.cols)) return prev;
-      const nearest = validCols.reduce((a, b) =>
-        Math.abs(b - prev.cols) < Math.abs(a - prev.cols) ? b : a
-      );
-      return { ...prev, cols: nearest };
+      const cols = snapCols(validCols, prev.cols);
+      return cols === prev.cols ? prev : { ...prev, cols };
     });
   }, [validCols]);
 

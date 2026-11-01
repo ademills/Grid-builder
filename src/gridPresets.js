@@ -40,6 +40,18 @@ export function getValidCols(workArea, borderPct, maxCols = 80) {
   return valid.length > 1 ? valid : null;
 }
 
+// The column count to use after the artboard or border changes: the
+// nearest count that tiles the artboard, if one is within SNAP_REACH of the
+// current count; otherwise the current count stays (rows round, and the
+// grid is centred in what's left). Without the limit a border change could
+// jump from 13 columns to 4.
+const SNAP_REACH = 2;
+export function snapCols(validCols, cols) {
+  if (!validCols || validCols.includes(cols)) return cols;
+  const nearest = validCols.reduce((a, b) => (Math.abs(b - cols) < Math.abs(a - cols) ? b : a));
+  return Math.abs(nearest - cols) <= SNAP_REACH ? nearest : cols;
+}
+
 /**
  * Derives all layout measurements from work area + grid settings.
  * Used by the Grid renderer, the bin-packer, and drag-and-drop hit testing.
