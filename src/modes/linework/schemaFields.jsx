@@ -2,7 +2,7 @@ import { useDocSettings } from '../../editor/EditorContext';
 import { Segmented, Toggle } from '../../panels/controls';
 import { SettingsForm } from '../../panels/schema';
 import { PLATE_ASPECTS, plateCells } from './settings';
-import { MASK_SOURCES } from './masks';
+import { MASK_SOURCES, layerMaskSettings } from './masks';
 import styles from '../../panels/Panel.module.css';
 
 // Custom rows for the Linework settings schemas (schema.js). Each takes
@@ -90,9 +90,16 @@ export function DiamondNote({ ctx }) {
   return <div className={styles.gridNote}>Diamond: {ctx.diamondCells} × {ctx.diamondCells} cells, from the columns above.</div>;
 }
 
-// The "word" mask's own settings (document-wide, in lineworkSettings.word).
-export function MaskWord({ ctx }) {
-  const { word, setWord } = ctx;
+// Changes to the layer's own settings for its current mask, starting from
+// `current` (what it uses now, maybe still the document's).
+const setLayerMask = (L, set, current) => changes => set({
+  maskSettings: { ...L.maskSettings, [L.mask]: { ...current, ...changes } },
+});
+
+// The "word" mask's settings, this layer's own.
+export function MaskWord({ values: L, set, ctx }) {
+  const word = layerMaskSettings(L, ctx.word);
+  const setWord = setLayerMask(L, set, word);
   return (
     <>
       <Row label="Word">
@@ -120,8 +127,9 @@ export function MaskWord({ ctx }) {
   );
 }
 
-// A mask fill's own settings, shared with Grid Pattern's fill of that name.
-export function MaskFillSettings({ values }) {
+// A mask fill's settings, this layer's own (they start from Grid Pattern's
+// fill of that name).
+export function MaskFillSettings({ values, set }) {
   const fill = MASK_SOURCES.find(m => m.id === values.mask)?.fill;
   if (!fill) return null;
   return (
@@ -129,17 +137,18 @@ export function MaskFillSettings({ values }) {
       {fill.image === 'required' && (
         <div className={styles.gridNote}>Needs Image colour mode with an image loaded (Colour panel).</div>
       )}
-      {fill.schema && <FillSettings fill={fill} />}
+      {fill.schema && <FillSettings fill={fill} L={values} set={set} />}
     </>
   );
 }
 
-function FillSettings({ fill }) {
-  const [settings, setSettings] = useDocSettings(fill.settingsKey);
+function FillSettings({ fill, L, set }) {
+  const [docSettings] = useDocSettings(fill.settingsKey);
+  const settings = layerMaskSettings(L, docSettings);
   return settings ? (
     <>
-      <div className={styles.gridNote}>{fill.label} settings — shared with Grid Pattern&apos;s {fill.label} fill.</div>
-      <SettingsForm schema={fill.schema} values={settings} set={setSettings} />
+      <div className={styles.gridNote}>{fill.label} settings for this layer only.</div>
+      <SettingsForm schema={fill.schema} values={settings} set={setLayerMask(L, set, settings)} />
     </>
   ) : null;
 }

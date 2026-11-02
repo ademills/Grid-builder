@@ -60,7 +60,7 @@ import { tidySvg } from './utils/svgExport';
 import { composeLinework, lineworkGridCells, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL } from './utils/linework/compose';
 import { colourItems as lineworkColours } from './utils/linework/colour';
 import { pathD, contoursBounds } from './utils/linework/geometry';
-import { computeLineworkMask } from './modes/linework/masks';
+import { computeLineworkMask, layerMaskSettings } from './modes/linework/masks';
 import { LINEWORK_PRESETS, mergeLineworkSettings, newPlate } from './modes/linework/settings';
 import { effectsActive } from './effects/effectDefs';
 import { applyEffectsToCanvas } from './effects/effectsRenderer';
@@ -1663,14 +1663,16 @@ export function DocumentEditor({ mode: appMode }) {
   }, [lineworkSettings.inkSwatch, lineworkSettings.groundSwatch, lineworkSettings.shadowSwatch, swatchMap, activePalette, canvasBg]);
 
   // Silhouette masks are rasterised asynchronously; cached per grid size.
+  // Each layer's mask uses that layer's own settings (layerMaskSettings).
   const [silhouetteTick, setSilhouetteTick] = useState(0);
   const silhouetteCache = useRef(new Map());
   const maskCache = useRef(new Map());
   const lineworkMaskFor = useCallback((settings) => (li, cols, rows) => {
     const cfg = settings.layers[li];
     if (!cfg?.mask || cfg.mask === 'none' || !gridComputed) return null;
+    const own = layerMaskSettings(cfg, cfg.mask === 'word' ? settings.word : fillSettingsById[cfg.mask]);
     if (cfg.mask === 'silhouette') {
-      const s = silhouetteSettings;
+      const s = own;
       if (!s?.src) return null;
       const key = `${JSON.stringify(s)}|${cols}x${rows}`;
       const hit = silhouetteCache.current.get(key);
@@ -1684,23 +1686,22 @@ export function DocumentEditor({ mode: appMode }) {
       }
       return null;
     }
-    const fillSettings = fillSettingsById[cfg.mask];
-    const key = `${cfg.mask}|${cols}x${rows}|${cfg.seed}|${JSON.stringify(cfg.mask === 'word' ? settings.word : fillSettings)}|${!!imagePixels}`;
+    const key = `${cfg.mask}|${cols}x${rows}|${cfg.seed}|${JSON.stringify(own)}|${!!imagePixels}`;
     if (maskCache.current.has(key)) return maskCache.current.get(key);
     const mask = computeLineworkMask(cfg.mask, {
-      cols, rows, realGrid: gridComputed, settings: fillSettings, imagePixels, word: settings.word, seed: cfg.seed,
+      cols, rows, realGrid: gridComputed, settings: own, imagePixels, word: own, seed: cfg.seed,
     });
     if (maskCache.current.size > 40) maskCache.current.clear();
     maskCache.current.set(key, mask);
     return mask;
-  }, [gridComputed, fillSettingsById, imagePixels, silhouetteSettings]);
+  }, [gridComputed, fillSettingsById, imagePixels]);
 
   // Everything a Linework design is built from, hashed. LINEWORK_ENGINE is
   // part of it, so a design saved by an older generator rebuilds on open.
   const lineworkSig = useMemo(() => {
     if (!isLinework || !gridComputed) return null;
     const masks = lineworkSettings.layers.map(l => (l.mask && l.mask !== 'none' && l.mask !== 'word'
-      ? (l.mask === 'silhouette' ? silhouetteSettings : fillSettingsById[l.mask]) : null));
+      ? layerMaskSettings(l, fillSettingsById[l.mask]) : null));
     const str = JSON.stringify([
       LINEWORK_ENGINE, lineworkSettings, gridComputed.cols, gridComputed.rows, colorMode, activePalette, lineworkRoles,
       colorMode === 'gradient' ? activeGradientSettings : null, colorMode === 'mesh' ? meshSettings : null,
@@ -1711,7 +1712,7 @@ export function DocumentEditor({ mode: appMode }) {
     let h = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619) >>> 0;
     return `${h.toString(36)}-${str.length.toString(36)}`;
-  }, [isLinework, gridComputed, lineworkSettings, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imageSrc, backdropSrc, backdropSettings.fit, backdropPixels, fillSettingsById, silhouetteSettings, silhouetteTick, imagePixels, activeLayoutId]);
+  }, [isLinework, gridComputed, lineworkSettings, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imageSrc, backdropSrc, backdropSettings.fit, backdropPixels, fillSettingsById, silhouetteTick, imagePixels, activeLayoutId]);
 
   // With a page layout active, a Linework design fills the layout's grid areas.
   const lineworkAreas = useMemo(() => (activeLayout && gridComputed

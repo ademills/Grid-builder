@@ -31,8 +31,10 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // rules); `fill` makes the single route visit every cell (no crossings),
   // optionally as a closed `loop`. maxLen 200 means no limit.
   route: 'bundles', fill: false, loop: false, bundle: 1, straight: 0.6, maxLen: 40, density: 1, edgeExit: 0.5, weave: 'off', eyes: true,
-  // Region mask: a Generate-panel fill (its own settings) or 'word'
-  mask: 'none', maskFills: ['rings'], maskOutside: 'fill',
+  // Region mask: a Generate-panel fill or 'word'. maskSettings holds this
+  // layer's own settings for each mask it has used, by mask id; a mask the
+  // layer hasn't changed yet starts from the document's (layerMaskSettings).
+  mask: 'none', maskFills: ['rings'], maskOutside: 'fill', maskSettings: {},
   ...over,
 });
 
@@ -51,7 +53,8 @@ export const createLineworkSettings = () => ({
   shadowSwatch: null,
   inkFromImage: false,
   colourSeed: 0,
-  // "Word" region mask (the seed word's letterforms, as in Meander).
+  // "Word" region mask (the seed word's letterforms, as in Meander): what a
+  // layer's word mask starts from.
   word: { text: '', letterSize: 0.7, layout: 'line', randomSize: true, randomPlacement: true, align: 'center' },
   layers: [lineworkLayerDefaults()],
 });

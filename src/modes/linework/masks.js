@@ -43,6 +43,10 @@ export const MASK_SOURCES = [
   ...Object.keys(SOURCES).map(id => FILLS_BY_ID[id]).filter(Boolean).map(f => ({ id: f.id, label: f.label, fill: f })),
 ];
 
+// A layer's settings for its mask: its own once changed, else `fallback`
+// (the document's word, or Grid Pattern's settings for that fill).
+export const layerMaskSettings = (cfg, fallback) => cfg?.maskSettings?.[cfg.mask] ?? fallback ?? null;
+
 // A mask over a cols × rows grid laid across the real grid's pixels (image
 // fills sample the picture there). Returns a Set, or null for no mask.
 export function computeLineworkMask(source, { cols, rows, realGrid, settings, imagePixels, word, seed }) {

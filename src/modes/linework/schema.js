@@ -8,7 +8,7 @@ import { range, oneOf } from '../../panels/schemaUtils';
 // LINEWORK_LINES_SCHEMA as its own section); the Linework panel holds only
 // the layer being edited, base or plate (LINEWORK_LAYER_SCHEMA).
 // ctx: { plate, tiling, layers, layerCount, setEditLayer, maxCells, grid,
-// diamondCells, word, setWord, style }. `surprise` gives Surprise Me's pick
+// diamondCells, word, style }. `surprise` gives Surprise Me's pick
 // for a field; ctx.style (Surprise Me only) keeps plates in the base's style.
 
 const pct = v => `${Math.round(v * 100)}%`;

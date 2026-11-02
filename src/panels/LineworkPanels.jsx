@@ -14,7 +14,6 @@ export function LineworkPanel() {
   const { linework, actions, gridComputed } = useEditor();
   const [preset, setPreset] = useState('');
   const s = linework.settings;
-  const set = (changes) => linework.update(changes);
   const L = s.layers.find(l => l.id === linework.editLayer) ?? s.layers[0];
   const setLayer = (changes) => linework.update(prev => ({
     ...prev, layers: prev.layers.map(l => (l.id === L.id ? { ...l, ...changes } : l)),
@@ -30,7 +29,6 @@ export function LineworkPanel() {
     grid: linework.diamondCells ? { w: linework.diamondCells, h: linework.diamondCells } : { w: gridComputed?.cols ?? 1, h: gridComputed?.rows ?? 1 },
     diamondCells: linework.diamondCells,
     word: s.word,
-    setWord: w => set({ word: { ...s.word, ...w } }),
   };
 
   return (
