@@ -46,6 +46,8 @@ import { symmetricPoints, symmetricPlacements, normaliseSymmetry } from './utils
 import { brushCells, brushOrigin, clampBrush } from './utils/brush';
 import { resolveShapeStroke, strokeAttributes } from './utils/shapeStroke';
 import { mulberry32 } from './utils/rng';
+import { computeColourRegions, regionCellLists, regionDefaults } from './utils/regionFill';
+import { useShapeStore } from './store/shapeStore';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA, LINEWORK_LAYER_SCHEMA } from './modes/linework/schema';
@@ -709,6 +711,7 @@ export function DocumentEditor({ mode: appMode }) {
   const [organicSettings] = useDocField('organicSettings');
 
   const [silhouetteSettings] = useDocField('silhouetteSettings');
+  const [regionSettings] = useDocField('regionSettings');
 
   // Predetermined wireframe layouts. The active layout's grid slot becomes a
   // fill mask for the main Fill button; its other slots render as wireframes.
@@ -1198,7 +1201,8 @@ export function DocumentEditor({ mode: appMode }) {
     brightness: brightnessSettings, noise: noiseSettings, geometric: geometricSettings, halftone: halftoneSettings,
     voronoi: voronoiSettings, spiral: spiralSettings, flowField: flowFieldSettings, fractal: fractalSettings,
     mondrian: mondrianSettings, golden: goldenSettings, organic: organicSettings, silhouette: silhouetteSettings,
-  }), [glitchSettings, stripSettings, multiStripSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, halftoneSettings, voronoiSettings, spiralSettings, flowFieldSettings, fractalSettings, mondrianSettings, goldenSettings, organicSettings, silhouetteSettings]);
+    regions: regionSettings,
+  }), [regionSettings, glitchSettings, stripSettings, multiStripSettings, edgeSettings, brightnessSettings, noiseSettings, geometricSettings, halftoneSettings, voronoiSettings, spiralSettings, flowFieldSettings, fractalSettings, mondrianSettings, goldenSettings, organicSettings, silhouetteSettings]);
 
   // The blocks a fill produces, or { error } when it can't place anything
   // ({ stale } if a newer fill replaced it). `settings` defaults to the
@@ -1219,7 +1223,22 @@ export function DocumentEditor({ mode: appMode }) {
         return { error: err.message };
       }
     }
-    const result = await fillInWorker(fillId, settings, { existing: locked, maskCells, packSeed });
+    // Colour Regions: the regions are found here, the worker packs each one.
+    let regionPlan = null;
+    if (fillId === 'regions') {
+      if (!imagePixels) return { error: 'Colour Regions needs an image in Image colour mode.' };
+      const regions = regionDefaults(settings.numRegions, settings.regions).slice(0, settings.numRegions);
+      const found = computeColourRegions(gridComputed, imagePixels, settings);
+      const lists = regionCellLists(found, gridComputed, regions, settings.seed);
+      const packs = useShapeStore.getState().packs;
+      regionPlan = regions.map((r, i) => ({
+        cells: lists[i],
+        assets: r.shapes === 'enabled' ? activeAssets
+          : (packs.find(p => p.id === r.shapes)?.assetIds ?? []).map(assetById).filter(Boolean),
+        maxScale: r.maxScale ?? 1, scaleFreq: r.scaleFreq ?? 60,
+      }));
+    }
+    const result = await fillInWorker(fillId, settings, { existing: locked, maskCells, packSeed, regionPlan });
     if (result.error || result.stale) return result;
     const rng = packSeed == null ? Math.random : mulberry32(packSeed ^ 0x5bd1e995);
     // Mondrian and Golden Ratio set their own colour seeds.
@@ -1229,7 +1248,7 @@ export function DocumentEditor({ mode: appMode }) {
     // The standard fill keeps the active layout's wireframe placeholders.
     const wireframes = fillId === 'standard' && layoutGridMask ? placedBlocksRef.current.filter(b => b.type === 'wireframe') : [];
     return { blocks: [...wireframes, ...locked, ...shapes] };
-  }, [fillInWorker, fillSettingsById, decorateWith, randomOpacity, layoutGridMask, gridComputed]);
+  }, [fillInWorker, fillSettingsById, decorateWith, randomOpacity, layoutGridMask, gridComputed, imagePixels, activeAssets]);
 
   // The design the last fill made, while it's untouched: { fillId, packSeed,
   // blocks }. Live preview (below) re-runs that fill when its settings change.
@@ -2724,7 +2743,7 @@ export function DocumentEditor({ mode: appMode }) {
 
   const editorContext = useMemo(() => ({
     mode: appMode,
-    gridComputed, validCols, workArea, assetUsageCounts,
+    gridComputed, validCols, workArea, assetUsageCounts, imagePixels,
     knotworkThemeColors,
     linework: {
       settings: lineworkSettings, update: updateLinework, roles: lineworkRoles,

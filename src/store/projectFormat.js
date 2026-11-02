@@ -26,7 +26,7 @@ const MERGED_FIELDS = new Set([
   'voronoiSettings', 'spiralSettings', 'flowFieldSettings', 'fractalSettings', 'mondrianSettings',
   'goldenSettings', 'knotworkSettings', 'backdropSettings', 'animSettings', 'audioSettings',
   'paletteExtractSettings', 'fillOpacity', 'guides', 'groupNames', 'organicSettings', 'silhouetteSettings',
-  'shapeStroke',
+  'shapeStroke', 'regionSettings',
 ]);
 
 function hydrateBlocks(blocks, fileShapes = {}) {

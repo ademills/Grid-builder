@@ -58,7 +58,16 @@ function withoutOverlaps(blocks, existing) {
 //   layoutMask — cells of the active layout's grid area (array), or null
 //   existing   — blocks to pack around: everything for 'gaps', locked shapes for the rest
 //   maskCells  — cells worked out on the main thread (fills that need the DOM)
-function compute({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [], maskCells, packSeed = null }) {
+function compute({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [], maskCells, packSeed = null, regionPlan }) {
+  if (fillId === 'regions') {
+    // Each region packs its own cells with its own shapes and scale.
+    const blocks = [];
+    for (const r of regionPlan ?? []) {
+      if (!r.cells.length || !r.assets.length) continue;
+      blocks.push(...fillMasked(r.assets, grid, new Set(r.cells), r.maxScale, r.scaleFreq, [...existing, ...blocks], packSeed));
+    }
+    return blocks.length ? { blocks } : { error: 'No region has shapes to place — give a region some shapes or more density.' };
+  }
   if (fillId === 'gaps' || fillId === 'standard') {
     return { blocks: layoutMask
       ? fillMasked(assets, grid, new Set(layoutMask), maxScale, scaleFreq, existing, packSeed)

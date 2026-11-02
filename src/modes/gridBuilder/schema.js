@@ -1,7 +1,7 @@
 import { range, oneOf } from '../../panels/schemaUtils';
 import { RD_PRESETS, CA_RULES } from '../../utils/organicFill';
 import { symmetryOptions, normaliseSymmetry, ORGANIC_SYMMETRY } from '../../utils/symmetry';
-import { StripPositions, SilhouetteImage } from './schemaFields';
+import { StripPositions, SilhouetteImage, RegionList } from './schemaFields';
 
 // Grid Pattern's fill settings as data (see panels/schema.jsx), one schema
 // per fill, keyed by fill id. The Generate panel, Linework's mask fills and
@@ -152,6 +152,14 @@ export const FILL_SCHEMAS = {
       options: symmetryOptions(ORGANIC_SYMMETRY).map(m => ({ key: m.key, label: m.icon, title: m.title })),
       surprise: oneOf(['none', 'none', 'mirror-x', 'mirror-both']) },
     invertField(0.2),
+    seedField,
+  ]),
+
+  regions: one([
+    { key: 'note', type: 'note', text: 'The image is split into colour regions, darkest first. Each region gets its own shapes, scale and density.' },
+    { key: 'numRegions', label: 'Regions', type: 'slider', min: 2, max: 8, step: 1, surprise: int(2, 6) },
+    { key: 'smoothing', label: 'Smoothing', type: 'slider', min: 0, max: 3, step: 1, surprise: int(0, 2) },
+    { key: 'regions', type: 'custom', render: RegionList },
     seedField,
   ]),
 

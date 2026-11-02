@@ -3,6 +3,7 @@ import { DEFAULT_ENABLED_IDS } from '../builtinAssets';
 import { ANIM_DEFAULTS } from '../components/AnimationLayer';
 import { createDefaultEffects } from '../effects/effectDefs';
 import { createLineworkSettings } from '../modes/linework/settings';
+import { regionDefaults } from '../utils/regionFill';
 
 // Every piece of per-document state the editor reads via useDocField().
 // Anything not listed here is either app-level (tools, swatch libraries,
@@ -93,6 +94,8 @@ export function createDefaultDocState() {
       rule: 'cave', density: 0.45, generations: 8, wrap: false,
       symmetry: 'off', invert: false, seed: randomSeed(),
     },
+    // Colour Regions fill (utils/regionFill.js): per region { shapes: 'enabled' | pack id | 'none', maxScale, scaleFreq, density }.
+    regionSettings: { numRegions: 4, smoothing: 1, regions: regionDefaults(8), seed: randomSeed() },
     silhouetteSettings: {
       src: null, fit: 'contain', padding: 0.05, threshold: 0.5, source: 'auto',
       scale: 1, offsetX: 0, offsetY: 0, invert: false,

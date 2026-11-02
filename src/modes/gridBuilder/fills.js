@@ -13,6 +13,7 @@ export const FILLS = [
   { id: 'multiStrip', label: 'Multi-Strip',  group: 'Fills', settingsKey: 'multiStripSettings', image: 'suggested' },
   { id: 'edge',       label: 'Edge Trace',   group: 'Fills', settingsKey: 'edgeSettings',       image: 'required' },
   { id: 'brightness', label: 'Brightness',   group: 'Fills', settingsKey: 'brightnessSettings', image: 'required' },
+  { id: 'regions',    label: 'Colour Regions', group: 'Fills', settingsKey: 'regionSettings',   image: 'required' },
   { id: 'noise',      label: 'Noise Field',  group: 'Fills', settingsKey: 'noiseSettings' },
   { id: 'geometric',  label: 'Geometric',    group: 'Fills', settingsKey: 'geometricSettings' },
   { id: 'organic',    label: 'Organic',      group: 'Fills', settingsKey: 'organicSettings' },
