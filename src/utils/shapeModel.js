@@ -13,6 +13,7 @@ import {
 //   paintable — colour modes and pins recolour it (colorize's applyFill
 //               would change it); otherwise it keeps `fixed`
 //   fixed     — its own fill from the artwork as #rrggbb, or null for none
+//   bg        — part of the artwork's background layer (the cell behind the shape)
 //   centre    — average anchor point (viewBox coords), where continuous
 //               animations sample their colour
 //   pts       — anchor points image colour mode samples (as export does)
@@ -112,6 +113,7 @@ function build(svgContent) {
           slot: slotOf.has(node) ? slotOf.get(node) : -1,
           paintable: slotOf.has(node) && isPaintable(node, classFillMap),
           fixed: style.fill === 'none' ? null : rgbToHex(style.fill),
+          bg: !!bgLayer?.contains(node),
           opacity: (parseFloat(style.fillOpacity) || 1) * (parseFloat(style.opacity) || 1),
           centre,
           pts,

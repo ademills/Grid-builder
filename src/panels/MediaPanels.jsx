@@ -1,6 +1,7 @@
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
-import { ImagePicker, Segmented, Stepper, Toggle } from './controls';
+import { ImagePicker, Segmented, Stepper, Toggle, InfoTip } from './controls';
+import { SwatchColourField } from './SwatchColourField';
 import styles from './Panel.module.css';
 
 // Reference / backdrop image shown behind the artboard. In Meander and
@@ -53,6 +54,17 @@ export function ImagePanel() {
               <span className={styles.sliderVal}>{Math.round(settings.tintOpacity * 100)}%</span>
             </div>
           </div>
+          <div className={styles.formRow}>
+            <span className={styles.label}>Cutout<InfoTip text="Shapes become holes in a solid overlay, so the image shows through them. Exported too." /></span>
+            <Toggle value={!!settings.cutout} onChange={v => setSettings({ cutout: v })} />
+          </div>
+          {settings.cutout && (
+            <div className={styles.formRow}>
+              <span className={styles.label}>Overlay</span>
+              <SwatchColourField value={settings.cutoutHex ?? '#111111'} title="Overlay colour"
+                onChange={(hex, swatch) => setSettings({ cutoutHex: hex, cutoutSwatch: swatch ?? null })} />
+            </div>
+          )}
           {mode === 'knotwork' && (
             <div className={styles.formRow}>
               <span className={styles.label}>Ink from image</span>

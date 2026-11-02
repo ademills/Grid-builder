@@ -148,7 +148,12 @@ export function createDefaultDocState() {
 
     // Image layers
     backdropSrc: null,
-    backdropSettings: { mode: 'reference', opacity: 0.5, fit: 'contain', tintColour: '#000000', tintOpacity: 0 },
+    // cutout: shapes become holes in a solid overlay that the image shows
+    // through (7.3); the overlay is cutoutHex, or the swatch cutoutSwatch.
+    backdropSettings: {
+      mode: 'reference', opacity: 0.5, fit: 'contain', tintColour: '#000000', tintOpacity: 0,
+      cutout: false, cutoutHex: '#111111', cutoutSwatch: null,
+    },
 
     // Raster effects (Effects panel) — see effects/effectDefs.js.
     effects: createDefaultEffects(),

@@ -18,7 +18,7 @@ import { composeKnotworkLayers } from './utils/knotworkCompose';
 import { buildMeanderBlocks, carryGeneratedEdits, isMeanderBlock, vectorTransform, vectorAt } from './utils/meanderBlocks';
 import { composeMeanderPlates } from './utils/meanderPlates';
 import { LAYOUTS, computeGridMask, computeLayoutRegions, buildWireframeBlocks, wireframeRects } from './utils/layouts';
-import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift } from './utils/colorize';
+import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift, findLayer } from './utils/colorize';
 import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
@@ -187,7 +187,8 @@ function buildFlatSvgElement({
   bgRect.setAttribute('fill', canvasBg);
   out.appendChild(bgRect);
 
-  if (backdropSrc && backdropSettings?.mode === 'backdrop') {
+  // Cutout shows the image through the shapes, so it's always exported then.
+  if (backdropSrc && (backdropSettings?.mode === 'backdrop' || backdropSettings?.cutout)) {
     const bdImg = document.createElementNS(FLAT_SVG_NS, 'image');
     bdImg.setAttributeNS('http://www.w3.org/1999/xlink', 'href', backdropSrc);
     bdImg.setAttribute('href', backdropSrc);
@@ -398,6 +399,41 @@ function buildFlatSvgElement({
     if (outline) addOutline(g, outline, scale, `outline-${index}`);
     blocksGroup.appendChild(withAppearance(g, block, index));
   });
+
+  // Cutout (7.3): the shapes become holes in a solid overlay. They move into
+  // a mask (black = hole) and the shapes layer holds the masked overlay.
+  if (backdropSettings?.cutout) {
+    const colour = (backdropSettings.cutoutSwatch && swatchMap?.[backdropSettings.cutoutSwatch]) || backdropSettings.cutoutHex || '#111111';
+    const full = (el) => { el.setAttribute('x', '0'); el.setAttribute('y', '0'); el.setAttribute('width', String(exportW)); el.setAttribute('height', String(exportH)); return el; };
+    const defs = document.createElementNS(FLAT_SVG_NS, 'defs');
+    const mask = full(document.createElementNS(FLAT_SVG_NS, 'mask'));
+    mask.setAttribute('id', 'cutout-mask');
+    mask.setAttribute('maskUnits', 'userSpaceOnUse');
+    const white = full(document.createElementNS(FLAT_SVG_NS, 'rect'));
+    white.setAttribute('fill', '#ffffff');
+    mask.appendChild(white);
+    const holes = blocksGroup.cloneNode(true);
+    holes.removeAttribute('data-layer');
+    holes.removeAttribute('style');
+    // Only the shapes are holes, not the cells behind them.
+    for (const g of holes.children) (findLayer(g, 'background') || findLayer(g, 'bg'))?.remove();
+    for (const el of [holes, ...holes.querySelectorAll('*')]) {
+      el.removeAttribute('data-block');
+      el.style?.removeProperty('mix-blend-mode');
+      for (const k of ['fill', 'stroke']) {
+        const v = el.style?.getPropertyValue(k) || el.getAttribute(k);
+        el.style?.removeProperty(k);
+        if (v && v !== 'none' && v !== 'transparent') el.setAttribute(k, '#000000');
+      }
+    }
+    mask.appendChild(holes);
+    defs.appendChild(mask);
+    out.insertBefore(defs, blocksGroup);
+    const overlay = full(document.createElementNS(FLAT_SVG_NS, 'rect'));
+    overlay.setAttribute('fill', colour);
+    overlay.setAttribute('mask', 'url(#cutout-mask)');
+    blocksGroup.replaceChildren(overlay);
+  }
 
   // Optional reference layer: the wireframe placeholders, drawn on top of
   // everything else. Off by default so normal exports contain only artwork.
@@ -2933,7 +2969,7 @@ export function DocumentEditor({ mode: appMode }) {
             onContextMenu={handleOpenContextMenu}
             blendMode={blendMode}
             highlightIds={layerHighlight}
-            hideImages={liveEffects}
+            hideImages={liveEffects || !!backdropSettings.cutout}
           />
           <AnimationLayer animSettings={animSettings} />
           <Overlays ids={overlayIds} width={workArea.width} height={workArea.height} scale={viewTransform.scale} />

@@ -236,12 +236,15 @@ function buildBatches(p, frame, flicker) {
   const layers = [];
   const strokes = [];
   const own = [];
+  // Cutout: only the shapes themselves are holes, not the cells behind them.
+  const cut = !!p.backdropSettings?.cutout;
   for (const block of p.blocks) {
     if (!isShape(block)) continue;
     const model = getShapeModel(block.svgContent);
     if (!model) continue;
     const box = { x: gx + block.gridCol * cellSize, y: gy + block.gridRow * cellSize, w: block.cols * cellSize, h: block.rows * cellSize };
-    const colours = elementColours(block, model, box, p, frame, flicker);
+    let colours = elementColours(block, model, box, p, frame, flicker);
+    if (cut) colours = colours.map((c, i) => (model.elements[i].bg ? null : c));
     const outline = resolveShapeStroke(block, p.shapeStroke, p.swatchMap);
     const stroke = outline && { ...outline, px: outline.width * cellSize };
     if ((block.opacity ?? 1) < 1 || BLEND(block.blendMode) !== 'source-over') {
@@ -341,6 +344,62 @@ function drawShapes(ctx, p, batches, view, dpr) {
   }
 }
 
+// Draws the image and vector blocks (which the SVG layer shows normally).
+function drawLayerBlocks(ctx, p, view, dpr, onImage) {
+  if (!p.gridComputed) return;
+  const k = dpr * view.scale;
+  const { cellSize, gridOriginX: gx, gridOriginY: gy } = p.gridComputed;
+  ctx.setTransform(k, 0, 0, k, dpr * view.x, dpr * view.y);
+  for (const b of p.blocks) {
+    if (b.hidden) continue;
+    const x = gx + b.gridCol * cellSize, y = gy + b.gridRow * cellSize, w = b.cols * cellSize, h = b.rows * cellSize;
+    if (b.type === 'vector') {
+      let path = vectorPaths.get(b);
+      if (!path) vectorPaths.set(b, path = new Path2D(b.d));
+      const { s, tx, ty } = vectorFit(b, { x, y, w, h });
+      ctx.save();
+      ctx.globalAlpha = b.opacity ?? 1;
+      ctx.globalCompositeOperation = BLEND(b.blendMode);
+      ctx.transform(s, 0, 0, s, tx, ty);
+      if (b.blur > 0) ctx.filter = `blur(${b.blur * s * k}px)`;
+      ctx.fillStyle = b.fill;
+      ctx.fill(path);
+      ctx.restore();
+      continue;
+    }
+    if (b.type !== 'image' || !b.imageSrc) continue;
+    const img = loadImage(b.imageSrc, onImage);
+    if (!img) continue;
+    const iw = img.naturalWidth || w, ih = img.naturalHeight || h;
+    ctx.save();
+    ctx.globalAlpha = b.opacity ?? 1;
+    ctx.globalCompositeOperation = BLEND(b.blendMode);
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    if (b.imageFit === 'stretch') ctx.drawImage(img, x, y, w, h);
+    else {
+      const s = b.imageFit === 'cover' ? Math.max(w / iw, h / ih) : Math.min(w / iw, h / ih);
+      ctx.drawImage(img, x + (w - iw * s) / 2, y + (h - ih * s) / 2, iw * s, ih * s);
+    }
+    ctx.restore();
+  }
+}
+
+// Cutout (7.3): the overlay colour, or null when Cutout is off.
+const cutoutColour = (p) => (p.backdropSettings?.cutout
+  ? (p.backdropSettings.cutoutSwatch && p.swatchMap?.[p.backdropSettings.cutoutSwatch]) || p.backdropSettings.cutoutHex || '#111111'
+  : null);
+
+// Turns what's on the shapes canvas into holes in a solid overlay over the
+// artboard, so the background (the image) shows through the shapes.
+function cutOut(ctx, p, view, dpr, colour) {
+  const k = dpr * view.scale;
+  ctx.setTransform(k, 0, 0, k, dpr * view.x, dpr * view.y);
+  ctx.globalCompositeOperation = 'source-out';
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, 0, p.workArea.width, p.workArea.height);
+  ctx.globalCompositeOperation = 'source-over';
+}
+
 // Live raster effects: the background, shapes and image blocks are composited
 // into one canvas, which the effects shader draws onto the visible effects
 // canvas (the other two are hidden while it shows).
@@ -360,44 +419,10 @@ function drawEffects(renderer, p, bg, fg, view, dpr, onImage) {
   ctx.filter = 'none';
   ctx.globalCompositeOperation = 'source-over';
 
-  // Image and vector blocks (e.g. Meander strands) live in the SVG layer, so draw them here too.
+  // Image and vector blocks (e.g. Meander strands) live in the SVG layer, so
+  // draw them here too — unless Cutout already drew them into the shapes.
   const k = dpr * view.scale;
-  if (p.gridComputed) {
-    const { cellSize, gridOriginX: gx, gridOriginY: gy } = p.gridComputed;
-    ctx.setTransform(k, 0, 0, k, dpr * view.x, dpr * view.y);
-    for (const b of p.blocks) {
-      if (b.hidden) continue;
-      const x = gx + b.gridCol * cellSize, y = gy + b.gridRow * cellSize, w = b.cols * cellSize, h = b.rows * cellSize;
-      if (b.type === 'vector') {
-        let path = vectorPaths.get(b);
-        if (!path) vectorPaths.set(b, path = new Path2D(b.d));
-        const { s, tx, ty } = vectorFit(b, { x, y, w, h });
-        ctx.save();
-        ctx.globalAlpha = b.opacity ?? 1;
-        ctx.globalCompositeOperation = BLEND(b.blendMode);
-        ctx.transform(s, 0, 0, s, tx, ty);
-        if (b.blur > 0) ctx.filter = `blur(${b.blur * s * k}px)`;
-        ctx.fillStyle = b.fill;
-        ctx.fill(path);
-        ctx.restore();
-        continue;
-      }
-      if (b.type !== 'image' || !b.imageSrc) continue;
-      const img = loadImage(b.imageSrc, onImage);
-      if (!img) continue;
-      const iw = img.naturalWidth || w, ih = img.naturalHeight || h;
-      ctx.save();
-      ctx.globalAlpha = b.opacity ?? 1;
-      ctx.globalCompositeOperation = BLEND(b.blendMode);
-      ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
-      if (b.imageFit === 'stretch') ctx.drawImage(img, x, y, w, h);
-      else {
-        const s = b.imageFit === 'cover' ? Math.max(w / iw, h / ih) : Math.min(w / iw, h / ih);
-        ctx.drawImage(img, x + (w - iw * s) / 2, y + (h - ih * s) / 2, iw * s, ih * s);
-      }
-      ctx.restore();
-    }
-  }
+  if (!cutoutColour(p)) drawLayerBlocks(ctx, p, view, dpr, onImage);
   renderer.render(composite, p.effects, {
     k, off: [dpr * view.x, dpr * view.y], artSize: p.workArea, outW: bg.width, outH: bg.height,
   });
@@ -442,7 +467,8 @@ export function ShapeCanvas(props) {
     // filter animation is in play, which apply to the shapes alone.
     const ownBlend = p.blocks.some(b => isShape(b) && b.blendMode && b.blendMode !== 'normal');
     const layerEffect = (p.blendMode && p.blendMode !== 'normal') || (p.animSettings?.enabled && FILTER_TYPES.has(p.animSettings.type));
-    if (ownBlend && !layerEffect) drawBackground(fg, p, image);
+    const cutout = cutoutColour(p);
+    if (ownBlend && !layerEffect && !cutout) drawBackground(fg, p, image);
     const a = animState.current;
     let batches;
     if (a) {
@@ -452,15 +478,20 @@ export function ShapeCanvas(props) {
       const key = staticKey.current;
       if (!key || key.blocks !== p.blocks || key.colourCtx !== p.colourCtx || key.imagePixels !== p.imagePixels
         || key.colourRemap !== p.colourRemap || key.gridComputed !== p.gridComputed
-        || key.shapeStroke !== p.shapeStroke || key.swatchMap !== p.swatchMap) {
+        || key.shapeStroke !== p.shapeStroke || key.swatchMap !== p.swatchMap || key.cutout !== !!p.backdropSettings?.cutout) {
         staticKey.current = {
           blocks: p.blocks, colourCtx: p.colourCtx, imagePixels: p.imagePixels, colourRemap: p.colourRemap,
-          gridComputed: p.gridComputed, shapeStroke: p.shapeStroke, swatchMap: p.swatchMap, batches: buildBatches(p, null, null),
+          gridComputed: p.gridComputed, shapeStroke: p.shapeStroke, swatchMap: p.swatchMap, cutout: !!p.backdropSettings?.cutout,
+          batches: buildBatches(p, null, null),
         };
       }
       batches = staticKey.current.batches;
     }
     drawShapes(fg, p, batches, p.viewTransform, dpr);
+    if (cutout) {
+      drawLayerBlocks(fg, p, p.viewTransform, dpr, () => setImageTick(t => t + 1));
+      cutOut(fg, p, p.viewTransform, dpr, cutout);
+    }
 
     const live = effectsActive(p.effects) && p.effects.preview && fxRef.current;
     if (live && fxRenderer.current === undefined) {
