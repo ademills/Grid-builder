@@ -5,6 +5,7 @@ import { useAppStore } from '../store/appStore';
 import { ImagePicker, InfoTip, Toggle } from './controls';
 import { SwatchRoleField } from './SwatchColourField';
 import { normalizeHex, hslToHex } from './panelUtils';
+import { addSwatchGroup } from '../utils/colourGuide';
 import styles from './Panel.module.css';
 
 const COLOUR_MODES = [
@@ -22,21 +23,34 @@ const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'h
 const capitalise = s => s[0].toUpperCase() + s.slice(1).replace('-', ' ');
 
 // The document palette as one chip: its name and colours. Opens Swatches.
+// + keeps the palette as a swatch group (6.2), so it survives using another
+// library or Surprise Me.
 function PaletteChip() {
   const [paletteKey] = useDocField('paletteKey');
-  const [shapeColors] = useDocField('shapeColors');
+  const [shapeColors, setShapeColors] = useDocField('shapeColors');
   const showDockTab = useAppStore(s => s.showDockTab);
+  const showToast = useAppStore(s => s.showToast);
+  const palette = shapeColors.filter(c => c.enabled !== false);
+  const keep = () => {
+    const { swatches, group } = addSwatchGroup(shapeColors, paletteKey || 'Palette', palette.map(c => c.hex));
+    setShapeColors(swatches);
+    showToast(`Added swatch group “${group}”`);
+  };
   return (
-    <button className={styles.paletteChooserBtn} style={{ marginBottom: 8 }} onClick={() => showDockTab('colour', 'swatches')}
-      title="Edit swatches or pick a library in the Swatches panel">
-      <span className={styles.paletteChooserName}>{paletteKey || 'Document'}</span>
-      <span className={styles.paletteChooserSwatches}>
-        {shapeColors.filter(c => c.enabled !== false).map(c => (
-          <span key={c.id} className={styles.paletteChooserSwatch} style={{ background: c.hex }} title={c.name || c.hex} />
-        ))}
-      </span>
-      <span className={styles.paletteChooserArrow}>›</span>
-    </button>
+    <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+      <button className={styles.paletteChooserBtn} style={{ flex: 1, minWidth: 0 }} onClick={() => showDockTab('colour', 'swatches')}
+        title="Edit swatches or pick a library in the Swatches panel">
+        <span className={styles.paletteChooserName}>{paletteKey || 'Document'}</span>
+        <span className={styles.paletteChooserSwatches}>
+          {palette.map(c => (
+            <span key={c.id} className={styles.paletteChooserSwatch} style={{ background: c.hex }} title={c.name || c.hex} />
+          ))}
+        </span>
+        <span className={styles.paletteChooserArrow}>›</span>
+      </button>
+      <button className={styles.addQuickBtn} onClick={keep} disabled={!palette.length}
+        title="Add to swatches: keep this palette as a swatch group">+</button>
+    </div>
   );
 }
 

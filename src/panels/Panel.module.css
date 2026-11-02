@@ -1595,3 +1595,43 @@ input[type='range']:not(:disabled) + .sliderVal:hover {
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+
+/* Swatch groups and the Colour Guide (Swatches panel) */
+.swatchGroup {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--chrome-border);
+}
+
+.colourGuide { margin-top: 4px; }
+
+.guideRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.guideLabel {
+  width: 92px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--chrome-text-dim, #9a9a9a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.guideChips { display: flex; flex: 1; gap: 2px; }
+
+.guideChip {
+  flex: 1;
+  height: 16px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.guideChip:hover { outline: 2px solid var(--chrome-accent); outline-offset: 1px; }

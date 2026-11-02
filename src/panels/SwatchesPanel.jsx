@@ -10,6 +10,7 @@ import { importSwatchLibrary } from '../shell/commands';
 import { ColorPicker } from './ColorPicker';
 import { Stepper, Toggle, InfoTip } from './controls';
 import { SWATCH_MIME } from './panelUtils';
+import { colourHarmonies, swatchGroupNames, addSwatchGroup, reorderSubset } from '../utils/colourGuide';
 import styles from './Panel.module.css';
 
 // Built-in palettes presented as read-only libraries.
@@ -88,7 +89,32 @@ function SwatchGrid({ swatches, selectedId, onSelect, onReorder, usage }) {
   );
 }
 
-function SwatchEditor({ swatch, onChange, onDelete, usage, showPaletteToggle }) {
+// Colour Guide: harmonies of the selected swatch. Click a colour to add it
+// as a swatch; + adds the whole row as a swatch group.
+function ColourGuide({ hex, onAdd, onAddGroup }) {
+  const harmonies = useMemo(() => colourHarmonies(hex), [hex]);
+  return (
+    <div className={styles.colourGuide}>
+      <div className={styles.subHeading} style={{ margin: '8px 0 4px', padding: 0, border: 'none' }}>
+        Colour guide
+        <InfoTip text="Click a colour to add it as a swatch; + adds the row as a swatch group" />
+      </div>
+      {harmonies.map(h => (
+        <div key={h.id} className={styles.guideRow}>
+          <span className={styles.guideLabel}>{h.label}</span>
+          <span className={styles.guideChips}>
+            {h.colours.map((c, i) => (
+              <button key={i} className={styles.guideChip} style={{ background: c }} title={`${c} — add as a swatch`} onClick={() => onAdd(c)} />
+            ))}
+          </span>
+          <button className={styles.addQuickBtn} title={`Add as a group (${h.label})`} onClick={() => onAddGroup(h)}>+</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SwatchEditor({ swatch, onChange, onDelete, usage, showPaletteToggle, groups, onAdd, onAddGroup }) {
   return (
     <div className={styles.swatchEditor}>
       <ColorPicker value={swatch.hex} onChange={hex => onChange({ hex })} />
@@ -97,6 +123,20 @@ function SwatchEditor({ swatch, onChange, onDelete, usage, showPaletteToggle }) 
         <input className={styles.hexInput} style={{ fontFamily: 'inherit' }} placeholder="Unnamed"
           value={swatch.name ?? ''} onChange={e => onChange({ name: e.target.value })} spellCheck={false} />
       </div>
+      {groups && (
+        <div className={styles.formRow}>
+          <span className={styles.label}>Group</span>
+          <select className={styles.select} value={swatch.group ?? ''}
+            onChange={e => {
+              const v = e.target.value === '__new__' ? prompt('Group name', 'Group') : e.target.value;
+              if (v !== null) onChange({ group: v || undefined });
+            }}>
+            <option value="">None (palette)</option>
+            {groups.map(g => <option key={g} value={g}>{g}</option>)}
+            <option value="__new__">New group…</option>
+          </select>
+        </div>
+      )}
       {showPaletteToggle && (
         <div className={styles.formRow}>
           <span className={styles.label}>In palette</span>
@@ -110,9 +150,36 @@ function SwatchEditor({ swatch, onChange, onDelete, usage, showPaletteToggle }) 
         </span>
         <button className={styles.actionBtn} onClick={onDelete}>Delete</button>
       </div>
+      {onAdd && <ColourGuide hex={swatch.hex} onAdd={onAdd} onAddGroup={onAddGroup} />}
     </div>
   );
 }
+
+// A document swatch group: its name, its swatches and what can be done with it.
+function SwatchGroup({ name, swatches, selectedId, onSelect, onReorder, usage, onUse, onRename, onUngroup, onDelete, children }) {
+  const [renaming, setRenaming] = useState(false);
+  return (
+    <div className={styles.swatchGroup}>
+      <div className={styles.swatchHeader}>
+        {renaming ? (
+          <input className={styles.hexInput} style={{ fontFamily: 'inherit', flex: 1 }} autoFocus defaultValue={name}
+            onBlur={e => { if (e.target.value.trim()) onRename(e.target.value.trim()); setRenaming(false); }}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setRenaming(false); }} />
+        ) : (
+          <div className={styles.subHeading} style={{ margin: 0, padding: 0, border: 'none', flex: 1 }}
+            onDoubleClick={() => setRenaming(true)} title="Double-click to rename">{name}</div>
+        )}
+        <button className={styles.addQuickBtn} onClick={onUse} title="Use as the document palette">Use</button>
+        <button className={styles.addQuickBtn} onClick={onUngroup} title="Move these swatches into the palette list">Ungroup</button>
+        <button className={styles.addQuickBtn} onClick={onDelete} title="Delete the group and its swatches">✕</button>
+      </div>
+      <SwatchGrid swatches={swatches} selectedId={selectedId} onSelect={onSelect} onReorder={onReorder} usage={usage} />
+      {children}
+    </div>
+  );
+}
+
+const withoutGroup = (c) => { const rest = { ...c }; delete rest.group; return rest; };
 
 function LibraryRow({ lib, open, onToggle, onApply, onAdd, onAddOne, onExport, onRename, onDelete, active }) {
   const [renaming, setRenaming] = useState(false);
@@ -227,11 +294,28 @@ export function SwatchesPanel() {
     const [, set] = listFor(selected.list);
     set(prev => prev.map(c => (c.id === selected.id ? { ...c, ...changes } : c)));
   };
+  // Swatch groups (6.2, 6.4).
+  const groupNames = swatchGroupNames(shapeColors);
+  const addGroup = (name, hexes) => {
+    const { swatches, group } = addSwatchGroup(shapeColors, name, hexes);
+    setShapeColors(swatches);
+    showToast(`Added swatch group “${group}”`);
+  };
+  const addGuideColour = hex => {
+    const s = newSwatch(hex, { enabled: false, ...(selectedSwatch?.group ? { group: selectedSwatch.group } : {}) });
+    setShapeColors(prev => [...prev, s]);
+  };
   const deleteSelected = () => {
     const [, set] = listFor(selected.list);
     set(prev => prev.filter(c => c.id !== selected.id));
     setSelected(null);
   };
+
+  const shapeEditor = selectedSwatch && (
+    <SwatchEditor swatch={selectedSwatch} onChange={updateSelected} onDelete={deleteSelected}
+      usage={usage[selectedSwatch.id] ?? 0} showPaletteToggle groups={groupNames}
+      onAdd={addGuideColour} onAddGroup={h => addGroup(`${h.label} ${selectedSwatch.hex}`, h.colours)} />
+  );
 
   const docLibrary = () => ({ name: paletteKey || 'Document swatches', swatches: shapeColors.map(c => ({ hex: c.hex, ...(c.name ? { name: c.name } : {}) })) });
 
@@ -291,20 +375,36 @@ export function SwatchesPanel() {
             onClick={() => { const name = prompt('Library name', paletteKey || 'My swatches'); if (name) { addLibrary(name, docLibrary().swatches); showToast(`Saved library “${name}”`); } }}>Save</button>
         </div>
         <SwatchGrid
-          swatches={shapeColors}
+          swatches={shapeColors.filter(c => !c.group)}
           selectedId={selected?.list === 'shape' ? selected.id : null}
           onSelect={id => pickSwatch('shape', id)}
-          onReorder={setShapeColors}
+          onReorder={sub => setShapeColors(prev => reorderSubset(prev, sub))}
           usage={usage}
         />
-        {selectedSwatch && selected.list === 'shape' && (
-          <SwatchEditor swatch={selectedSwatch} onChange={updateSelected} onDelete={deleteSelected}
-            usage={usage[selectedSwatch.id] ?? 0} showPaletteToggle />
-        )}
+        {selectedSwatch && selected.list === 'shape' && !selectedSwatch.group && shapeEditor}
         <div className={styles.swatchFooter}>
+          <button className={styles.addQuickBtn} title="Keep the palette's colours as a swatch group (it stays when you use another library)"
+            onClick={() => addGroup(paletteKey || 'Palette', shapeColors.filter(c => !c.group && c.enabled !== false).map(c => c.hex))}>Add as group</button>
           <span style={{ flex: 1 }} />
           <ExportMenu onPick={f => exportLibrary(docLibrary(), f)} />
         </div>
+        {groupNames.map(g => {
+          const members = shapeColors.filter(c => c.group === g);
+          return (
+            <SwatchGroup key={g} name={g} swatches={members}
+              selectedId={selected?.list === 'shape' ? selected.id : null}
+              onSelect={id => pickSwatch('shape', id)}
+              onReorder={sub => setShapeColors(prev => reorderSubset(prev, sub))}
+              usage={usage}
+              onUse={() => applyLibrary({ name: g, swatches: members.map(c => ({ hex: c.hex, ...(c.name ? { name: c.name } : {}) })) })}
+              onRename={name => setShapeColors(prev => prev.map(c => (c.group === g ? { ...c, group: name } : c)))}
+              onUngroup={() => setShapeColors(prev => prev.map(c => (c.group === g ? withoutGroup(c) : c)))}
+              onDelete={() => setShapeColors(prev => prev.filter(c => c.group !== g || usage[c.id]).map(c => (c.group === g ? withoutGroup(c) : c)))}
+            >
+              {selectedSwatch && selected.list === 'shape' && selectedSwatch.group === g && shapeEditor}
+            </SwatchGroup>
+          );
+        })}
 
         {isGrid && (
           <>
@@ -398,6 +498,8 @@ export function SwatchesPanel() {
           )}
           <div className={styles.actionBtns}>
             <button className={styles.actionBtn} disabled={!extracted.palette.length} onClick={actions.applyExtractedToShapes}>Use as swatches</button>
+            <button className={styles.actionBtn} disabled={!extracted.palette.length} onClick={() => addGroup('Extracted', extracted.palette)}
+              title="Add these colours as a swatch group">Add to swatches</button>
             <button className={styles.actionBtn} disabled={!extracted.palette.length} onClick={actions.applyExtractedToBg}>Use as backgrounds</button>
             <button className={styles.actionBtn} disabled={!extracted.palette.length}
               onClick={() => { const name = prompt('Library name', 'Extracted'); if (name) addLibrary(name, extracted.palette.map(hex => ({ hex }))); }}>Save as library</button>
