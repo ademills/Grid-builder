@@ -4,6 +4,7 @@
 // re-attached on the main thread (workers/fillClient.js).
 
 import { fillGrid, fillMasked } from '../utils/binPack';
+import { mulberry32 } from '../utils/rng';
 import { computeGlitchMask } from '../utils/glitchFill';
 import { computeStripMask, computeMultiStripMask } from '../utils/stripFill';
 import { computeEdgeMask } from '../utils/edgeFill';
@@ -57,11 +58,11 @@ function withoutOverlaps(blocks, existing) {
 //   layoutMask — cells of the active layout's grid area (array), or null
 //   existing   — blocks to pack around: everything for 'gaps', locked shapes for the rest
 //   maskCells  — cells worked out on the main thread (fills that need the DOM)
-function compute({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [], maskCells }) {
+function compute({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [], maskCells, packSeed = null }) {
   if (fillId === 'gaps' || fillId === 'standard') {
     return { blocks: layoutMask
-      ? fillMasked(assets, grid, new Set(layoutMask), maxScale, scaleFreq, existing)
-      : fillGrid(assets, grid, maxScale, scaleFreq, existing) };
+      ? fillMasked(assets, grid, new Set(layoutMask), maxScale, scaleFreq, existing, packSeed)
+      : fillGrid(assets, grid, maxScale, scaleFreq, existing, packSeed) };
   }
   if (fillId === 'mondrian') return { blocks: withoutOverlaps(generateMondrianLayout(assets, grid, settings), existing) };
   if (fillId === 'golden') return { blocks: withoutOverlaps(generateGoldenLayout(assets, grid, settings), existing) };
@@ -73,14 +74,19 @@ function compute({ fillId, settings, grid, assets, imagePixels, layoutMask, maxS
   if (cells.size === 0) return { error: def.empty };
   // Glitch has its own scale settings; the rest use the document's.
   const [ms, sf] = fillId === 'glitch' ? [settings.maxScale, settings.scaleFreq] : [maxScale, scaleFreq];
-  return { blocks: fillMasked(assets, grid, cells, ms, sf, existing) };
+  return { blocks: fillMasked(assets, grid, cells, ms, sf, existing, packSeed) };
 }
 
 self.onmessage = ({ data }) => {
   const { id, request } = data;
+  // A seeded fill: every random choice the packers make comes from the seed.
+  const random = Math.random;
+  if (request.packSeed != null) Math.random = mulberry32(request.packSeed);
   try {
     self.postMessage({ id, ...compute(request) });
   } catch (err) {
     self.postMessage({ id, error: `The fill failed: ${err?.message ?? err}` });
+  } finally {
+    Math.random = random;
   }
 };

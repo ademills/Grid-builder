@@ -1,3 +1,26 @@
+import { mulberry32 } from './rng';
+
+// A well-mixed 32-bit seed for one grid cell.
+function hashCell(seed, c, r) {
+  let h = (seed ^ Math.imul(c + 0x9e37, 0x85ebca6b) ^ Math.imul(r + 0x79b9, 0xc2b2ae35)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d);
+  h = Math.imul(h ^ (h >>> 15), 0x846ca68b);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+// The first shape from `start` round the pool that fits, preferring one
+// that isn't a neighbour's.
+function pickSeeded(pool, start, near, fits) {
+  let fallback = null;
+  for (let i = 0; i < pool.length; i++) {
+    const asset = pool[(start + i) % pool.length];
+    if (!fits(asset)) continue;
+    if (!near.has(asset.id)) return asset;
+    fallback ??= asset;
+  }
+  return fallback;
+}
+
 /**
  * Greedy 2-D bin packer.
  *
@@ -11,9 +34,11 @@
  * allowedCells – optional Set of "col,row" strings; when given, only cells in
  *                the set may be used as anchors or covered by a block's footprint
  *
+ * seed        – optional; makes the layout repeatable and position-stable
+ *
  * Returns an array of placed-block descriptors ready for the canvas renderer.
  */
-function packGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlocks = [], allowedCells = null) {
+function packGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlocks = [], allowedCells = null, seed = null) {
   if (!gridComputed || !assets || assets.length === 0) return [];
 
   const { cols, rows } = gridComputed;
@@ -21,12 +46,18 @@ function packGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlo
   // 2-D occupancy map
   const occupied = Array.from({ length: rows }, () => new Array(cols).fill(false));
 
-  const pool = [...assets].sort(() => Math.random() - 0.5);
+  // Seeded: each cell's choices come from (seed, col, row) rather than from
+  // the order cells are visited, so changing which cells are filled leaves
+  // the others as they were (live preview stays steady). Cells avoid their
+  // left and upper neighbours' shapes instead of cycling through the pool.
+  const random = seed != null ? mulberry32(seed) : Math.random;
+  const pool = [...assets].sort(() => random() - 0.5);
+  const owner = seed != null ? Array.from({ length: rows }, () => new Array(cols).fill(null)) : null;
   let poolIdx = 0;
 
   const reshufflePool = () => {
     for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
   };
@@ -48,10 +79,12 @@ function packGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlo
     return true;
   };
 
-  const markOccupied = (c, r, bw, bh) => {
+  const markOccupied = (c, r, bw, bh, assetId = null) => {
     for (let dr = 0; dr < bh; dr++)
-      for (let dc = 0; dc < bw; dc++)
+      for (let dc = 0; dc < bw; dc++) {
         occupied[r + dr][c + dc] = true;
+        if (owner) owner[r + dr][c + dc] = assetId;
+      }
   };
 
   const makeBlock = (asset, c, r, scaledCols, scaledRows) => ({
@@ -79,11 +112,34 @@ function packGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlo
       if (allowedCells && !allowedCells.has(`${c},${r}`)) continue;
 
       let found = false;
+      const roll = seed != null ? mulberry32(hashCell(seed, c, r)) : Math.random;
+      if (seed != null) {
+        // Where this cell starts looking in the pool, and the neighbours' shapes.
+        poolIdx = Math.floor(roll() * pool.length);
+        const near = new Set([c > 0 ? owner[r][c - 1] : null, r > 0 ? owner[r - 1][c] : null]);
+        if (shouldScale && roll() * 100 < scaleFreq) {
+          const scale = Math.floor(roll() * (maxScale - 1)) + 2;
+          const asset = pickSeeded(pool, poolIdx, near, a => canPlace(c, r, a.cols * scale, a.rows * scale));
+          if (asset) {
+            markOccupied(c, r, asset.cols * scale, asset.rows * scale, asset.id);
+            placed.push(makeBlock(asset, c, r, asset.cols * scale, asset.rows * scale));
+            continue;
+          }
+        }
+        const asset = pickSeeded(pool, poolIdx, near, a => canPlace(c, r, a.cols, a.rows));
+        if (asset) {
+          markOccupied(c, r, asset.cols, asset.rows, asset.id);
+          placed.push(makeBlock(asset, c, r, asset.cols, asset.rows));
+        } else {
+          occupied[r][c] = true;
+        }
+        continue;
+      }
 
       // Attempt scaled placement if this anchor cell wins the frequency roll.
       // Pick a random integer scale in [2, maxScale] so all steps are reachable.
-      if (shouldScale && Math.random() * 100 < scaleFreq) {
-        const scale = Math.floor(Math.random() * (maxScale - 1)) + 2;
+      if (shouldScale && roll() * 100 < scaleFreq) {
+        const scale = Math.floor(roll() * (maxScale - 1)) + 2;
         for (let i = 0; i < pool.length; i++) {
           const asset = pool[(poolIdx + i) % pool.length];
           const sc = asset.cols * scale;
@@ -119,8 +175,8 @@ function packGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlo
   return placed;
 }
 
-export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlocks = []) {
-  return packGrid(assets, gridComputed, maxScale, scaleFreq, existingBlocks, null);
+export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, existingBlocks = [], seed = null) {
+  return packGrid(assets, gridComputed, maxScale, scaleFreq, existingBlocks, null, seed);
 }
 
 /**
@@ -128,6 +184,6 @@ export function fillGrid(assets, gridComputed, maxScale = 1, scaleFreq = 0, exis
  * used by mask-driven fills (Glitch, Strip, ...) so blocks only appear (and
  * only grow) inside the active region.
  */
-export function fillMasked(assets, gridComputed, activeCells, maxScale = 1, scaleFreq = 0, existingBlocks = []) {
-  return packGrid(assets, gridComputed, maxScale, scaleFreq, existingBlocks, activeCells);
+export function fillMasked(assets, gridComputed, activeCells, maxScale = 1, scaleFreq = 0, existingBlocks = [], seed = null) {
+  return packGrid(assets, gridComputed, maxScale, scaleFreq, existingBlocks, activeCells, seed);
 }

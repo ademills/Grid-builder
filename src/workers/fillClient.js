@@ -31,10 +31,12 @@ function getWorker() {
 }
 
 // Resolves to { blocks } (with svgContent) or { error }.
-export function runFillInWorker({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [], maskCells = null }) {
+// packSeed: when set, the fill's random choices (which shape goes where)
+// come from this seed, so the same settings give the same layout.
+export function runFillInWorker({ fillId, settings, grid, assets, imagePixels, layoutMask, maxScale, scaleFreq, existing = [], maskCells = null, packSeed = null }) {
   const id = ++nextId;
   const request = {
-    fillId, settings, grid, maxScale, scaleFreq, maskCells,
+    fillId, settings, grid, maxScale, scaleFreq, maskCells, packSeed,
     assets: assets.map(footprint),
     imagePixels: imagePixels ? { data: imagePixels.data, width: imagePixels.width, height: imagePixels.height, scaleX: imagePixels.scaleX, scaleY: imagePixels.scaleY } : null,
     layoutMask: layoutMask ? [...layoutMask] : null,

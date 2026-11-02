@@ -44,6 +44,7 @@ import { groupMembers, groupBlocksTogether, ungroupBlocks, regroupCopies, listGr
 import { planMove, moveLimits } from './utils/moveBlocks';
 import { symmetricPoints, symmetricPlacements, normaliseSymmetry } from './utils/symmetry';
 import { brushCells, brushOrigin, clampBrush } from './utils/brush';
+import { mulberry32 } from './utils/rng';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA, LINEWORK_LAYER_SCHEMA } from './modes/linework/schema';
@@ -1080,19 +1081,21 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Random opacity for newly filled shapes (Properties → Opacity).
   const [fillOpacity] = useDocField('fillOpacity');
-  const randomOpacity = useCallback(() => {
+  const randomOpacity = useCallback((rng = Math.random) => {
     if (!fillOpacity?.random) return {};
     const { min, max } = fillOpacity;
-    return { opacity: Math.round((min + Math.random() * (max - min)) * 100) / 100 };
+    return { opacity: Math.round((min + rng() * (max - min)) * 100) / 100 };
   }, [fillOpacity]);
 
-  // Gives a newly placed shape its colour seed (and random opacity, if on).
-  const decorate = useCallback((b) => ({
+  // Gives newly placed shapes their colour seeds (and random opacity, if
+  // on), from `rng`: a seeded one makes a fill's colours repeatable.
+  const decorateWith = useCallback((rng = Math.random) => (b) => ({
     ...b,
-    colorSeed: Math.floor(Math.random() * 0x80000000),
+    colorSeed: Math.floor(rng() * 0x80000000),
     colorOffset: 0,
-    ...randomOpacity(),
+    ...randomOpacity(rng),
   }), [randomOpacity]);
+  const decorate = useMemo(() => decorateWith(), [decorateWith]);
 
   // Fills run in a Web Worker (workers/fillWorker.js) so big grids and image
   // fills don't freeze the interface. Only the newest request applies; one
@@ -1136,7 +1139,9 @@ export function DocumentEditor({ mode: appMode }) {
   // ({ stale } if a newer fill replaced it). `settings` defaults to the
   // fill's saved settings.
   // Locked shapes (Layers panel) survive every fill; the fill packs around them.
-  const computeFill = useCallback(async (fillId, settings = fillSettingsById[fillId]) => {
+  // A packSeed makes the result repeatable: the same seed and settings give
+  // the same layout and colours (live preview re-runs a fill this way).
+  const computeFill = useCallback(async (fillId, settings = fillSettingsById[fillId], { packSeed = null } = {}) => {
     const locked = placedBlocksRef.current.filter(b => b.locked && b.type !== 'wireframe');
     // The silhouette is rasterised here (it needs the DOM); the worker packs its cells.
     let maskCells = null;
@@ -1149,28 +1154,59 @@ export function DocumentEditor({ mode: appMode }) {
         return { error: err.message };
       }
     }
-    const result = await fillInWorker(fillId, settings, { existing: locked, maskCells });
+    const result = await fillInWorker(fillId, settings, { existing: locked, maskCells, packSeed });
     if (result.error || result.stale) return result;
+    const rng = packSeed == null ? Math.random : mulberry32(packSeed ^ 0x5bd1e995);
     // Mondrian and Golden Ratio set their own colour seeds.
     const shapes = fillId === 'mondrian' || fillId === 'golden'
-      ? result.blocks.map(b => ({ ...b, ...randomOpacity() }))
-      : result.blocks.map(decorate);
+      ? result.blocks.map(b => ({ ...b, ...randomOpacity(rng) }))
+      : result.blocks.map(decorateWith(rng));
     // The standard fill keeps the active layout's wireframe placeholders.
     const wireframes = fillId === 'standard' && layoutGridMask ? placedBlocksRef.current.filter(b => b.type === 'wireframe') : [];
     return { blocks: [...wireframes, ...locked, ...shapes] };
-  }, [fillInWorker, fillSettingsById, decorate, randomOpacity, layoutGridMask, gridComputed]);
+  }, [fillInWorker, fillSettingsById, decorateWith, randomOpacity, layoutGridMask, gridComputed]);
+
+  // The design the last fill made, while it's untouched: { fillId, packSeed,
+  // blocks }. Live preview (below) re-runs that fill when its settings change.
+  const liveFill = useRef(null);
+  const newPackSeed = () => Math.floor(Math.random() * 0x80000000);
+  const blocksNow = useCallback(() => useDocumentStore.getState().docs[docId]?.state.placedBlocks, [docId]);
 
   // Runs a fill as one undoable step. `fields` are document fields the
   // caller changed alongside it, so undo restores those too.
   const runFill = useCallback(async (fillId, settings, fields) => {
-    const result = await computeFill(fillId, settings);
+    const packSeed = newPackSeed();
+    const result = await computeFill(fillId, settings, { packSeed });
     if (result.stale) return false;
     if (result.error) { showToast(result.error); return false; }
     pushHistory(placedBlocksRef.current, { label: `Fill — ${FILLS_BY_ID[fillId]?.label ?? fillId}`, fields });
     setPlacedBlocks(result.blocks);
+    liveFill.current = { fillId, packSeed, blocks: result.blocks, settings: settings ?? fillSettingsById[fillId] };
     syncHistorySize();
     return true;
-  }, [computeFill, pushHistory, setPlacedBlocks, syncHistorySize, showToast]);
+  }, [computeFill, fillSettingsById, pushHistory, setPlacedBlocks, syncHistorySize, showToast]);
+
+  // Live preview (4.13): while the design is the untouched result of the
+  // fill shown in Generate, changing its settings re-runs it with the same seed, so only
+  // what the setting controls changes. It isn't an undo step of its own:
+  // the settings change is (see useHistory), and undo puts this design back.
+  const liveFillSettings = fillSettingsById[activeFill] ?? null;
+  const liveFillPrev = useRef(liveFillSettings);
+  useEffect(() => {
+    const prev = liveFillPrev.current;
+    liveFillPrev.current = liveFillSettings;
+    const live = liveFill.current;
+    if (!live || live.fillId !== activeFill || !liveFillSettings || prev === liveFillSettings || prev == null || live.settings === liveFillSettings) return;
+    if (appMode !== 'gridBuilder' || blocksNow() !== live.blocks || isRestoring()) return;
+    const timer = setTimeout(async () => {
+      const result = await computeFill(live.fillId, liveFillSettings, { packSeed: live.packSeed });
+      if (result.stale || result.error || liveFill.current !== live || blocksNow() !== live.blocks) return;
+      setPlacedBlocks(result.blocks);
+      liveFill.current = { ...live, blocks: result.blocks, settings: liveFillSettings };
+    }, 50);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveFillSettings]);
 
   // Surprise Me: a random fill with random settings, a random palette and a
   // fresh seed, as one undo step. Grid size and enabled shapes stay as they are.
@@ -1185,7 +1221,8 @@ export function DocumentEditor({ mode: appMode }) {
       const state = useDocumentStore.getState().docs[docId]?.state;
       if (!state) return;
       const merged = fill.settingsKey ? { ...state[fill.settingsKey], ...settings } : undefined;
-      const result = await computeFill(fill.id, merged);
+      const packSeed = newPackSeed();
+      const result = await computeFill(fill.id, merged, { packSeed });
       if (result.stale) return;
       if (result.error) continue;
 
@@ -1211,6 +1248,7 @@ export function DocumentEditor({ mode: appMode }) {
       pushHistory(placedBlocksRef.current, { label: `Surprise Me — ${fill.label}`, fields: before });
       for (const [k, v] of Object.entries(next)) useDocumentStore.getState().setField(docId, k, v);
       setPlacedBlocks(result.blocks);
+      liveFill.current = { fillId: fill.id, packSeed, blocks: result.blocks, settings: merged };
       syncHistorySize();
       showToast(`Surprise: ${fill.label} with ${palette.name}`);
       return;
