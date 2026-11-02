@@ -1,12 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
-import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
+import { assetById } from '../utils/assetRegistry';
 import { useDocumentStore } from '../store/documentStore';
 import { SETTINGS_IDLE_MS, isUndoableField, settingsLabel, foldSettingsStep, userActiveSince, onUserInput } from './settingsHistory';
 
 const HISTORY_LIMIT = 100;
-
-// Pre-built lookup map so hydration is O(1) per block
-const assetMap = new Map(ALL_BUILTIN_ASSETS.map(a => [a.id, a]));
 
 // Strip svgContent before storing — re-hydrate from the asset map on restore.
 // This saves ~90% of memory per history entry since SVG strings can be large.
@@ -19,7 +16,7 @@ const compress = (blocks) => blocks.map(b => {
 
 const hydrate = (blocks) => blocks.map(b => {
   if (!b.assetId) return b;
-  const asset = assetMap.get(b.assetId);
+  const asset = assetById(b.assetId);
   return { ...b, svgContent: asset?.svgContent ?? '' };
 });
 

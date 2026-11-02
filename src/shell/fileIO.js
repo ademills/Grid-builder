@@ -28,6 +28,23 @@ export async function pickAndReadBinary({ title, filters }) {
   });
 }
 
+// Several text files (e.g. SVGs). Resolves to [{ name, text }], empty if cancelled.
+export async function pickAndReadTexts({ title, filters }) {
+  if (isTauri) {
+    const picked = await tauriOpenDialog({ title, multiple: true, directory: false, filters });
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    return Promise.all(paths.map(async path => ({ name: path.split(/[\\/]/).pop(), text: await readTextFile(path) })));
+  }
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = filters.flatMap(f => f.extensions.map(e => `.${e}`)).join(',');
+    input.onchange = async () => resolve(await Promise.all([...(input.files ?? [])].map(async f => ({ name: f.name, text: await f.text() }))));
+    input.click();
+  });
+}
+
 // data: Uint8Array or string. Resolves true when written / downloaded.
 export async function saveBinary(data, { title, defaultName, filters, mime = 'application/octet-stream' }) {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;

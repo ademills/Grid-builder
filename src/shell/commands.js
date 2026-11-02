@@ -3,7 +3,7 @@ import { useDocumentStore, selectActiveDoc } from '../store/documentStore';
 import {
   newDocument, openDocument, saveDocument, saveCopy, duplicateDocument, closeDocument, closeOtherDocuments, cycleTab,
 } from './documentActions';
-import { pickAndReadBinary } from './fileIO';
+import { pickAndReadBinary, pickAndReadTexts } from './fileIO';
 import { importSwatchBuffer } from './fileDrop';
 import { exportDiagnostics } from './diagnostics';
 
@@ -52,6 +52,7 @@ export const COMMANDS = {
   'file.open':      { label: 'Open…', shortcut: 'Ctrl+O', inInputs: true, run: () => openDocument() },
   'file.save':      { label: 'Save', shortcut: 'Ctrl+S', inInputs: true, enabled: c => !!c.activeDoc, run: c => saveDocument(c.activeDoc.id) },
   'file.saveAs':    { label: 'Save As…', shortcut: 'Ctrl+Shift+S', inInputs: true, enabled: c => !!c.activeDoc, run: c => saveDocument(c.activeDoc.id, { saveAs: true }) },
+  'file.importShapes': { label: 'Import Shapes…', run: () => importShapes() },
   'file.export':    { label: 'Export As…', shortcut: 'Ctrl+Shift+E', inInputs: true, enabled: c => c.hasDoc && !!c.status?.canExport, run: c => c.cmds.openExport() },
   'file.exportSvg': { label: 'Quick Export SVG…', enabled: c => c.hasDoc && !!c.status?.canExport, run: c => c.cmds.exportSvg() },
   'file.saveCopy':  { label: 'Save a Copy…', enabled: c => !!c.activeDoc, run: c => saveCopy(c.activeDoc.id) },
@@ -163,6 +164,12 @@ export const COMMANDS = {
 
 // Opens a swatch file and adds its libraries; resolves to how many were
 // added. Lives here (not in the Swatches panel) so the panel menu can use it.
+// Picks SVG files and opens the Import Shape dialog for them.
+export async function importShapes() {
+  const files = await pickAndReadTexts({ title: 'Import Shapes', filters: [{ name: 'SVG', extensions: ['svg'] }] });
+  if (files.length) useAppStore.getState().setShapeImport(files.map(f => ({ id: crypto.randomUUID(), ...f })));
+}
+
 export async function importSwatchLibrary() {
   const picked = await pickAndReadBinary({ title: 'Import Swatches', filters: [{ name: 'Swatch files', extensions: ['ase', 'gpl', 'json'] }] });
   return picked ? importSwatchBuffer(picked.fileName, picked.buffer) : 0;

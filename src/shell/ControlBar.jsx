@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useDocField } from '../store/useDocField';
-import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
+import { useAllAssets } from '../utils/assetRegistry';
 import { MODE_REGISTRY, TOOLS } from '../modes/registry';
 import { ColorPicker } from '../panels/ColorPicker';
 import { SwatchColourField } from '../panels/SwatchColourField';
@@ -117,13 +117,14 @@ function StampShape() {
   const [enabledAssetIds] = useDocField('enabledAssetIds');
   const [query, setQuery] = useState('');
   const { open, setOpen, ref: popRef } = usePopover();
-  const current = ALL_BUILTIN_ASSETS.find(a => a.id === stampAsset);
+  const assets = useAllAssets();
+  const current = assets.find(a => a.id === stampAsset);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return ALL_BUILTIN_ASSETS
+    return assets
       .filter(a => !q || a.name.toLowerCase().includes(q))
       .sort((a, b) => (enabledAssetIds.has(b.id) - enabledAssetIds.has(a.id)));
-  }, [query, enabledAssetIds]);
+  }, [assets, query, enabledAssetIds]);
   return (
     <span className={styles.popAnchor} ref={popRef}>
       <button className={styles.assetChip} onClick={() => setOpen(o => !o)} title="Shape to stamp">
@@ -162,10 +163,11 @@ function SelectionShape() {
   const selection = useAppStore(s => s.editorCommands?.selection);
   const [query, setQuery] = useState('');
   const { open, setOpen, ref: popRef } = usePopover();
+  const assets = useAllAssets();
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? ALL_BUILTIN_ASSETS.filter(a => a.name.toLowerCase().includes(q)) : ALL_BUILTIN_ASSETS;
-  }, [query]);
+    return q ? assets.filter(a => a.name.toLowerCase().includes(q)) : assets;
+  }, [assets, query]);
   if (!selection) return null;
   return (
     <span className={styles.popAnchor} ref={popRef}>

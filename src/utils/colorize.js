@@ -449,6 +449,39 @@ export function findLayer(root, name) {
   return null;
 }
 
+// The artwork's colour slots, in the order colour modes number them: each
+// { els, group: 'bg' | 'shape' | 'all', indexInGroup }. Built-in shapes have
+// one element per slot (background layer first, then the shape layer, else
+// document order). Imported shapes (utils/svgImport.js) tag elements with
+// data-slot="n" instead, so every element of one colour shares a slot;
+// untagged elements keep their own colour.
+export function slotGroups(root) {
+  const bgLayer = findLayer(root, 'background') || findLayer(root, 'bg');
+  const shapeLayer = findLayer(root, 'shape');
+  const tagged = [...root.querySelectorAll(SHAPE_SEL)].filter(el => el.hasAttribute('data-slot'));
+  if (tagged.length) {
+    const byKey = new Map();
+    for (const el of tagged) {
+      const k = +el.getAttribute('data-slot');
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(el);
+    }
+    const counts = { bg: 0, shape: 0, all: 0 };
+    return [...byKey.keys()].sort((a, b) => a - b).map(k => {
+      const els = byKey.get(k);
+      const group = bgLayer?.contains(els[0]) ? 'bg' : (bgLayer || shapeLayer) ? 'shape' : 'all';
+      return { els, group, indexInGroup: counts[group]++ };
+    });
+  }
+  if (bgLayer || shapeLayer) {
+    return [
+      ...[...(bgLayer?.querySelectorAll(SHAPE_SEL) ?? [])].map((el, i) => ({ els: [el], group: 'bg', indexInGroup: i })),
+      ...[...(shapeLayer?.querySelectorAll(SHAPE_SEL) ?? [])].map((el, i) => ({ els: [el], group: 'shape', indexInGroup: i })),
+    ];
+  }
+  return [...root.querySelectorAll(SHAPE_SEL)].map((el, i) => ({ els: [el], group: 'all', indexInGroup: i }));
+}
+
 // Build a map of CSS class name → fill colour from <style> blocks in the SVG.
 // Needed because many SVG exporters (Illustrator, etc.) use class-based fills
 // rather than direct fill attributes.
@@ -536,30 +569,22 @@ function buildColorTemplate(svgContent) {
     if (!doc.querySelector('parsererror')) {
       const root = doc.documentElement;
       const classFillMap = buildClassFillMap(root);
-      const bgLayer    = findLayer(root, 'background') || findLayer(root, 'bg');
-      const shapeLayer = findLayer(root, 'shape');
-      const hasLayers  = !!(bgLayer || shapeLayer);
+      const hasLayers  = !!(findLayer(root, 'background') || findLayer(root, 'bg') || findLayer(root, 'shape'));
 
       // Slot order must match the sequence colorizeSvg originally assigned
       // colours in (bg layer first, then shape layer, else document order) —
       // each mode's colour math depends on a slot's position in that sequence.
-      const slots = [];
-      if (hasLayers) {
-        if (bgLayer)    [...bgLayer.querySelectorAll(SHAPE_SEL)].forEach((el, i)    => slots.push({ el, group: 'bg',    indexInGroup: i }));
-        if (shapeLayer) [...shapeLayer.querySelectorAll(SHAPE_SEL)].forEach((el, i) => slots.push({ el, group: 'shape', indexInGroup: i }));
-      } else {
-        [...root.querySelectorAll(SHAPE_SEL)].forEach((el, i) => slots.push({ el, group: 'all', indexInGroup: i }));
-      }
+      const slots = slotGroups(root);
 
       // The colour each slot has in the source artwork — what 'none' colour
       // mode shows, and the base that per-slot pins override.
-      const originalColours = slots.map(slot => readFill(slot.el, classFillMap));
+      const originalColours = slots.map(slot => readFill(slot.els[0], classFillMap));
 
-      // Stamp each fillable element with a unique placeholder through the same
-      // applyFill() codepath used at runtime, so it lands in whichever
+      // Stamp each fillable element with its slot's placeholder through the
+      // same applyFill() codepath used at runtime, so it lands in whichever
       // mechanism (attribute / inline style / class override) the real colour
       // would use — then split the serialized markup around those placeholders.
-      slots.forEach((slot, i) => applyFill(slot.el, `__FILL_${i}__`, classFillMap));
+      slots.forEach((slot, i) => slot.els.forEach(el => applyFill(el, `__FILL_${i}__`, classFillMap)));
       const marked = new XMLSerializer().serializeToString(doc);
 
       const parts = [];

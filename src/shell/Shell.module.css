@@ -458,3 +458,103 @@
   font-size: 12px; white-space: pre-wrap; color: var(--chrome-text-dim);
 }
 .docErrorActions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ── Import Shape dialog ───────────────────────────────── */
+
+.importDialog { width: 560px; }
+
+.importBody {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.importPreviews {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.importPreviews img {
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+  background: repeating-conic-gradient(#3a3a3a 0% 25%, #2e2e2e 0% 50%) 50% / 12px 12px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+}
+
+.importFields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.importRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.importRow > span { width: 78px; flex-shrink: 0; color: var(--chrome-text-dim); }
+.importRow > em { font-style: normal; font-size: 11px; color: var(--chrome-text-dim); }
+
+.importRow input:not([type="checkbox"]),
+.importRow select {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 7px;
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+  color: var(--chrome-text);
+  font: inherit;
+}
+
+.importSlotsToggle {
+  padding: 4px 0;
+  background: none;
+  border: none;
+  color: var(--chrome-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.importSlots {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 4px 0 14px;
+}
+
+.importSlot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.importSlot .btn { height: 22px; padding: 0 7px; font-size: 11px; }
+.importSlot label { display: flex; align-items: center; gap: 3px; color: var(--chrome-text-dim); }
+
+.importSlotNum { width: 16px; text-align: right; color: var(--chrome-text-dim); }
+
+.importSlotChips { display: flex; gap: 2px; min-width: 60px; }
+
+.importSlotChips span {
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 3px;
+}
+
+.importSlotArea { width: 34px; text-align: right; color: var(--chrome-text-dim); }
+
+.importNote { margin: 6px 0 0; font-size: 11px; color: var(--chrome-text-dim); }

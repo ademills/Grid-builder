@@ -1,5 +1,5 @@
 import {
-  SHAPE_SEL, findLayer, buildClassFillMap, parseTransformMatrix, concatMat, applyMat, getShapePoints,
+  SHAPE_SEL, findLayer, slotGroups, buildClassFillMap, parseTransformMatrix, concatMat, applyMat, getShapePoints,
 } from './colorize';
 
 // A shape's SVG parsed once into canvas paths, for the canvas renderer
@@ -78,11 +78,7 @@ function build(svgContent) {
   // Slot numbering, as in colorize.js buildColorTemplate.
   const slotOf = new Map();
   const bgLayer = findLayer(root, 'background') || findLayer(root, 'bg');
-  const shapeLayer = findLayer(root, 'shape');
-  const slotEls = (bgLayer || shapeLayer)
-    ? [...(bgLayer ? bgLayer.querySelectorAll(SHAPE_SEL) : []), ...(shapeLayer ? shapeLayer.querySelectorAll(SHAPE_SEL) : [])]
-    : [...root.querySelectorAll(SHAPE_SEL)];
-  slotEls.forEach((el, i) => slotOf.set(el, i));
+  slotGroups(root).forEach((slot, i) => slot.els.forEach(el => slotOf.set(el, i)));
 
   // Attach briefly so the browser resolves each element's computed fill.
   const host = document.createElement('div');

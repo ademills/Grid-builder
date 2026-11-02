@@ -1,5 +1,6 @@
 import { createDefaultDocState } from './docDefaults';
-import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
+import { assetById } from '../utils/assetRegistry';
+import { useShapeStore, isUserShape } from './shapeStore';
 import { mergeEffects } from '../effects/effectDefs';
 import { meanderCornerSettings } from '../utils/knotworkCompose';
 import { mergeLineworkSettings } from '../modes/linework/settings';
@@ -8,14 +9,14 @@ import { mergeLineworkSettings } from '../modes/linework/settings';
 //
 // v5 (current) — { version: 5, app, mode, name, state: {...docState} }.
 //   `state` holds every field from createDefaultDocState(); placedBlocks are
-//   stored without svgContent and re-hydrated from the built-in asset map.
+//   stored without svgContent and re-hydrated from the shape library. The
+//   user's own shapes that the document uses travel with it in
+//   `state.userShapes` (id → { name, cols, rows, svgContent, tags }).
 // v1–v4 (legacy) — flat object with a subset of the fields at the top level
 //   and no mode. Loaded by merging over defaults and inferring the mode.
 
 export const PROJECT_VERSION = 5;
 export const PROJECT_EXTENSION = 'mps.json';
-
-const assetMap = new Map(ALL_BUILTIN_ASSETS.map(a => [a.id, a]));
 
 // Settings objects are merged over defaults so files saved before a field
 // existed still get a sensible value for it.
@@ -25,14 +26,26 @@ const MERGED_FIELDS = new Set([
   'voronoiSettings', 'spiralSettings', 'flowFieldSettings', 'fractalSettings', 'mondrianSettings',
   'goldenSettings', 'knotworkSettings', 'backdropSettings', 'animSettings', 'audioSettings',
   'paletteExtractSettings', 'fillOpacity', 'guides', 'groupNames', 'organicSettings', 'silhouetteSettings',
+  'shapeStroke',
 ]);
 
-function hydrateBlocks(blocks) {
+function hydrateBlocks(blocks, fileShapes = {}) {
   return (blocks ?? []).map(b => {
     if (b.svgContent || !b.assetId) return b;
-    const asset = assetMap.get(b.assetId);
+    const asset = assetById(b.assetId) ?? fileShapes[b.assetId];
     return { ...b, svgContent: asset?.svgContent ?? '' };
   });
+}
+
+// The user shapes a document uses, to save with it.
+function usedUserShapes(state) {
+  const ids = new Set([...state.enabledAssetIds, ...state.placedBlocks.map(b => b.assetId)].filter(isUserShape));
+  const out = {};
+  for (const id of ids) {
+    const s = assetById(id);
+    if (s) out[id] = { name: s.name, cols: s.cols, rows: s.rows, svgContent: s.svgContent, tags: s.tags ?? [] };
+  }
+  return out;
 }
 
 export function serializeProject(doc) {
@@ -46,6 +59,7 @@ export function serializeProject(doc) {
     state: {
       ...state,
       enabledAssetIds: [...state.enabledAssetIds],
+      userShapes: usedUserShapes(state),
       // Shape blocks are re-hydrated from the asset library on load.
       placedBlocks: state.placedBlocks.map(b => {
         if (!b.assetId) return b;
@@ -101,7 +115,9 @@ export function parseProject(text) {
   }
   state.lineworkSettings = mergeLineworkSettings(fields.lineworkSettings);
   state.enabledAssetIds = new Set(fields.enabledAssetIds ?? [...state.enabledAssetIds]);
-  state.placedBlocks = hydrateBlocks(state.placedBlocks);
+  // Shapes the file brought join this machine's library.
+  if (fields.userShapes) useShapeStore.getState().adoptShapes(fields.userShapes);
+  state.placedBlocks = hydrateBlocks(state.placedBlocks, fields.userShapes);
   state.effects = mergeEffects(fields.effects);
   state.audioSettings = { ...state.audioSettings, enabled: false };
   state.viewTransform = null;

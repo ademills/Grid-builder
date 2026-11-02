@@ -23,7 +23,7 @@ import { save as tauriSaveDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs';
 import { buildGridCells, sampleFrameColours, loadShapeLibrary } from './utils/shapeLibraryRender';
-import { ALL_BUILTIN_ASSETS } from './builtinAssets';
+import { assetById, allAssets, useAllAssets } from './utils/assetRegistry';
 import { useHistory } from './hooks/useHistory';
 import { runFillInWorker } from './workers/fillClient';
 import { fillGrid } from './utils/binPack';
@@ -726,9 +726,10 @@ export function DocumentEditor({ mode: appMode }) {
   const [enabledAssetIds, setEnabledAssetIds] = useDocField('enabledAssetIds');
 
 
+  const libraryAssets = useAllAssets();
   const activeAssets = useMemo(
-    () => ALL_BUILTIN_ASSETS.filter(a => enabledAssetIds.has(a.id)),
-    [enabledAssetIds]
+    () => libraryAssets.filter(a => enabledAssetIds.has(a.id)),
+    [libraryAssets, enabledAssetIds]
   );
 
   const [placedBlocks, setPlacedBlocks] = useDocField('placedBlocks');
@@ -2125,7 +2126,7 @@ export function DocumentEditor({ mode: appMode }) {
     const size = clampBrush(toolOptions.brushSize);
     const pool = toolOptions.stampAsset === 'random'
       ? activeAssets
-      : ALL_BUILTIN_ASSETS.filter(a => a.id === toolOptions.stampAsset);
+      : [assetById(toolOptions.stampAsset)].filter(Boolean);
     if (!pool.length) return null;
     const target = replace && hit.block && !hit.block.locked && !hit.block.type ? hit.block : null;
     const { cols, rows } = gridComputed;
@@ -2854,7 +2855,7 @@ export function DocumentEditor({ mode: appMode }) {
       showToast(`Saved library “${name}”`);
     },
     // Assets
-    setAllAssets: (on) => setEnabledAssetIds(new Set(on ? ALL_BUILTIN_ASSETS.map(a => a.id) : [])),
+    setAllAssets: (on) => setEnabledAssetIds(new Set(on ? allAssets().map(a => a.id) : [])),
     enableUsedAssets: () => setEnabledAssetIds(new Set(placedBlocks.map(b => b.assetId).filter(Boolean))),
     // Meander
     knotworkFill: handleKnotworkFill,

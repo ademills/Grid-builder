@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useDocField } from '../store/useDocField';
 import { useAppStore } from '../store/appStore';
 import { useEditor } from '../editor/EditorContext';
-import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
+import { useAllAssets } from '../utils/assetRegistry';
 import { blockSlotColours } from '../utils/blockColours';
 import { assetThumb } from './panelUtils';
 import { SwatchColourField } from './SwatchColourField';
@@ -50,12 +50,13 @@ export function InfoPanel() {
   const editable = selected.filter(b => !b.locked);
   const single = selected.length === 1 ? selected[0] : null;
 
+  const assets = useAllAssets();
   const footprint = selected.length ? common(selected, b => `${b.cols}x${b.rows}`) : MIXED;
   const shapeOptions = useMemo(() => {
     if (footprint === MIXED) return [];
     const [c, r] = footprint.split('x').map(Number);
-    return ALL_BUILTIN_ASSETS.filter(a => (a.cols ?? 1) === c && (a.rows ?? 1) === r);
-  }, [footprint]);
+    return assets.filter(a => (a.cols ?? 1) === c && (a.rows ?? 1) === r);
+  }, [assets, footprint]);
 
   const pointer = (
     <div className={styles.gridInfo} style={{ marginTop: 10 }}>
@@ -81,7 +82,7 @@ export function InfoPanel() {
   const opacity = common(selected, b => b.opacity ?? 1);
   const blend = common(selected, b => b.blendMode ?? 'normal');
   const shapeId = common(selected, b => b.assetId);
-  const current = ALL_BUILTIN_ASSETS.find(a => a.id === shapeId);
+  const current = assets.find(a => a.id === shapeId);
   const lockedCount = selected.length - editable.length;
   const set = selectionActions.setProps;
   const slots = single ? blockSlotColours(single, colourCtx) ?? [] : [];
@@ -111,7 +112,7 @@ export function InfoPanel() {
           <div className={styles.sliderRow}>
             {current && <img src={assetThumb(current)} alt="" width={22} height={22} style={{ borderRadius: 3, flex: 'none' }} />}
             <select className={styles.select} value={shapeId === MIXED ? '' : shapeId ?? ''}
-              onChange={e => { const a = ALL_BUILTIN_ASSETS.find(x => x.id === e.target.value); if (a) selectionActions.setShape(a); }}>
+              onChange={e => { const a = assets.find(x => x.id === e.target.value); if (a) selectionActions.setShape(a); }}>
               {shapeId === MIXED && <option value="" disabled>Mixed</option>}
               {shapeOptions.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>

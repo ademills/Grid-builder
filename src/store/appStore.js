@@ -155,6 +155,10 @@ export const useAppStore = create((set, get) => ({
   editorStatus: null,
   setEditorBridge: (editorCommands, editorStatus) => set({ editorCommands, editorStatus }),
 
+  // SVG files waiting in the Import Shape dialog: [{ id, name, text }].
+  shapeImport: null,
+  setShapeImport: (shapeImport) => set({ shapeImport }),
+
   // Modal prompt shown by the shell: { kind, ...data, resolve }.
   prompt: null,
   ask(kind, data = {}) {

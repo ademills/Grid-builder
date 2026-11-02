@@ -12,7 +12,7 @@ import { newDocument, openProjectText } from './documentActions';
 //   project (.json)        → opens in a new tab
 //   image                  → reference image of the active document (Image panel)
 //   swatches (.ase / .gpl) → added to the swatch libraries
-//   .svg                   → not supported yet (custom shape import is planned)
+//   .svg                   → the Import Shape dialog (Assets › My shapes)
 
 const IMAGE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp' };
 
@@ -49,7 +49,8 @@ async function handleFile(file) {
   const ext = extOf(file.name);
 
   if (ext === 'svg') {
-    app().showToast('SVG files can’t be imported as shapes yet');
+    const entry = { id: crypto.randomUUID(), name: file.name, text: new TextDecoder().decode(await file.read()) };
+    app().setShapeImport([...(app().shapeImport ?? []), entry]);
     return;
   }
 

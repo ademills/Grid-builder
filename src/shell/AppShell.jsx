@@ -25,6 +25,7 @@ import { ControlBar } from './ControlBar';
 import { StatusBar } from './StatusBar';
 import { HomeScreen } from './HomeScreen';
 import { PromptDialog } from './PromptDialog';
+import { ShapeImportDialog } from './ShapeImportDialog';
 import { CommandPalette } from './CommandPalette';
 import styles from './Shell.module.css';
 
@@ -129,7 +130,7 @@ function useShellShortcuts(activeId, activeMode) {
 // Menu structure: command ids, 'separator', or { heading }.
 const MENUS = [
   { label: 'File', items: ['file.newGrid', 'file.newMeander', 'file.newLinework', 'separator', 'file.open', 'recent', 'separator',
-    'file.save', 'file.saveAs', 'file.saveCopy', 'file.duplicate', 'separator', 'file.export', 'file.exportSvg', 'separator',
+    'file.save', 'file.saveAs', 'file.saveCopy', 'file.duplicate', 'separator', 'file.importShapes', 'file.export', 'file.exportSvg', 'separator',
     'file.close', 'file.closeOthers'] },
   { label: 'Edit', items: ['edit.undo', 'edit.redo', 'separator', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate',
     'separator', 'edit.delete'] },
@@ -241,6 +242,7 @@ export function AppShell() {
       )}
       <StatusBar doc={activeDoc} />
       <PromptDialog />
+      <ShapeImportDialog />
       <CommandPalette />
       {dropping && <div className={styles.dropOverlay}><span>Drop to open</span></div>}
     </div>

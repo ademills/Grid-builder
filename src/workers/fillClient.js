@@ -1,10 +1,9 @@
-import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
+import { assetById } from '../utils/assetRegistry';
 
 // Main-thread side of workers/fillWorker.js. Shapes travel to the worker as
 // footprints only ({ id, name, cols, rows }); the SVG markup is re-attached
 // to the returned blocks here, so messages stay small.
 
-const assetMap = new Map(ALL_BUILTIN_ASSETS.map(a => [a.id, a]));
 const footprint = ({ id, name, cols, rows }) => ({ id, name, cols, rows });
 const strip = (b) => { const r = { ...b }; delete r.svgContent; return r; };
 
@@ -45,7 +44,7 @@ export function runFillInWorker({ fillId, settings, grid, assets, imagePixels, l
   return new Promise((resolve) => {
     pending.set(id, (res) => {
       if (res.error) { resolve({ error: res.error }); return; }
-      resolve({ blocks: res.blocks.map(b => ({ ...b, svgContent: assetMap.get(b.assetId)?.svgContent ?? b.svgContent ?? '' })) });
+      resolve({ blocks: res.blocks.map(b => ({ ...b, svgContent: assetById(b.assetId)?.svgContent ?? b.svgContent ?? '' })) });
     });
     getWorker().postMessage({ id, request });
   });

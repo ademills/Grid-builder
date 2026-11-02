@@ -64,7 +64,7 @@ export const MODE_REGISTRY = {
         { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['colour.shuffle', 'colour.saveSwatches'] },
         { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
       ], grow: 3 },
-      { id: 'assets', panels: [{ id: 'assets', title: 'Assets', component: AssetsPanel, menu: ['assets.enableAll', 'assets.disableAll', 'assets.enableUsed'] }], defaultCollapsed: true, grow: 3 },
+      { id: 'assets', panels: [{ id: 'assets', title: 'Assets', component: AssetsPanel, menu: ['file.importShapes', 'assets.enableAll', 'assets.disableAll', 'assets.enableUsed'] }], defaultCollapsed: true, grow: 3 },
       { id: 'effects', panels: [{ id: 'effects', title: 'Effects', component: EffectsPanel, menu: ['view.effects', 'file.export'] }], defaultCollapsed: true, grow: 2 },
       { id: 'image', panels: [{ id: 'image', title: 'Image', component: ImagePanel }], defaultCollapsed: true },
       { id: 'motion', panels: [
