@@ -8,6 +8,7 @@ import { SwatchColourField } from '../panels/SwatchColourField';
 import { assetThumb, randomSeed } from '../panels/panelUtils';
 import { DiceIcon, RotateIcon, ReflectIcon, WandIcon, PinIcon } from './icons';
 import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY } from '../utils/symmetry';
+import { BRUSH_MAX, clampBrush } from '../utils/brush';
 import { FILLS } from '../modes/gridBuilder/fills';
 import { mergeLineworkSettings } from '../modes/linework/settings';
 import { runCommand } from './commands';
@@ -354,6 +355,23 @@ export function ControlBar({ mode, selectedCount }) {
       )}
 
       {tool === 'stamp' && <><span className={styles.label}>Shape</span><StampShape /></>}
+
+      {(tool === 'stamp' || tool === 'eraser') && (
+        <>
+          <span className={styles.label} title="[ and ] change the size">Size</span>
+          <Segment value={clampBrush(options.brushSize)} onChange={v => setToolOption({ brushSize: v })}
+            options={Array.from({ length: BRUSH_MAX }, (_, i) => ({
+              key: i + 1, label: String(i + 1),
+              title: tool === 'stamp' ? `Shapes at ${i + 1}× their size` : `Erase ${i + 1}×${i + 1} cells`,
+            }))} />
+        </>
+      )}
+      {tool === 'eraser' && (
+        <Segment value={options.brushShape} onChange={v => setToolOption({ brushShape: v })} options={[
+          { key: 'square', label: '■', title: 'Square brush' },
+          { key: 'round', label: '●', title: 'Round brush' },
+        ]} />
+      )}
 
       {(tool === 'bucket' || tool === 'eyedropper') && <><span className={styles.label}>Colour</span><PaintColour /></>}
       {tool === 'bucket' && (

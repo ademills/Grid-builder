@@ -43,10 +43,11 @@ import { useSelection } from './hooks/useSelection';
 import { groupMembers, groupBlocksTogether, ungroupBlocks, regroupCopies, listGroups } from './utils/groups';
 import { planMove, moveLimits } from './utils/moveBlocks';
 import { symmetricPoints, symmetricPlacements, normaliseSymmetry } from './utils/symmetry';
+import { brushCells, brushOrigin, clampBrush } from './utils/brush';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA, LINEWORK_LAYER_SCHEMA } from './modes/linework/schema';
-import { SymmetryAxes, MoveGhost } from './components/ToolOverlays';
+import { SymmetryAxes, MoveGhost, BrushOutline } from './components/ToolOverlays';
 import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
 import { tidySvg } from './utils/svgExport';
 import { composeLinework, lineworkGridCells, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL } from './utils/linework/compose';
@@ -2010,33 +2011,40 @@ export function DocumentEditor({ mode: appMode }) {
     return slotAt(block.svgContent, su, sv);
   }, []);
 
-  // Places the Stamp tool's shape at the hit cell (or, replacing, swaps the
-  // shape under it for one of the same footprint). Returns { next, block }
-  // — the new block list and the placed block — or null when nothing fits.
+  // Places the Stamp tool's shape at the hit cell, at the brush size and
+  // centred on it (or, replacing, swaps the shape under it for one of the
+  // same footprint). Returns { next, block } — the new block list and the
+  // placed block — or null when nothing fits.
   const stampAt = useCallback((blocks, hit, replace) => {
     if (!gridComputed) return null;
+    const size = clampBrush(toolOptions.brushSize);
     const pool = toolOptions.stampAsset === 'random'
       ? activeAssets
       : ALL_BUILTIN_ASSETS.filter(a => a.id === toolOptions.stampAsset);
     if (!pool.length) return null;
     const target = replace && hit.block && !hit.block.locked && !hit.block.type ? hit.block : null;
-    const col = target ? target.gridCol : hit.col;
-    const row = target ? target.gridRow : hit.row;
-    const covered = (c, r) => blocks.some(b => b.gridCol < col + c && b.gridCol + b.cols > col && b.gridRow < row + r && b.gridRow + b.rows > row);
+    const { cols, rows } = gridComputed;
+    // Where a shape of w×h cells goes: the target's place, or centred on the hit.
+    const placeFor = (w, h) => (target ? { col: target.gridCol, row: target.gridRow } : brushOrigin(hit.col, hit.row, w, h, cols, rows));
+    const covered = (p, c, r) => blocks.some(b => b.gridCol < p.col + c && b.gridCol + b.cols > p.col && b.gridRow < p.row + r && b.gridRow + b.rows > p.row);
     const fits = pool.filter(a => {
       const c = a.cols ?? 1, r = a.rows ?? 1;
-      if (target) return c === target.cols && r === target.rows;
-      return col + c <= gridComputed.cols && row + r <= gridComputed.rows && !covered(c, r);
+      if (target) return (c * size === target.cols && r * size === target.rows) || (c === target.cols && r === target.rows);
+      const p = placeFor(c * size, r * size);
+      return c * size <= cols && r * size <= rows && !covered(p, c * size, r * size);
     });
     if (!fits.length) return null;
     const asset = fits[Math.floor(Math.random() * fits.length)];
+    const scale = target && (asset.cols ?? 1) === target.cols && (asset.rows ?? 1) === target.rows ? 1 : size;
+    const w = (asset.cols ?? 1) * scale, h = (asset.rows ?? 1) * scale;
+    const { col, row } = placeFor(w, h);
     const block = {
       id: crypto.randomUUID(), assetId: asset.id, name: asset.name, svgContent: asset.svgContent,
-      cols: asset.cols ?? 1, rows: asset.rows ?? 1, gridCol: col, gridRow: row,
+      cols: w, rows: h, gridCol: col, gridRow: row,
       colorSeed: Math.floor(Math.random() * 0x80000000), colorOffset: 0,
     };
     return { next: target ? blocks.map(b => (b.id === target.id ? block : b)) : [...blocks, block], block };
-  }, [gridComputed, toolOptions.stampAsset, activeAssets]);
+  }, [gridComputed, toolOptions.stampAsset, toolOptions.brushSize, activeAssets]);
 
   // Live symmetry (control bar): the grid positions mirroring an artboard
   // point, and the visible block (with u, v inside it) at each.
@@ -2185,8 +2193,14 @@ export function DocumentEditor({ mode: appMode }) {
         const res = stampSymmetric(blocks, hit, pt.altKey);
         if (res) ({ next, count } = res);
       } else {
-        const gone = new Set([hit, ...symmetricHits(pt, blocks)]
-          .map(h => h.block).filter(b => b && !b.locked).map(b => b.id));
+        // Every cell the brush covers, and each one's symmetric copies.
+        const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
+        const hits = brushCells(hit.col, hit.row, toolOptions.brushSize, toolOptions.brushShape, cols, rows).flatMap(c => {
+          const at = { x: gridOriginX + (c.col + 0.5) * cellSize, y: gridOriginY + (c.row + 0.5) * cellSize };
+          return [hitTest(at, blocks), ...symmetricHits(at, blocks)];
+        });
+        const gone = new Set([hit, ...hits]
+          .map(h => h?.block).filter(b => b && !b.locked).map(b => b.id));
         if (gone.size) { next = blocks.filter(b => !gone.has(b.id)); count = gone.size; }
       }
       if (!next) return;
@@ -2833,6 +2847,7 @@ export function DocumentEditor({ mode: appMode }) {
           {(activeTool === 'stamp' || activeTool === 'eraser' || activeTool === 'bucket') && (
             <SymmetryAxes mode={toolOptions.symmetry} gridComputed={gridComputed} />
           )}
+          {(activeTool === 'stamp' || activeTool === 'eraser') && <BrushOutline tool={activeTool} gridComputed={gridComputed} />}
           <MoveGhost plan={movePreview} gridComputed={gridComputed} />
           {(showGuides || guideDrag.drag) && (
             <GuideLines guides={guides} drag={guideDrag.drag} onStartDrag={startGuideDrag}

@@ -16,6 +16,7 @@ import { isTauri } from './fileIO';
 import { startSession, flushSession } from './session';
 import { startSeedHistory } from './seedHistory';
 import { recordError } from './diagnostics';
+import { clampBrush } from '../utils/brush';
 import { DocumentErrorBoundary } from './DocumentErrorBoundary';
 import { MenuBar } from './MenuBar';
 import { TabBar } from './TabBar';
@@ -105,6 +106,16 @@ function useShellShortcuts(activeId, activeMode) {
       }
       if (e.ctrlKey || e.metaKey) return;
       if (!activeId || isTypingTarget(e.target) || e.altKey) return;
+      // [ and ]: Stamp / Eraser brush size.
+      if (e.key === '[' || e.key === ']') {
+        const { activeTool, toolOverride, toolOptions, setToolOption } = useAppStore.getState();
+        const tool = toolOverride ?? activeTool;
+        if (tool === 'stamp' || tool === 'eraser') {
+          setToolOption({ brushSize: clampBrush(clampBrush(toolOptions.brushSize) + (e.key === ']' ? 1 : -1)) });
+          e.preventDefault();
+        }
+        return;
+      }
       const key = e.key.toLowerCase();
       const tools = MODE_REGISTRY[activeMode].tools;
       const tool = tools.find(t => TOOLS[t]?.key.toLowerCase() === key);

@@ -1,4 +1,6 @@
 import { normaliseSymmetry } from '../utils/symmetry';
+import { useAppStore } from '../store/appStore';
+import { brushCells, brushOrigin, clampBrush } from '../utils/brush';
 
 // Artboard overlays drawn for the active tool (never exported).
 
@@ -34,6 +36,30 @@ export function SymmetryAxes({ mode: rawMode, gridComputed }) {
           </text>
         </>
       )}
+    </g>
+  );
+}
+
+// The Stamp / Eraser brush under the pointer: the footprint a 1×1 shape
+// stamps at, or the cells the Eraser clears.
+export function BrushOutline({ tool, gridComputed }) {
+  const cursor = useAppStore(s => s.cursor);
+  const size = useAppStore(s => clampBrush(s.toolOptions.brushSize));
+  const shape = useAppStore(s => s.toolOptions.brushShape);
+  if (!gridComputed || cursor?.col == null || (size === 1 && tool === 'stamp')) return null;
+  const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
+  const cells = tool === 'stamp'
+    ? [brushOrigin(cursor.col, cursor.row, size, size, cols, rows)].map(o => ({ ...o, w: size, h: size }))
+    : brushCells(cursor.col, cursor.row, size, shape, cols, rows).map(c => ({ ...c, w: 1, h: 1 }));
+  const colour = tool === 'eraser' ? '#e5484d' : '#7c3aed';
+  return (
+    <g pointerEvents="none" data-noexport="true">
+      {cells.map((c, i) => (
+        <rect key={i} x={gridOriginX + c.col * cellSize} y={gridOriginY + c.row * cellSize}
+          width={c.w * cellSize} height={c.h * cellSize}
+          fill={tool === 'eraser' ? 'rgba(229,72,77,0.10)' : 'rgba(124,58,237,0.06)'}
+          stroke={colour} strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+      ))}
     </g>
   );
 }
