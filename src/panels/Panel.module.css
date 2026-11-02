@@ -1729,3 +1729,57 @@ input[type='range']:not(:disabled) + .sliderVal:hover {
   border-radius: 2px;
 }
 .regionShare { margin-left: 4px; font-size: 10px; color: var(--chrome-text-dim); }
+
+/* Presets panel (4.23) */
+.presetGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.presetItem { position: relative; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+.presetThumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+  background: var(--chrome-bg);
+  color: var(--chrome-text-dim);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.presetThumb:hover { border-color: var(--chrome-accent); }
+.presetThumb img { width: 100%; height: 100%; object-fit: contain; }
+
+.presetName {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presetDelete {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.presetItem:hover .presetDelete { display: block; }
+
+.tagChipsInline { display: flex; flex-wrap: wrap; gap: 4px; }

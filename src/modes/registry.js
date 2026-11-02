@@ -11,6 +11,7 @@ import { ColourPanel } from '../panels/ColourPanel';
 import { SwatchesPanel } from '../panels/SwatchesPanel';
 import { LayersPanel, MeanderLayersPanel, LineworkLayersPanel } from '../panels/LayersPanel';
 import { AssetsPanel } from '../panels/AssetsPanel';
+import { PresetsPanel } from '../panels/PresetsPanel';
 import { ImagePanel, AnimationPanel, AudioPanel } from '../panels/MediaPanels';
 import { MeanderPanel } from '../panels/MeanderPanels';
 import { LineworkPanel } from '../panels/LineworkPanels';
@@ -59,6 +60,7 @@ export const MODE_REGISTRY = {
       { id: 'generate', panels: [
         { id: 'generate', title: 'Generate', component: GeneratePanel, menu: ['generate.fill', 'generate.fillGaps', 'generate.surprise', 'generate.clear'] },
         { id: 'layouts', title: 'Layouts', component: LayoutsPanel, menu: ['generate.clearLayout'] },
+        { id: 'presets', title: 'Presets', component: PresetsPanel, menu: ['generate.savePreset'] },
       ], grow: 3 },
       { id: 'colour', panels: [
         { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['colour.shuffle', 'colour.saveSwatches'] },
@@ -88,7 +90,10 @@ export const MODE_REGISTRY = {
         { id: 'layers', title: 'Layers', component: MeanderLayersPanel },
         { id: 'history', title: 'History', component: HistoryPanel, menu: ['edit.undo', 'edit.redo'] },
       ], grow: 2 },
-      { id: 'meander', panels: [{ id: 'meander', title: 'Meander', component: MeanderPanel, menu: ['meander.fill', 'meander.recolour'] }], grow: 4 },
+      { id: 'meander', panels: [
+        { id: 'meander', title: 'Meander', component: MeanderPanel, menu: ['meander.fill', 'meander.recolour'] },
+        { id: 'presets', title: 'Presets', component: PresetsPanel, menu: ['generate.savePreset'] },
+      ], grow: 4 },
       { id: 'colour', panels: [
         { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['meander.recolour', 'colour.saveSwatches'] },
         { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
@@ -116,6 +121,7 @@ MODE_REGISTRY.linework = {
     { id: 'linework', panels: [
       { id: 'linework', title: 'Linework', component: LineworkPanel, menu: ['linework.reseed', 'linework.surprise', 'linework.recolour'] },
       { id: 'layouts', title: 'Layouts', component: LayoutsPanel, menu: ['generate.clearLayout'] },
+      { id: 'presets', title: 'Presets', component: PresetsPanel, menu: ['generate.savePreset'] },
     ], grow: 5 },
     { id: 'colour', panels: [
       { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['linework.recolour', 'colour.saveSwatches'] },

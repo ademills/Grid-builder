@@ -94,6 +94,7 @@ export const COMMANDS = {
 
   // Generate
   'generate.fill':    { label: 'Fill', enabled: c => c.gridDoc && !!c.cmds.canFill, run: c => c.cmds.runActiveFill() },
+  'generate.savePreset': { label: 'Save Design as Preset…', enabled: hasDoc, run: c => c.cmds.savePreset() },
   'generate.fillGaps': { label: 'Fill Gaps', enabled: c => c.gridDoc && !!c.cmds.canFillGaps, run: c => c.cmds.fillGaps() },
   // Every mode's Surprise Me, on one shortcut.
   'generate.surprise': {

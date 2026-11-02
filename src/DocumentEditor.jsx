@@ -48,6 +48,7 @@ import { resolveShapeStroke, strokeAttributes } from './utils/shapeStroke';
 import { mulberry32 } from './utils/rng';
 import { computeColourRegions, regionCellLists, regionDefaults } from './utils/regionFill';
 import { useShapeStore } from './store/shapeStore';
+import { usePresetStore, presetFields } from './store/presetStore';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA, LINEWORK_LAYER_SCHEMA } from './modes/linework/schema';
@@ -1258,12 +1259,13 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Runs a fill as one undoable step. `fields` are document fields the
   // caller changed alongside it, so undo restores those too.
-  const runFill = useCallback(async (fillId, settings, fields) => {
-    const packSeed = newPackSeed();
+  // opts.packSeed repeats a layout (presets); opts.label names the step.
+  const runFill = useCallback(async (fillId, settings, fields, opts = {}) => {
+    const packSeed = opts.packSeed ?? newPackSeed();
     const result = await computeFill(fillId, settings, { packSeed });
     if (result.stale) return false;
     if (result.error) { showToast(result.error); return false; }
-    pushHistory(placedBlocksRef.current, { label: `Fill — ${FILLS_BY_ID[fillId]?.label ?? fillId}`, fields });
+    pushHistory(placedBlocksRef.current, { label: opts.label ?? `Fill — ${FILLS_BY_ID[fillId]?.label ?? fillId}`, fields });
     setPlacedBlocks(result.blocks);
     liveFill.current = { fillId, packSeed, blocks: result.blocks, settings: settings ?? fillSettingsById[fillId] };
     syncHistorySize();
@@ -1970,7 +1972,7 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Small PNG preview of the current design, used for recent-file cards on
   // the home screen. Same build path as Export so it matches the output.
-  const buildThumbnail = useCallback(async (maxSide = 240) => {
+  const buildThumbnail = useCallback(async (maxSide = 240, mime = 'image/png') => {
     if (!gridComputed) return null;
     const { svgEl } = buildFlatSvgElement({
       placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
@@ -1983,8 +1985,23 @@ export function DocumentEditor({ mode: appMode }) {
       Math.max(1, Math.round(workArea.width * ratio)),
       Math.max(1, Math.round(workArea.height * ratio)),
     );
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL(mime, 0.82);
   }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap, shapeStroke]);
+
+  // ── Presets (4.23) ─────────────────────────────────────────────────────────
+  // Saves the design's settings and colours under a name, with a thumbnail.
+  const savePreset = useCallback(async () => {
+    const state = useDocumentStore.getState().docs[docId]?.state;
+    if (!state) return;
+    const name = prompt('Preset name', state.paletteKey ? `${state.paletteKey} design` : 'My design');
+    if (!name?.trim()) return;
+    const thumb = placedBlocks.length ? await buildThumbnail(160, 'image/jpeg').catch(() => null) : null;
+    usePresetStore.getState().addPreset({
+      mode: appMode, name: name.trim(), fields: presetFields(appMode, state), thumb,
+      ...(appMode === 'gridBuilder' && liveFill.current ? { packSeed: liveFill.current.packSeed } : {}),
+    });
+    showToast(`Saved preset “${name.trim()}”`);
+  }, [docId, appMode, placedBlocks.length, buildThumbnail, showToast]);
 
   // ── Panels ─────────────────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
@@ -1996,6 +2013,40 @@ export function DocumentEditor({ mode: appMode }) {
     run: (settings) => runFill(f.id, settings),
     can: canShapeFill && (f.image !== 'required' || !!imagePixels),
   }])), [canShapeFill, imagePixels, runFill]);
+
+  // Applies a preset: its fields now, then (next render, once the shapes and
+  // settings are in) the design is rebuilt — as one undo step.
+  const pendingPreset = useRef(null);
+  const [presetTick, setPresetTick] = useState(0);
+  const applyPreset = useCallback((preset) => {
+    const store = useDocumentStore.getState();
+    const state = store.docs[docId]?.state;
+    if (!state) return;
+    const before = {};
+    for (const [k, v] of Object.entries(preset.fields)) {
+      before[k] = state[k];
+      store.setField(docId, k, k === 'enabledAssetIds' ? new Set(v.filter(id => assetById(id))) : v);
+    }
+    pendingPreset.current = { preset, before };
+    setPresetTick(t => t + 1);
+  }, [docId]);
+  useEffect(() => {
+    if (!pendingPreset.current) return;
+    const { preset, before } = pendingPreset.current;
+    pendingPreset.current = null;
+    const label = `Preset — ${preset.name}`;
+    if (appMode === 'gridBuilder') {
+      const fillId = preset.fields.activeFill ?? 'standard';
+      if (fillActions[fillId]?.can) runFill(fillId, undefined, before, { packSeed: preset.packSeed, label });
+    } else if (appMode === 'knotwork') {
+      // Rebuild with the preset's own seed (Generate would pick a new one).
+      knotSeedRef.current = knotworkSettings.seed;
+      if (placedBlocksRef.current.length) regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, label, { keepFill: false });
+      else handleKnotworkFill();
+    }
+    showToast(`Applied preset “${preset.name}”`);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetTick]);
 
   // A new document opens with a design: Grid Pattern runs the Standard fill
   // (once the shapes have loaded), Meander generates, and Linework builds
@@ -2775,6 +2826,8 @@ export function DocumentEditor({ mode: appMode }) {
       lineworkRecolour: recolourLinework,
       lineworkPreset: applyLineworkPreset,
       lineworkSurprise: surpriseLinework,
+      savePreset,
+      applyPreset,
     },
     extracted: {
       palette: extractedPalette,
@@ -2788,7 +2841,7 @@ export function DocumentEditor({ mode: appMode }) {
       imageProgress: null,
       canKnotworkFill: gridComputed !== null,
     },
-  }), [appMode, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, lineworkSettings, updateLinework, lineworkRoles, lineworkEditLayer, lineworkPlates, reseedLinework, recolourLinework, applyLineworkPreset, surpriseLinework, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
+  }), [appMode, savePreset, applyPreset, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, lineworkSettings, updateLinework, lineworkRoles, lineworkEditLayer, lineworkPlates, reseedLinework, recolourLinework, applyLineworkPreset, surpriseLinework, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
 
   // The selection's colour for the control bar's Fill chip: one colour,
   // 'mixed', or null with nothing colourable selected.
@@ -2885,12 +2938,13 @@ export function DocumentEditor({ mode: appMode }) {
     lineworkRecolour: recolourLinework,
     lineworkSurprise: surpriseLinework,
     lineworkPreset: applyLineworkPreset,
+    savePreset,
     updateLinework,
     setLineworkEditLayer,
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
+  }), [openExport, savePreset, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
