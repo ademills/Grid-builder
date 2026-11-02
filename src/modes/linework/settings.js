@@ -30,6 +30,11 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // the cell size)
   tile: 2, subdiv: 0, minTile: 1, fills: ['spiral'], triFill: 'spiral', angles: ['45', '135'],
   orient: 'random', outline: true, core: true,
+  // How tiles pick from `fills`: placement 'random' (weighted by
+  // fillWeights, { [fill]: 0–1 }, even when unset) or 'checker' | 'rows' |
+  // 'cols' | 'rings' (cycling through them); spiralTurn 'random' | 'cw' |
+  // 'ccw' | 'alternate'.
+  placement: 'random', fillWeights: {}, spiralTurn: 'random',
   // B · circuit. route: 'bundles' (many walks) or 'single' (one walk, same
   // rules); `fill` makes the single route visit every cell (no crossings),
   // optionally as a closed `loop`. maxLen 200 means no limit.
@@ -101,6 +106,7 @@ export function plateCells(cfg, grid = null) {
 const DESIGN_KEYS = [
   'style', 'sym', 'scale',
   'tile', 'subdiv', 'minTile', 'fills', 'triFill', 'angles', 'orient', 'outline', 'core',
+  'placement', 'fillWeights', 'spiralTurn',
   'route', 'fill', 'loop', 'bundle', 'straight', 'maxLen', 'density', 'edgeExit', 'weave', 'eyes',
   'backing', 'corner', 'pad',
 ];
@@ -116,6 +122,14 @@ export function newPlate(layers, over = {}) {
   const design = Object.fromEntries(DESIGN_KEYS.filter(k => under?.[k] !== undefined).map(k => [k, under[k]]));
   return lineworkLayerDefaults({ ...design, id: newId(), name: `Plate ${n}`, size, ...over });
 }
+
+// The angular style's fills, in panel order.
+export const ANGULAR_FILLS = [
+  ['spiral', 'Key spiral'], ['rings', 'Rings'], ['split2', '◩ 2 triangles'],
+  ['split4', '⊠ 4 triangles'], ['hatch', 'Hatch'], ['chevron', 'Chevron'],
+  ['diamond', 'Diamond'], ['octagon', 'Octagon'], ['cornerL', 'Corner L'], ['cross', 'Cross'],
+  ['weave', 'Weave'], ['twin', 'Twin spiral'], ['quad', 'Quad spiral'], ['pinwheel', 'Pinwheel'], ['bowtie', 'Bowtie'],
+];
 
 // Fills older or partial settings out to the full shape. Documents from
 // before plates could be added had three fixed slots with an on/off switch:

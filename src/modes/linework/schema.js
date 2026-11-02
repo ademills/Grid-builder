@@ -1,6 +1,7 @@
 import { LINEWORK_SYMMETRY } from '../../utils/symmetry';
 import { MASK_SOURCES } from './masks';
-import { PlateSize, DiamondNote, MaskWord, MaskFillSettings, EditLayer } from './schemaFields';
+import { PlateSize, DiamondNote, MaskWord, MaskFillSettings, EditLayer, FillWeights } from './schemaFields';
+import { ANGULAR_FILLS } from './settings';
 import { range, oneOf } from '../../panels/schemaUtils';
 
 // Linework's settings as data (see panels/schema.jsx). The document-wide
@@ -14,10 +15,7 @@ import { range, oneOf } from '../../panels/schemaUtils';
 const pct = v => `${Math.round(v * 100)}%`;
 const cells = v => `${+v.toFixed(2)}`;
 
-const FILL_OPTIONS = [
-  ['spiral', 'Key spiral'], ['rings', 'Rings'], ['split2', '◩ 2 triangles'],
-  ['split4', '⊠ 4 triangles'], ['hatch', 'Hatch'], ['chevron', 'Chevron'],
-];
+const FILL_OPTIONS = ANGULAR_FILLS;
 const FILL_KEYS = FILL_OPTIONS.map(([k]) => k);
 // One to three fills, in a random order.
 const shuffledFills = (r) => FILL_KEYS.map(k => [k, r()]).sort((a, b) => a[1] - b[1]).slice(0, 1 + Math.floor(r() * 3)).map(([k]) => k);
@@ -151,7 +149,19 @@ export const LINEWORK_LAYER_SCHEMA = [
       { key: 'minTile', label: 'Smallest tile', type: 'slider', min: 0.25, max: 8, step: 0.25, format: cells,
         showIf: (L, ctx) => square(L, ctx) && L.subdiv > 0 },
       { key: 'fills', label: 'Fills', type: 'chips', options: FILL_OPTIONS, surprise: shuffledFills },
-      { key: 'triFill', label: 'Triangle fill', type: 'segmented', showIf: L => usesFill(L, ['split2', 'split4']),
+      { key: 'placement', label: 'Placement', type: 'select', showIf: L => (L.fills?.length ?? 0) > 1,
+        help: 'Where each fill goes: at random (weighted below), or cycling through the fills in a pattern',
+        options: [
+          { key: 'random', label: 'Random' }, { key: 'checker', label: 'Checkerboard' }, { key: 'rows', label: 'Rows' },
+          { key: 'cols', label: 'Columns' }, { key: 'rings', label: 'Rings from centre' },
+        ], surprise: r => (r() < 0.6 ? 'random' : oneOf(['checker', 'rows', 'cols', 'rings'])(r)) },
+      { key: 'fillWeights', type: 'custom', render: FillWeights, showIf: L => (L.fills?.length ?? 0) > 1 && (L.placement ?? 'random') === 'random' },
+      { key: 'spiralTurn', label: 'Spiral turn', type: 'segmented',
+        showIf: L => usesFill(L, ['spiral', 'twin', 'quad', 'split2', 'split4', 'diamond', 'octagon', 'bowtie']),
+        help: 'Which way the key spirals wind; Alternate mirrors neighbouring tiles',
+        options: [{ key: 'random', label: 'Random' }, { key: 'cw', label: '↻' }, { key: 'ccw', label: '↺' }, { key: 'alternate', label: 'Alternate' }],
+        surprise: oneOf(['random', 'random', 'cw', 'alternate']) },
+      { key: 'triFill', label: 'Triangle fill', type: 'segmented', showIf: L => usesFill(L, ['split2', 'split4', 'diamond', 'octagon', 'bowtie']),
         options: [{ key: 'spiral', label: 'Spiral' }, { key: 'rings', label: 'Rings' }, { key: 'mix', label: 'Mix' }],
         surprise: oneOf(['spiral', 'rings', 'mix']) },
       { key: 'angles', label: 'Hatch angles', type: 'chips', options: ANGLE_OPTIONS, showIf: L => usesFill(L, ['hatch', 'chevron']) },

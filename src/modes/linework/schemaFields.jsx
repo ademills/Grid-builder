@@ -1,7 +1,7 @@
 import { useDocSettings } from '../../editor/EditorContext';
 import { Segmented, Toggle } from '../../panels/controls';
 import { SettingsForm } from '../../panels/schema';
-import { PLATE_ASPECTS, plateCells } from './settings';
+import { PLATE_ASPECTS, plateCells, ANGULAR_FILLS } from './settings';
 import { MASK_SOURCES, layerMaskSettings } from './masks';
 import styles from '../../panels/Panel.module.css';
 
@@ -151,6 +151,20 @@ function FillSettings({ fill, L, set }) {
       <SettingsForm schema={fill.schema} values={settings} set={setLayerMask(L, set, settings)} />
     </>
   ) : null;
+}
+
+// How often each of the layer's fills is picked (Random placement): even
+// unless changed, 0 leaving it out.
+export function FillWeights({ values: L, set }) {
+  const weights = L.fillWeights ?? {};
+  return (
+    <>
+      {ANGULAR_FILLS.filter(([k]) => L.fills?.includes(k)).map(([k, label]) => (
+        <Slider key={k} label={label} value={weights[k] ?? 1} min={0} max={1} step={0.05} format={pct}
+          title={`How often ${label} is picked`} onChange={v => set({ fillWeights: { ...weights, [k]: v } })} />
+      ))}
+    </>
+  );
 }
 
 // Which layer the panel edits (the control bar has its own picker).
