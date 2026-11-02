@@ -1678,7 +1678,8 @@ export function DocumentEditor({ mode: appMode }) {
       if (!hit) {
         silhouetteCache.current.set(key, 'pending');
         silhouetteCoverage(cols, rows, s)
-          .then(cov => { silhouetteCache.current.set(key, silhouetteCells(cov, cols, rows, s)); setSilhouetteTick(t => t + 1); })
+          // A Set of "col,row", as every other mask (silhouetteCells lists them).
+          .then(cov => { silhouetteCache.current.set(key, new Set(silhouetteCells(cov, cols, rows, s))); setSilhouetteTick(t => t + 1); })
           .catch(() => silhouetteCache.current.delete(key));
       }
       return null;
