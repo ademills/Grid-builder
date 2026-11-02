@@ -133,7 +133,7 @@ const MENUS = [
     'file.save', 'file.saveAs', 'file.saveCopy', 'file.duplicate', 'separator', 'file.importShapes', 'file.export', 'file.exportSvg', 'separator',
     'file.close', 'file.closeOthers'] },
   { label: 'Edit', items: ['edit.undo', 'edit.redo', 'separator', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.duplicate',
-    'separator', 'edit.delete'] },
+    'separator', 'edit.delete', 'separator', 'edit.recolourArtwork'] },
   { label: 'Object', items: ['object.group', 'object.ungroup', 'separator',
     'object.rotateCw', 'object.rotateCcw', 'object.reflectH', 'object.reflectV', 'separator',
     'object.paint', 'object.unpin', 'object.randomOpacity', 'object.resetOpacity', 'separator',

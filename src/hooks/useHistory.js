@@ -207,10 +207,23 @@ export function useHistory(docId, setPlacedBlocks) {
     syncHistorySize();
   }, [docId, restore, syncHistorySize, flushSettings]);
 
+  // For live previews (Recolour Artwork): mark() notes where the history is;
+  // rollback(mark) drops every step taken since, so the preview can end as
+  // one step of its own (or none); putBack(snapshot) restores { blocks,
+  // fields } as an undo would, without adding a step.
+  const historyMark = useCallback(() => { flushSettings(); return stacksFor(docId).undo.length; }, [docId, flushSettings]);
+  const historyRollback = useCallback((mark) => {
+    flushSettings();
+    const stacks = stacksFor(docId);
+    stacks.undo = stacks.undo.slice(0, mark);
+    syncHistorySize();
+  }, [docId, flushSettings, syncHistorySize]);
+  const putBack = useCallback((snapshot) => { restore({ ...snapshot, blocks: compress(snapshot.blocks), label: '' }); }, [restore]);
+
   // True while the document still holds exactly what the last undo/redo put
   // back. Effects that rebuild the design when a setting changes skip their
   // rebuild then: the restored blocks already match.
   const isRestoring = useCallback(() => !!stacksFor(docId).restored, [docId]);
 
-  return { isRestoring, pushHistory, relabelHistory, handleUndo, handleRedo, jumpTo, historySize, syncHistorySize, clearHistory };
+  return { isRestoring, historyMark, historyRollback, putBack, pushHistory, relabelHistory, handleUndo, handleRedo, jumpTo, historySize, syncHistorySize, clearHistory };
 }

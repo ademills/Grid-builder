@@ -63,7 +63,7 @@ export const MODE_REGISTRY = {
         { id: 'presets', title: 'Presets', component: PresetsPanel, menu: ['generate.savePreset'] },
       ], grow: 3 },
       { id: 'colour', panels: [
-        { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['colour.shuffle', 'colour.saveSwatches'] },
+        { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['edit.recolourArtwork', 'colour.shuffle', 'colour.saveSwatches'] },
         { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
       ], grow: 3 },
       { id: 'assets', panels: [{ id: 'assets', title: 'Assets', component: AssetsPanel, menu: ['file.importShapes', 'assets.enableAll', 'assets.disableAll', 'assets.enableUsed'] }], defaultCollapsed: true, grow: 3 },
@@ -95,7 +95,7 @@ export const MODE_REGISTRY = {
         { id: 'presets', title: 'Presets', component: PresetsPanel, menu: ['generate.savePreset'] },
       ], grow: 4 },
       { id: 'colour', panels: [
-        { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['meander.recolour', 'colour.saveSwatches'] },
+        { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['edit.recolourArtwork', 'meander.recolour', 'colour.saveSwatches'] },
         { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
       ], grow: 2 },
       { id: 'effects', panels: [{ id: 'effects', title: 'Effects', component: EffectsPanel, menu: ['view.effects', 'file.export'] }], defaultCollapsed: true, grow: 2 },
@@ -124,7 +124,7 @@ MODE_REGISTRY.linework = {
       { id: 'presets', title: 'Presets', component: PresetsPanel, menu: ['generate.savePreset'] },
     ], grow: 5 },
     { id: 'colour', panels: [
-      { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['linework.recolour', 'colour.saveSwatches'] },
+      { id: 'colour', title: 'Colour', component: ColourPanel, menu: ['edit.recolourArtwork', 'linework.recolour', 'colour.saveSwatches'] },
       { id: 'swatches', title: 'Swatches', component: SwatchesPanel, menu: ['colour.importSwatches', 'colour.saveSwatches'] },
     ], grow: 2 },
     { id: 'effects', panels: [{ id: 'effects', title: 'Effects', component: EffectsPanel, menu: ['view.effects', 'file.export'] }], defaultCollapsed: true, grow: 2 },

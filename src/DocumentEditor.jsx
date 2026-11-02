@@ -5,6 +5,7 @@ import { Inspector } from './shell/Inspector';
 import { MODE_REGISTRY } from './modes/registry';
 import { EditorContext } from './editor/EditorContext';
 import { ExportDialog, ShortcutsDialog } from './editor/Dialogs';
+import { RecolourDialog } from './editor/RecolourDialog';
 import { AnimationLayer } from './components/AnimationLayer';
 import { ShapeCanvas } from './components/ShapeCanvas';
 import { createAudioAnalyser } from './utils/audioAnalysis';
@@ -905,6 +906,7 @@ export function DocumentEditor({ mode: appMode }) {
   // ── History ────────────────────────────────────────────────────────────────
   const {
     isRestoring,
+    historyMark, historyRollback, putBack,
     pushHistory,
     relabelHistory,
     handleUndo: _handleUndo,
@@ -2005,6 +2007,15 @@ export function DocumentEditor({ mode: appMode }) {
 
   // ── Panels ─────────────────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
+  // Edit › Recolour Artwork… (editor/RecolourDialog.jsx)
+  const [showRecolour, setShowRecolour] = useState(false);
+  const recolourHistory = useMemo(() => ({
+    mark: historyMark, rollback: historyRollback, putBack,
+    push: (blocks, opts) => { pushHistory(blocks, opts); syncHistorySize(); },
+  }), [historyMark, historyRollback, putBack, pushHistory, syncHistorySize]);
+  // How many shapes and layers pin each swatch.
+  const swatchUsage = useCallback((id) => placedBlocksRef.current.reduce((n, b) =>
+    n + (b.fillSwatch === id || Object.values(b.slotPins ?? {}).includes(id) ? 1 : 0), 0), []);
   const openExport = useCallback(() => setShowExport(true), []);
 
   // Fill id (modes/gridBuilder/fills.js) → its handler and availability.
@@ -2939,12 +2950,13 @@ export function DocumentEditor({ mode: appMode }) {
     lineworkSurprise: surpriseLinework,
     lineworkPreset: applyLineworkPreset,
     savePreset,
+    recolourArtwork: () => setShowRecolour(true),
     updateLinework,
     setLineworkEditLayer,
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, savePreset, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
+  }), [openExport, savePreset, setShowRecolour, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -3120,6 +3132,10 @@ export function DocumentEditor({ mode: appMode }) {
         />
       )}
       {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
+      {showRecolour && (
+        <RecolourDialog docId={docId} mode={appMode} usage={swatchUsage} history={recolourHistory}
+          onClose={() => setShowRecolour(false)} />
+      )}
     </div>
     </EditorContext.Provider>
   );
