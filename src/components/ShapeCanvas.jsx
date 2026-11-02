@@ -7,6 +7,7 @@ import { mapAmplitude, blendHexToward } from '../utils/audioAnalysis';
 import { effectsActive } from '../effects/effectDefs';
 import { vectorFit } from '../utils/meanderBlocks';
 import { createEffectsRenderer } from '../effects/effectsRenderer';
+import { resolveShapeStroke } from '../utils/shapeStroke';
 import styles from './Canvas.module.css';
 
 // Draws the artboard and its shapes with the 2D canvas API instead of one SVG
@@ -184,17 +185,41 @@ function blockMatrix(block, model, box) {
   return [a, b, c, d, e, f];
 }
 
+// Strokes `path` as an outline (utils/shapeStroke.js) of `width` in the
+// current units: outside is drawn before the fill (the fill covers its inner
+// half), centre and inside after it (inside clipped to the shape).
+function strokeOutline(ctx, path, rule, colour, width, align) {
+  ctx.strokeStyle = colour;
+  ctx.lineJoin = 'round';
+  if (align === 'inside') {
+    ctx.save();
+    ctx.clip(path, rule);
+    ctx.lineWidth = width * 2;
+    ctx.stroke(path);
+    ctx.restore();
+    return;
+  }
+  ctx.lineWidth = align === 'outside' ? width * 2 : width;
+  ctx.stroke(path);
+}
+
 // Paints one block on its own (used for blocks with opacity or a blend mode).
 // `base` is the view transform [k, ox, oy]: device px = artboard px × k + offset.
-function paintBlock(ctx, block, model, box, colours, base) {
+// `stroke` is its outline (width in artboard px) or null.
+function paintBlock(ctx, block, model, box, colours, base, stroke) {
   const [a, b, c, d, e, f] = blockMatrix(block, model, box);
   const [k, ox, oy] = base;
   ctx.setTransform(a * k, b * k, c * k, d * k, e * k + ox, f * k + oy);
+  const w = stroke ? stroke.px / Math.hypot(a, b) : 0;   // in shape units
   model.elements.forEach((el, i) => {
     if (!colours[i]) return;
     ctx.globalAlpha = el.opacity;
-    ctx.fillStyle = colours[i];
-    ctx.fill(el.path, el.rule);
+    if (stroke?.align === 'outside') strokeOutline(ctx, el.path, el.rule, stroke.colour, w, 'outside');
+    if (!stroke || stroke.fill) {
+      ctx.fillStyle = colours[i];
+      ctx.fill(el.path, el.rule);
+    }
+    if (stroke && stroke.align !== 'outside') strokeOutline(ctx, el.path, el.rule, stroke.colour, w, stroke.align);
   });
   ctx.globalAlpha = 1;
 }
@@ -203,11 +228,13 @@ function paintBlock(ctx, block, model, box, colours, base) {
 // block. That lets every block's n-th element be filled together, one
 // combined path per colour: tens of fill calls instead of tens of thousands.
 // Batches are in artboard coordinates, so panning and zooming reuse them.
-//   layers[n] = Map(key → { path, colour, alpha, rule })
-//   own       = blocks with opacity or a blend mode, composited one by one
+//   layers[n]  = Map(key → { path, colour, alpha, rule })
+//   strokes[n] = Map(key → { path, colour, alpha, rule, px, align }) — outlines
+//   own        = blocks with opacity or a blend mode, composited one by one
 function buildBatches(p, frame, flicker) {
   const { cellSize, gridOriginX: gx, gridOriginY: gy } = p.gridComputed;
   const layers = [];
+  const strokes = [];
   const own = [];
   for (const block of p.blocks) {
     if (!isShape(block)) continue;
@@ -215,22 +242,33 @@ function buildBatches(p, frame, flicker) {
     if (!model) continue;
     const box = { x: gx + block.gridCol * cellSize, y: gy + block.gridRow * cellSize, w: block.cols * cellSize, h: block.rows * cellSize };
     const colours = elementColours(block, model, box, p, frame, flicker);
+    const outline = resolveShapeStroke(block, p.shapeStroke, p.swatchMap);
+    const stroke = outline && { ...outline, px: outline.width * cellSize };
     if ((block.opacity ?? 1) < 1 || BLEND(block.blendMode) !== 'source-over') {
-      own.push({ block, model, box, colours });
+      own.push({ block, model, box, colours, stroke });
       continue;
     }
     const m = new DOMMatrix(blockMatrix(block, model, box));
     model.elements.forEach((el, i) => {
       const colour = colours[i];
       if (!colour) return;
-      const layer = layers[i] ??= new Map();
-      const key = `${colour}|${el.opacity}|${el.rule}`;
-      let batch = layer.get(key);
-      if (!batch) layer.set(key, batch = { path: new Path2D(), colour, alpha: el.opacity, rule: el.rule });
-      batch.path.addPath(el.path, m);
+      if (!stroke || stroke.fill) {
+        const layer = layers[i] ??= new Map();
+        const key = `${colour}|${el.opacity}|${el.rule}`;
+        let batch = layer.get(key);
+        if (!batch) layer.set(key, batch = { path: new Path2D(), colour, alpha: el.opacity, rule: el.rule });
+        batch.path.addPath(el.path, m);
+      }
+      if (stroke) {
+        const layer = strokes[i] ??= new Map();
+        const key = `${stroke.colour}|${stroke.px}|${stroke.align}|${el.opacity}|${el.rule}`;
+        let batch = layer.get(key);
+        if (!batch) layer.set(key, batch = { path: new Path2D(), colour: stroke.colour, alpha: el.opacity, rule: el.rule, px: stroke.px, align: stroke.align });
+        batch.path.addPath(el.path, m);
+      }
     });
   }
-  return { layers, own };
+  return { layers, strokes, own };
 }
 
 let scratch = null; // reused canvas for blocks drawn with opacity or a blend mode
@@ -241,31 +279,40 @@ function drawShapes(ctx, p, batches, view, dpr) {
   const base = [k, dpr * view.x, dpr * view.y];
 
   ctx.setTransform(k, 0, 0, k, base[1], base[2]);
-  for (const layer of batches.layers) {
-    if (!layer) continue;
-    for (const batch of layer.values()) {
+  // Per element layer: outside outlines, then fills, then the other outlines.
+  const outlines = (n, outside) => {
+    for (const s of batches.strokes[n]?.values() ?? []) {
+      if ((s.align === 'outside') !== outside) continue;
+      ctx.globalAlpha = s.alpha;
+      strokeOutline(ctx, s.path, s.rule, s.colour, s.px, s.align);
+    }
+  };
+  for (let n = 0; n < Math.max(batches.layers.length, batches.strokes.length); n++) {
+    outlines(n, true);
+    for (const batch of batches.layers[n]?.values() ?? []) {
       ctx.globalAlpha = batch.alpha;
       ctx.fillStyle = batch.colour;
       ctx.fill(batch.path, batch.rule);
     }
+    outlines(n, false);
   }
   ctx.globalAlpha = 1;
 
   // Opacity and blend modes apply to a block as a whole (like an SVG group),
   // so those blocks are drawn alone first, then composited.
   const vr = p.visibleRect;
-  for (const { block, model, box, colours } of batches.own) {
+  for (const { block, model, box, colours, stroke } of batches.own) {
     if (vr && (box.x + box.w < vr.left || box.x > vr.right || box.y + box.h < vr.top || box.y > vr.bottom)) continue;
     const dx = Math.floor(view.x * dpr + box.x * k), dy = Math.floor(view.y * dpr + box.y * k);
     const dw = Math.ceil(box.w * k) + 2, dh = Math.ceil(box.h * k) + 2;
-    if (dw > 4096 || dh > 4096) { paintBlock(ctx, block, model, box, colours, base); continue; }
+    if (dw > 4096 || dh > 4096) { paintBlock(ctx, block, model, box, colours, base, stroke); continue; }
     scratch ??= document.createElement('canvas');
     if (scratch.width < dw) scratch.width = dw;
     if (scratch.height < dh) scratch.height = dh;
     const sc = scratch.getContext('2d');
     sc.setTransform(1, 0, 0, 1, 0, 0);
     sc.clearRect(0, 0, dw, dh);
-    paintBlock(sc, block, model, box, colours, [k, view.x * dpr - dx, view.y * dpr - dy]);
+    paintBlock(sc, block, model, box, colours, [k, view.x * dpr - dx, view.y * dpr - dy], stroke);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = block.opacity ?? 1;
     ctx.globalCompositeOperation = BLEND(block.blendMode);
@@ -404,10 +451,11 @@ export function ShapeCanvas(props) {
       // Static content: rebuild only when the shapes or their colours change.
       const key = staticKey.current;
       if (!key || key.blocks !== p.blocks || key.colourCtx !== p.colourCtx || key.imagePixels !== p.imagePixels
-        || key.colourRemap !== p.colourRemap || key.gridComputed !== p.gridComputed) {
+        || key.colourRemap !== p.colourRemap || key.gridComputed !== p.gridComputed
+        || key.shapeStroke !== p.shapeStroke || key.swatchMap !== p.swatchMap) {
         staticKey.current = {
           blocks: p.blocks, colourCtx: p.colourCtx, imagePixels: p.imagePixels, colourRemap: p.colourRemap,
-          gridComputed: p.gridComputed, batches: buildBatches(p, null, null),
+          gridComputed: p.gridComputed, shapeStroke: p.shapeStroke, swatchMap: p.swatchMap, batches: buildBatches(p, null, null),
         };
       }
       batches = staticKey.current.batches;

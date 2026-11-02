@@ -5,6 +5,7 @@ import { useEditor } from '../editor/EditorContext';
 import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
 import { blockSlotColours } from '../utils/blockColours';
 import { assetThumb } from './panelUtils';
+import { SwatchColourField } from './SwatchColourField';
 import styles from './Panel.module.css';
 
 const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
@@ -38,6 +39,7 @@ function OpacitySlider({ value, onCommit }) {
 export function InfoPanel() {
   const { selectedIds, selectionActions, colourCtx } = useEditor();
   const [placedBlocks] = useDocField('placedBlocks');
+  const [shapeStroke] = useDocField('shapeStroke');
   const cursor = useAppStore(s => s.cursor);
   const setToolOption = useAppStore(s => s.setToolOption);
 
@@ -83,6 +85,14 @@ export function InfoPanel() {
   const lockedCount = selected.length - editable.length;
   const set = selectionActions.setProps;
   const slots = single ? blockSlotColours(single, colourCtx) ?? [] : [];
+  // Outline (5.9): the document's, none, or the shape's own.
+  const outlineKind = common(selected, b => (!b.stroke ? 'document' : b.stroke.off ? 'none' : 'custom'));
+  const ownStroke = outlineKind === 'custom' ? selected[0].stroke : null;
+  const docStroke = shapeStroke ?? {};
+  const setOutline = kind => set({
+    stroke: kind === 'document' ? undefined : kind === 'none' ? { off: true }
+      : { width: docStroke.width ?? 3, hex: docStroke.hex ?? '#000000', swatch: docStroke.swatch ?? null, align: docStroke.align ?? 'outside' },
+  });
 
   return (
     <div className={styles.sectionContent}>
@@ -151,6 +161,33 @@ export function InfoPanel() {
           {BLEND_MODES.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </div>
+
+      <div className={styles.formRow}>
+        <span className={styles.label}>Outline</span>
+        <select className={styles.select} value={outlineKind === MIXED ? '' : outlineKind} onChange={e => setOutline(e.target.value)}>
+          {outlineKind === MIXED && <option value="" disabled>Mixed</option>}
+          <option value="document">{docStroke.enabled ? 'Document' : 'Document (none)'}</option>
+          <option value="none">None</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      {ownStroke && (
+        <>
+          <div className={styles.formRow}>
+            <span className={styles.label}>Width</span>
+            <div className={styles.sliderRow}>
+              <input type="range" className={styles.slider} min={0.5} max={15} step={0.5} value={ownStroke.width}
+                onChange={e => set({ stroke: { ...ownStroke, width: +e.target.value } }, { coalesce: true })} />
+              <span className={styles.sliderVal}>{ownStroke.width}%</span>
+            </div>
+          </div>
+          <div className={styles.formRow}>
+            <span className={styles.label}>Colour</span>
+            <SwatchColourField value={ownStroke.hex} title="Outline colour"
+              onChange={(hex, swatch) => set({ stroke: { ...ownStroke, hex, swatch: swatch ?? null } })} />
+          </div>
+        </>
+      )}
 
       {single && slots.length > 0 && (
         <div className={styles.formRow}>

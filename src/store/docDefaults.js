@@ -32,6 +32,8 @@ export function createDefaultDocState() {
     autoFill: false,
     // Fills give each new shape a random opacity between min and max.
     fillOpacity: { random: false, min: 0.4, max: 1 },
+    // Outline on every shape (utils/shapeStroke.js); width is % of a cell.
+    shapeStroke: { enabled: false, width: 3, hex: '#000000', swatch: null, align: 'outside', fill: true },
     // Ruler guides, in artboard px: v = vertical lines (x), h = horizontal (y).
     guides: { v: [], h: [] },
     // No longer used: the pasteboard is a View setting (appStore). Kept so

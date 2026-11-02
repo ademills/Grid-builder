@@ -44,6 +44,7 @@ import { groupMembers, groupBlocksTogether, ungroupBlocks, regroupCopies, listGr
 import { planMove, moveLimits } from './utils/moveBlocks';
 import { symmetricPoints, symmetricPlacements, normaliseSymmetry } from './utils/symmetry';
 import { brushCells, brushOrigin, clampBrush } from './utils/brush';
+import { resolveShapeStroke, strokeAttributes } from './utils/shapeStroke';
 import { mulberry32 } from './utils/rng';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
@@ -109,10 +110,34 @@ const FLAT_SVG_EXPORT_UNIT = 500;
 // Splitting into layers lets raster export composite them with canvas
 // globalCompositeOperation instead of relying on in-SVG mix-blend-mode,
 // which avoids antialiasing seam artefacts at shape boundaries.
+// Outlines (5.9) on an exported shape's painted elements. An inside outline
+// is a doubled stroke clipped to the element itself.
+const OUTLINE_TAGS = new Set(['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline']);
+function addOutline(g, outline, scale, idBase) {
+  let n = 0;
+  for (const el of [...g.querySelectorAll('*')]) {
+    if (!OUTLINE_TAGS.has(el.localName) || el.closest('defs, clipPath, mask')) continue;
+    const fill = el.style?.fill || el.getAttribute('fill');
+    if (fill === 'none' || fill === 'transparent') continue;
+    // Inline styles win over attributes (and the tidy pass keeps them), so clear them.
+    for (const k of ['fill', 'stroke', 'stroke-width']) el.style?.removeProperty(k);
+    for (const [k, v] of Object.entries(strokeAttributes(outline, FLAT_SVG_EXPORT_UNIT, scale))) el.setAttribute(k, v);
+    if (outline.align === 'inside') {
+      const clip = document.createElementNS(FLAT_SVG_NS, 'clipPath');
+      clip.setAttribute('id', `${idBase}-${n++}`);
+      const shape = el.cloneNode(false);
+      for (const a of ['transform', 'stroke', 'stroke-width', 'stroke-linejoin', 'fill', 'opacity', 'fill-opacity']) shape.removeAttribute(a);
+      clip.appendChild(shape);
+      el.parentNode.insertBefore(clip, el);
+      el.setAttribute('clip-path', `url(#${clip.getAttribute('id')})`);
+    }
+  }
+}
+
 function buildFlatSvgElement({
   placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
   canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, colourRemap,
-  backdropSrc, backdropSettings, blendMode, layer = 'all', includeWireframes = false, swatchMap,
+  backdropSrc, backdropSettings, blendMode, layer = 'all', includeWireframes = false, swatchMap, shapeStroke,
 }) {
   // Hidden layers (Layers panel) are left out of every export.
   placedBlocks = placedBlocks.filter(b => !b.hidden);
@@ -369,6 +394,8 @@ function buildFlatSvgElement({
     const blockT = shapeTransform(block, bx, by, bw, bh);
     g.setAttribute('transform', `${blockT ? `${blockT} ` : ''}translate(${tx},${ty}) scale(${scale})`);
     for (const child of [...blockRoot.childNodes]) g.appendChild(document.importNode(child, true));
+    const outline = resolveShapeStroke(block, shapeStroke, swatchMap ?? {});
+    if (outline) addOutline(g, outline, scale, `outline-${index}`);
     blocksGroup.appendChild(withAppearance(g, block, index));
   });
 
@@ -1081,6 +1108,7 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Random opacity for newly filled shapes (Properties → Opacity).
   const [fillOpacity] = useDocField('fillOpacity');
+  const [shapeStroke] = useDocField('shapeStroke');
   const randomOpacity = useCallback((rng = Math.random) => {
     if (!fillOpacity?.random) return {};
     const { min, max } = fillOpacity;
@@ -1764,7 +1792,7 @@ export function DocumentEditor({ mode: appMode }) {
     const commonBuildArgs = {
       placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
       canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled,
-      colourRemap: imageColourRemap, swatchMap,
+      colourRemap: imageColourRemap, swatchMap, shapeStroke,
       backdropSrc, backdropSettings: effectiveBackdropSettings, blendMode,
       includeWireframes: includeWireframeLayer,
     };
@@ -1867,7 +1895,7 @@ export function DocumentEditor({ mode: appMode }) {
     } catch (err) {
       alert('Export failed: ' + err.message);
     }
-  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap, shapeColors, bgColors, docId, colourCtx, groupNames, effects]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap, shapeStroke, shapeColors, bgColors, docId, colourCtx, groupNames, effects]);
 
   // Full-canvas data URI for the Meander single-motif tile preview --
   // same buildFlatSvgElement path handleExport uses, so the preview always
@@ -1891,7 +1919,7 @@ export function DocumentEditor({ mode: appMode }) {
     const { svgEl } = buildFlatSvgElement({
       placedBlocks, workArea, gridComputed, colorMode, activePalette, activeBgColors,
       canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled,
-      colourRemap: imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap,
+      colourRemap: imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap, shapeStroke,
     });
     const ratio = maxSide / Math.max(workArea.width, workArea.height);
     const canvas = await rasterizeSvgToCanvas(
@@ -1900,7 +1928,7 @@ export function DocumentEditor({ mode: appMode }) {
       Math.max(1, Math.round(workArea.height * ratio)),
     );
     return canvas.toDataURL('image/png');
-  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap, shapeStroke]);
 
   // ── Panels ─────────────────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
@@ -1937,9 +1965,10 @@ export function DocumentEditor({ mode: appMode }) {
   const [layerHighlight, setLayerHighlight] = useState(null);
 
   // Applies `fn` to the given blocks as one undoable step.
-  const updateBlocks = useCallback((ids, fn, label) => {
+  // coalesce: merge into the previous step with this label (a slider drag).
+  const updateBlocks = useCallback((ids, fn, label, { coalesce = false } = {}) => {
     const idSet = ids instanceof Set ? ids : new Set(ids);
-    pushHistory(placedBlocks, { label });
+    pushHistory(placedBlocks, { label, coalesce });
     setPlacedBlocks(prev => prev.map(b => (idSet.has(b.id) ? fn(b) : b)));
     syncHistorySize();
   }, [placedBlocks, pushHistory, setPlacedBlocks, syncHistorySize]);
@@ -2417,7 +2446,7 @@ export function DocumentEditor({ mode: appMode }) {
       toggleFreeze: handleToggleLockSelected,
       paint: () => paintIds(editable(), toolOptions.paintHex),
       // Info panel edits: `changes` is merged into every editable selected block.
-      setProps: (changes) => updateBlocks(editable(), b => ({ ...b, ...changes }), 'Edit Properties'),
+      setProps: (changes, opts) => updateBlocks(editable(), b => ({ ...b, ...changes }), 'Edit Properties', opts),
       // Swap the shape, keeping position and appearance. Only blocks with the
       // same footprint change; colour pins are dropped (slots differ per shape).
       setShape: (asset) => updateBlocks(editable(), b => {
@@ -2860,6 +2889,8 @@ export function DocumentEditor({ mode: appMode }) {
               gridCells={lineworkCells}
               blocks={movePreview?.ok ? movePreview.blocks : placedBlocks}
               colourCtx={colourCtx}
+              shapeStroke={appMode === 'gridBuilder' ? shapeStroke : null}
+              swatchMap={swatchMap}
               imagePixels={imagePixels}
               colourRemap={imageColourRemap}
               blendMode={blendMode}

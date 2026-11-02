@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PRESETS } from '../gridPresets';
 import { useDocField } from '../store/useDocField';
 import { useEditor, useDocSettings } from '../editor/EditorContext';
-import { Stepper, Toggle, InfoTip, Section } from './controls';
+import { Stepper, Toggle, InfoTip, Section, Segmented } from './controls';
 import { SwatchColourField } from './SwatchColourField';
 import { SettingsForm } from './schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA } from '../modes/linework/schema';
@@ -23,6 +23,7 @@ export function PropertiesPanel() {
   const [scaleFreq, setScaleFreq] = useDocField('scaleFreq');
   const [autoFill, setAutoFill] = useDocField('autoFill');
   const [fillOpacity, setFillOpacity] = useDocSettings('fillOpacity');
+  const [shapeStroke, setShapeStroke] = useDocSettings('shapeStroke');
   const [canvasBg, setCanvasBg] = useDocField('canvasBg');
   const [showTilePreview, setShowTilePreview] = useDocField('showTilePreview');
   const isGrid = mode === 'gridBuilder';
@@ -157,6 +158,44 @@ export function PropertiesPanel() {
             <span className={styles.label}>Auto-fill<InfoTip text="Re-fill the grid automatically whenever grid settings change" /></span>
             <Toggle value={autoFill} onChange={setAutoFill} />
           </div>
+        </Section>
+      )}
+
+      {isGrid && shapeStroke && (
+        <Section id="properties.outline" title="Outline" info="An outline on every shape. Selected shapes can have their own (Info panel).">
+          <div className={styles.formRow}>
+            <span className={styles.label}>Outline</span>
+            <Toggle value={shapeStroke.enabled} onChange={v => setShapeStroke({ enabled: v })} />
+          </div>
+          {shapeStroke.enabled && (
+            <>
+              <div className={styles.formRow}>
+                <span className={styles.label}>Width<InfoTip text="As a percentage of one grid cell" /></span>
+                <div className={styles.sliderRow}>
+                  <input type="range" className={styles.slider} min={0.5} max={15} step={0.5}
+                    value={shapeStroke.width} onChange={e => setShapeStroke({ width: +e.target.value })} />
+                  <span className={styles.sliderVal}>{shapeStroke.width}%</span>
+                </div>
+              </div>
+              <div className={styles.formRow}>
+                <span className={styles.label}>Colour</span>
+                <SwatchColourField value={shapeStroke.hex} title="Outline colour"
+                  onChange={(hex, swatch) => setShapeStroke({ hex, swatch: swatch ?? null })} />
+              </div>
+              <div className={styles.formRow}>
+                <span className={styles.label}>Fill<InfoTip text="Off: shapes are drawn as outlines only (line art)" /></span>
+                <Toggle value={shapeStroke.fill !== false} onChange={v => setShapeStroke({ fill: v })} />
+              </div>
+              {shapeStroke.fill !== false && (
+                <div className={styles.formRow}>
+                  <span className={styles.label}>Align</span>
+                  <Segmented value={shapeStroke.align} onChange={v => setShapeStroke({ align: v })} options={[
+                    { key: 'inside', label: 'Inside' }, { key: 'centre', label: 'Centre' }, { key: 'outside', label: 'Outside' },
+                  ]} />
+                </div>
+              )}
+            </>
+          )}
         </Section>
       )}
     </div>
