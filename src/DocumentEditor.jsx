@@ -834,6 +834,7 @@ export function DocumentEditor({ mode: appMode }) {
 
   // ── History ────────────────────────────────────────────────────────────────
   const {
+    isRestoring,
     pushHistory,
     relabelHistory,
     handleUndo: _handleUndo,
@@ -901,6 +902,8 @@ export function DocumentEditor({ mode: appMode }) {
     if (appMode === 'linework') return;
     if (!prev || !placedBlocksRef.current.length) return;
     if (prev.cols === gridComputed.cols && prev.rows === gridComputed.rows) return;
+    // Undo put back the blocks at their old size along with the grid.
+    if (isRestoring()) return;
 
     const scaleC = gridComputed.cols / prev.cols;
     const scaleR = gridComputed.rows / prev.rows;
@@ -952,7 +955,7 @@ export function DocumentEditor({ mode: appMode }) {
     const changed = autoFillKeyRef.current !== key;
     autoFillKeyRef.current = key;
     if (isFirstRun || !changed) return;
-    if (!autoFillRef.current || !gridComputed || !activeAssetsRef.current.length) return;
+    if (!autoFillRef.current || !gridComputed || !activeAssetsRef.current.length || isRestoring()) return;
     clearTimeout(autoFillTimerRef.current);
     autoFillTimerRef.current = setTimeout(() => {
       const locked = placedBlocksRef.current.filter(b => b.locked && b.type !== 'wireframe');
@@ -1274,7 +1277,7 @@ export function DocumentEditor({ mode: appMode }) {
     const seed = useDocumentStore.getState().docs[docId]?.state.knotworkSettings?.seed ?? knotworkSettings.seed;
     if (knotSeedRef.current === null) { knotSeedRef.current = seed; return; }
     if (knotSeedRef.current === seed) return;
-    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock)) { knotSeedRef.current = seed; return; }
+    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock) || isRestoring()) { knotSeedRef.current = seed; return; }
     const timer = setTimeout(() => {
       knotSeedRef.current = seed;
       regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'New Seed', { keepFill: false });
@@ -1312,7 +1315,7 @@ export function DocumentEditor({ mode: appMode }) {
     const prev = knotPaletteRef.current;
     knotPaletteRef.current = knotPaletteSig;
     if (prev === null || prev === knotPaletteSig) return;
-    if (appMode !== 'knotwork' || !placedBlocksRef.current.length) return;
+    if (appMode !== 'knotwork' || !placedBlocksRef.current.length || isRestoring()) return;
     clearTimeout(knotRegenTimer.current);
     knotRegenTimer.current = setTimeout(() => {
       regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'Swatch Change', { keepFill: false });
@@ -1337,7 +1340,7 @@ export function DocumentEditor({ mode: appMode }) {
     const prev = knotShapeRef.current;
     knotShapeRef.current = knotShapeSig;
     if (prev === null || prev === knotShapeSig) return;
-    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock)) return;
+    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock) || isRestoring()) return;
     clearTimeout(knotShapeTimer.current);
     knotShapeTimer.current = setTimeout(() => {
       regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'Reshape Strands', { keepFill: true });
@@ -1357,7 +1360,7 @@ export function DocumentEditor({ mode: appMode }) {
     const names = Object.fromEntries(knotPlates.map(p => [`meander-plate-${p.id}`, p.name]));
     if (Object.entries(names).some(([id, name]) => groupNames[id] !== name)) setGroupNames(n => ({ ...n, ...names }));
     if (prev === null || prev === knotPlatesSig) return;
-    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock)) return;
+    if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock) || isRestoring()) return;
     const timer = setTimeout(() => {
       regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'Plates', { keepFill: true });
     }, 60);

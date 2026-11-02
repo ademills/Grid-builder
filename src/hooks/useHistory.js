@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ALL_BUILTIN_ASSETS } from '../builtinAssets';
 import { useDocumentStore } from '../store/documentStore';
+import { SETTINGS_IDLE_MS, isUndoableField, settingsLabel, foldSettingsStep, userActiveSince, onUserInput } from './settingsHistory';
 
 const HISTORY_LIMIT = 100;
 
@@ -73,6 +74,8 @@ export function useHistory(docId, setPlacedBlocks) {
     stacks.undo = [];
     stacks.redo = [];
     stacks.truncated = false;
+    if (stacks.pending) clearTimeout(stacks.pending.timer);
+    stacks.pending = null;
     setHistorySize(summary(stacks));
   }, [docId]);
 
@@ -88,7 +91,8 @@ export function useHistory(docId, setPlacedBlocks) {
       top.at = now;
       return;
     }
-    const next = [...stacks.undo, { blocks: compress(snapshot), fields, label, at: now, coalesce }];
+    stacks.restored = null;
+    const next = [...stacks.undo, { blocks: compress(snapshot), fields, label, at: now, born: now, coalesce }];
     if (next.length > HISTORY_LIMIT) stacks.truncated = true;
     stacks.undo = next.slice(-HISTORY_LIMIT);
     stacks.redo = [];
@@ -105,6 +109,11 @@ export function useHistory(docId, setPlacedBlocks) {
   // row (History panel jumps) each see the previous one's result.
   const restore = useCallback((entry) => {
     const store = useDocumentStore.getState();
+    // Putting fields back is not a new settings change.
+    const stacks = stacksFor(docId);
+    stacks.quietUntil = Date.now() + SETTINGS_IDLE_MS;
+    stacks.pending = null;
+    stacks.restored = entry.fields ?? {};
     const current = store.docs[docId]?.state ?? {};
     const back = { blocks: compress(current.placedBlocks ?? []), label: entry.label, at: entry.at };
     if (entry.fields) {
@@ -115,26 +124,78 @@ export function useHistory(docId, setPlacedBlocks) {
     return back;
   }, [docId, setPlacedBlocks]);
 
+  // Settings changes (slider drags, colour picks, palette edits) become one
+  // undo step each, committed shortly after the pointer is let go. Block
+  // steps pushed during the same gesture (a regenerated design) fold into it,
+  // so undo puts back the settings and the design together.
+  const flushSettings = useCallback(() => {
+    const stacks = stacksFor(docId);
+    const pending = stacks.pending;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    stacks.pending = null;
+    foldSettingsStep(stacks, { ...pending, blocks: compress(pending.blocks), label: settingsLabel(Object.keys(pending.fields)) }, HISTORY_LIMIT);
+    syncHistorySize();
+  }, [docId, syncHistorySize]);
+
+  useEffect(() => {
+    const stacks = stacksFor(docId);
+    const schedule = () => {
+      const pending = stacks.pending;
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      pending.timer = setTimeout(() => {
+        // Still dragging: wait for the pointer to come up.
+        if (userActiveSince(0).pointerDown) schedule();
+        else flushSettings();
+      }, SETTINGS_IDLE_MS);
+    };
+    const unsubscribe = useDocumentStore.subscribe((state, prevState) => {
+      const next = state.docs[docId]?.state;
+      const prev = prevState.docs[docId]?.state;
+      if (!next || !prev || next === prev) return;
+      // Any other change ends "just restored".
+      if (stacks.restored && Object.keys(next).some(k => !Object.is(next[k], prev[k]) && isUndoableField(k) && !Object.is(next[k], stacks.restored[k]))) {
+        stacks.restored = null;
+      }
+      const now = Date.now();
+      if (now < (stacks.quietUntil ?? 0)) return;
+      const input = userActiveSince(now - 600);
+      if (!input.active) return;   // the editor's own bookkeeping, not the user
+      for (const key of Object.keys(next)) {
+        if (Object.is(next[key], prev[key]) || !isUndoableField(key)) continue;
+        if (!stacks.pending) stacks.pending = { fields: {}, blocks: prev.placedBlocks ?? [], since: input.at };
+        if (!(key in stacks.pending.fields)) stacks.pending.fields[key] = prev[key];
+      }
+      schedule();
+    });
+    const offInput = onUserInput(schedule);
+    return () => { unsubscribe(); offInput(); flushSettings(); };
+  }, [docId, flushSettings]);
+
   const handleUndo = useCallback(() => {
+    flushSettings();
     const stacks = stacksFor(docId);
     if (!stacks.undo.length) return;
     const prev = stacks.undo[stacks.undo.length - 1];
     stacks.undo = stacks.undo.slice(0, -1);
     stacks.redo = [restore(prev), ...stacks.redo].slice(0, HISTORY_LIMIT);
     syncHistorySize();
-  }, [docId, restore, syncHistorySize]);
+  }, [docId, restore, syncHistorySize, flushSettings]);
 
   const handleRedo = useCallback(() => {
+    flushSettings();
     const stacks = stacksFor(docId);
     if (!stacks.redo.length) return;
     const next = stacks.redo[0];
     stacks.redo = stacks.redo.slice(1);
     stacks.undo = [...stacks.undo, restore(next)].slice(-HISTORY_LIMIT);
     syncHistorySize();
-  }, [docId, restore, syncHistorySize]);
+  }, [docId, restore, syncHistorySize, flushSettings]);
 
   // Goes to the state after `steps` undo steps (0 = the oldest kept state).
   const jumpTo = useCallback((steps) => {
+    flushSettings();
     const stacks = stacksFor(docId);
     while (stacks.undo.length > steps && stacks.undo.length) {
       const prev = stacks.undo[stacks.undo.length - 1];
@@ -147,7 +208,12 @@ export function useHistory(docId, setPlacedBlocks) {
       stacks.undo = [...stacks.undo, restore(next)];
     }
     syncHistorySize();
-  }, [docId, restore, syncHistorySize]);
+  }, [docId, restore, syncHistorySize, flushSettings]);
 
-  return { pushHistory, relabelHistory, handleUndo, handleRedo, jumpTo, historySize, syncHistorySize, clearHistory };
+  // True while the document still holds exactly what the last undo/redo put
+  // back. Effects that rebuild the design when a setting changes skip their
+  // rebuild then: the restored blocks already match.
+  const isRestoring = useCallback(() => !!stacksFor(docId).restored, [docId]);
+
+  return { isRestoring, pushHistory, relabelHistory, handleUndo, handleRedo, jumpTo, historySize, syncHistorySize, clearHistory };
 }
