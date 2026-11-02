@@ -194,6 +194,9 @@ export const LINEWORK_LAYER_SCHEMA = [
     fields: [
       { key: 'mask', label: 'Mask', type: 'select',
         options: [{ key: 'none', label: 'None' }, ...MASK_SOURCES.map(m => ({ key: m.id, label: m.label }))], surprise: () => 'none' },
+      { key: 'maskShapes', label: 'Shapes', type: 'segmented', showIf: masked,
+        options: [{ key: 'one', label: 'As one' }, { key: 'each', label: 'Each separately' }],
+        help: 'Each separately: every separate shape in the mask gets its own design, centred and mirrored on itself' },
       { key: 'maskFills', label: 'Inside fills', type: 'chips', options: FILL_OPTIONS, showIf: L => masked(L) && angular(L) },
       { key: 'maskOutside', label: 'Outside', type: 'segmented', showIf: L => masked(L) && angular(L),
         options: [{ key: 'fill', label: 'Layer fills' }, { key: 'empty', label: 'Empty' }] },

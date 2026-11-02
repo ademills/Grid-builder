@@ -6,6 +6,9 @@
 //   gradient / mesh — the colour at the group's position
 //   image    — the Image colour mode's picture under the group
 // "Ink from image" (Image panel) samples the backdrop picture instead.
+// A layer can have a colour mode and shuffle seed of its own (cfg.colorMode,
+// cfg.colourSeed; null follows the document's). Uniform counts each such
+// layer's groups on their own.
 // Grounds, shadows and rims take their colour roles; a plate set to swap
 // ink and ground swaps them for its own items.
 
@@ -20,6 +23,7 @@ export function colourItems(items, ctx) {
   const { colorMode, palette, width, height } = ctx;
   const pal = palette?.length ? palette : [ctx.ink];
   let n = 0;
+  const own = {}; // groups counted so far in each layer with its own mode
   const backdropSamples = ctx.inkFromImage && ctx.backdropPixels
     ? sampleStrandColours(items.map(it => [{ x: it.centre[0], y: it.centre[1] }]), ctx.backdropPixels, width, height, ctx.backdropFit, [ctx.ink])
     : null;
@@ -32,14 +36,17 @@ export function colourItems(items, ctx) {
     if (it.kind === 'shadow') return ctx.shadow;
     if (it.kind === 'rim') return ctx.layers?.[it.layer]?.rimInk ? ink : ground;
     if (it.kind === 'outline') return ink;
-    const i = n++;
+    const cfg = ctx.layers?.[it.layer];
+    const mode = cfg?.colorMode ?? colorMode;
+    const seed = cfg?.colourSeed ?? ctx.colourSeed ?? 0;
+    const i = cfg?.colorMode ? (own[it.layer] = (own[it.layer] ?? -1) + 1) : n++;
     if (backdropSamples) return backdropSamples[idx];
     const [x, y] = it.centre;
     const nx = width ? x / width : 0.5, ny = height ? y / height : 0.5;
-    switch (colorMode) {
+    switch (mode) {
       case 'uniform': return pal[i % pal.length];
-      case 'random': return pal[hash(ctx.colourSeed ?? 0, ...[...it.key].map(c => c.charCodeAt(0))) % pal.length];
-      case 'gradient': return pal[Math.round(gradientT(nx, ny, ctx.gradient ?? {}, ctx.colourSeed ?? 0) * (pal.length - 1))];
+      case 'random': return pal[hash(seed, ...[...it.key].map(c => c.charCodeAt(0))) % pal.length];
+      case 'gradient': return pal[Math.round(gradientT(nx, ny, ctx.gradient ?? {}, seed) * (pal.length - 1))];
       case 'mesh': return ctx.mesh?.points?.length ? meshColourAt(ctx.mesh.points, nx, ny, ctx.mesh.weightPower) : ink;
       case 'image': return ctx.imagePixels ? samplePixels(ctx.imagePixels, ...ctx.toArtboard(x, y)) : ink;
       default: return ink;

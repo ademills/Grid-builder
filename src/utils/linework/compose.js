@@ -17,7 +17,7 @@ import { cellCircuitLayer, cellCircuitSize } from './cellCircuit';
 import { tilingCells } from './tilings';
 import {
   add, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
-  SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly,
+  SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly, hash,
 } from './geometry';
 
 export const CELL = 100;
@@ -130,6 +130,38 @@ const insidePoly = (P, [x, y]) => {
   return inside;
 };
 
+const masked = (cfg) => cfg.mask && cfg.mask !== 'none';
+
+// A mask's separate shapes: its cells joined edge to edge, each with its
+// bounding box in cells, in reading order.
+export function maskShapes(mask, cols, rows) {
+  const seen = new Set();
+  const shapes = [];
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const k0 = `${i},${j}`;
+      if (!mask.has(k0) || seen.has(k0)) continue;
+      const cells = new Set([k0]);
+      seen.add(k0);
+      const todo = [[i, j]];
+      let x0 = i, y0 = j, x1 = i, y1 = j;
+      while (todo.length) {
+        const [a, b] = todo.pop();
+        x0 = Math.min(x0, a); x1 = Math.max(x1, a); y0 = Math.min(y0, b); y1 = Math.max(y1, b);
+        for (const [c, d] of [[a + 1, b], [a - 1, b], [a, b + 1], [a, b - 1]]) {
+          const k = `${c},${d}`;
+          if (c < 0 || d < 0 || c >= cols || d >= rows || seen.has(k) || !mask.has(k)) continue;
+          seen.add(k);
+          cells.add(k);
+          todo.push([c, d]);
+        }
+      }
+      shapes.push({ x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, cells });
+    }
+  }
+  return shapes;
+}
+
 // edit (a hand edit, see lineworkHandEdit): { at: [x, y] } a design point
 // -- the topmost layer there takes out what's at that point or grows
 // something new into it -- or { remove: Set of item keys }; rng draws the
@@ -168,9 +200,14 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
   // remove: item keys `${tag}:b:<bundle>#<copy>` (`:c:` on cells) or
   // `${tag}:a:<region>#<copy>`, a region's key being its tile's or, for a
   // split tile, `<tile>:<part>`.
-  const editFor = (li, tag, style) => {
-    if (edit?.at) return target && target.li === li && target.tag === tag ? { at: target.at, rng: edit.rng } : null;
+  // run: the engine run it's for (layerRuns), whose tag the keys carry.
+  const editFor = (li, frameTag, run, style) => {
+    if (edit?.at) {
+      return target && target.li === li && target.tag === frameTag && run.owns(target.at)
+        ? { at: [target.at[0] - run.c[0], target.at[1] - run.c[1]], rng: edit.rng } : null;
+    }
     if (!edit?.remove) return null;
+    const tag = run.tag;
     const ids = new Set();
     for (const k of edit.remove) {
       const m = /^([^:]+):([abc]):(.+)#\d+$/.exec(k);
@@ -181,13 +218,53 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     return ids.size ? { remove: ids, rng: edit.rng } : null;
   };
 
-  // One layer in one frame; `tag` prefixes its items' keys.
-  const buildLayer = (cfg, li, frame, tag) => {
+  // The runs of its engine a layer is built from: one over the whole layer
+  // or, with its mask's shapes taken separately (cfg.maskShapes 'each'), one
+  // per shape -- sized to its bounding box, centred and mirrored on it, with
+  // its own seed and nothing outside it -- plus one over the cells outside
+  // them all unless Outside is Empty. A run: { cfg, tag, lw, lh, c (its
+  // centre in the layer's frame), maskAt(cols, rows), owns(point), sub }.
+  const layerRuns = (cfg, li, lw, lh, tag) => {
+    const whole = { cfg, tag, lw, lh, c: [0, 0], maskAt: (cols, rows) => maskFor(li, cols, rows), owns: () => true };
+    if (!masked(cfg) || cfg.maskShapes !== 'each') return [whole];
+    // The grid the layer reads its mask on (as in runLayer): bundles, or cells.
+    const C = CELL * (cfg.scale ?? 1);
+    const circuit = cfg.style === 'circuit';
+    const g = circuit ? Math.max(1, cfg.bundle ?? 1) * C : C;
+    const cols = circuit ? Math.max(1, Math.floor(lw / g + 1e-6)) : Math.max(1, Math.round(lw / C));
+    const rows = circuit ? Math.max(1, Math.floor(lh / g + 1e-6)) : Math.max(1, Math.round(lh / C));
+    const mask = maskFor(li, cols, rows);
+    if (!mask?.size) return [whole];
+    const ox = circuit ? -cols * g / 2 : -lw / 2, oy = circuit ? -rows * g / 2 : -lh / 2;
+    const cellAt = ([x, y]) => `${Math.floor((x - ox) / g)},${Math.floor((y - oy) / g)}`;
+    const runs = maskShapes(mask, cols, rows).map((sh, k) => {
+      const own = new Set([...sh.cells].map(key => {
+        const [i, j] = key.split(',').map(Number);
+        return `${i - sh.x},${j - sh.y}`;
+      }));
+      return {
+        // A bundle running off a shape's box would stop dead inside the design.
+        cfg: { ...cfg, maskOutside: 'empty', edgeExit: 0, seed: hash(cfg.seed | 0, k + 1) & 0x7fffffff },
+        tag: `${tag}s${k + 1}`, lw: sh.w * g, lh: sh.h * g,
+        c: [ox + (sh.x + sh.w / 2) * g, oy + (sh.y + sh.h / 2) * g],
+        maskAt: () => own, owns: at => sh.cells.has(cellAt(at)), sub: [sh.x, sh.y],
+      };
+    });
+    if (cfg.maskOutside !== 'empty') {
+      const rest = new Set();
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) if (!mask.has(`${i},${j}`)) rest.add(`${i},${j}`);
+      // Outside the shapes, angular tiles take the layer's own fills.
+      runs.push({ ...whole, cfg: { ...cfg, maskOutside: 'empty', maskFills: cfg.fills }, maskAt: () => rest, owns: at => !mask.has(cellAt(at)) });
+    }
+    return runs;
+  };
+
+  // One run of a layer's engine (see layerRuns): its lines, placed at t.
+  const runLayer = (run, li, frame, frameTag, { m, t, bands, bandOpts }) => {
+    const { cfg, tag, lw, lh } = run;
     const { centre, basePlanes } = frame;
     const plate = li > 0;
-    const { lw, lh, m, t } = layerPlace(cfg, li, frame);
     const toDesign = (P) => P.map(p => add(applyLinear(m, p), t));
-    // Plates are cut to the canvas too.
     const finish = (P) => (plate ? clipToPlanes(toDesign(P), basePlanes) : toDesign(P));
     const C = CELL * (cfg.scale ?? 1);
     const p = C / n;
@@ -197,42 +274,6 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     const layerRect = rectPoly(-lw / 2, -lh / 2, lw, lh);
     const layerPlanes = halfPlanesOf(layerRect);
     const push = (item) => items.push({ layer: li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), ...item });
-
-    // A plate's background shape, its corners rounded; inset by d. The base
-    // layer takes the same backings: Square is its ground when split from
-    // the canvas (as before), the banded ones follow its bundles.
-    let backing = cfg.backing ?? 'square';
-    if (BANDED[backing] && cfg.style !== 'circuit') backing = 'square';
-    const banded = !!BANDED[backing];
-    const radius = plate ? Math.max(0, cfg.corner ?? 0) * Math.min(lw, lh) / 2 : 0;
-    const plateShape = (d = 0) => (lw - 2 * d > 0 && lh - 2 * d > 0
-      ? roundedRectPoly(-lw / 2 + d, -lh / 2 + d, lw - 2 * d, lh - 2 * d, Math.max(0, radius - d)) : null);
-    // The base casts a shadow only from a banded ground (a square one fills the canvas).
-    const shadow = (plate ? backing !== 'none' : banded) && cfg.shadow && cfg.shadow !== 'none' && (cfg.depth ?? 0) > 0
-      ? { d: cfg.depth * CELL, soft: cfg.shadow === 'soft' } : null;
-    const shadowItem = (contours) => {
-      const off = [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2];
-      return { key: `${tag}:shadow`, name: NAMES.shadow, kind: 'shadow', contours: contours.map(c => mapContour(c, [1, 0, 0, 1], off)),
-        blur: shadow.soft ? shadow.d * 0.6 : 0, opacity: shadow.soft ? 0.55 : 1 };
-    };
-
-    // A plate's shadow and ground sit under its lines. A banded ground is
-    // only known once the bundles are built: it goes in here afterwards.
-    const groundAt = items.length;
-    if (plate ? backing === 'square' : baseGround && backing === 'square') {
-      const P = finish(plateShape());
-      if (P) {
-        if (shadow) {
-          const S = clipToPlanes(P.map(q => add(q, [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2])), basePlanes);
-          if (S) push({ ...shadowItem([]), contours: [polyContour(S)] });
-        }
-        push({ key: `${tag}:ground`, name: NAMES.ground, kind: 'ground', contours: [polyContour(P)] });
-      }
-    }
-    // Banded grounds: each bundle's band (one group per copy), plus the
-    // cells an Outline encloses.
-    const bands = [];
-    const bandOpts = banded ? { band: backing === 'infill' ? 0 : (cfg.pad ?? 0.15) * CELL, holes: backing === 'outline' } : {};
     const toBand = (groups) => { for (const g of groups ?? []) bands.push(g.map(c => mapContour(c, m, t))); };
 
     const tiling = settings.tiling ?? 'square';
@@ -240,17 +281,18 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     const csym = sym === 'mirror-x' || sym === 'mirror-y' || sym === 'none' ? sym : 'mirror-both';
     // A hand-built layout, while it's current; and any edit to make to it.
     const style = cfg.style === 'circuit' ? 'circuit' : 'angular';
-    const sig = handSig(cfg, settings, lw, lh, style === 'circuit' ? csym : sym);
+    // A shape's run (layerRuns) is laid out for that shape where it is.
+    const sig = handSig(cfg, settings, lw, lh, style === 'circuit' ? csym : sym) + (run.sub ? `@${run.sub}` : '');
     const stored = cfg.hand?.[tag];
     const hand = stored && stored.sig === sig ? stored : null;
-    const editHere = editFor(li, tag, style);
+    const editHere = editFor(li, frameTag, run, style);
     const record = (op, data) => edits.push({ li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), tag, op, hand: { sig, ...data } });
     if (cfg.style === 'circuit' && tiling !== 'square') {
       // Circuits through hexagons, triangles or Voronoi cells. The mask is
       // read on a bundle-sized grid, each cell by its centre.
       const S = Math.max(1, cfg.bundle ?? 1) * C;
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
-      const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, bc, br) : null;
+      const mask = masked(cfg) ? run.maskAt(bc, br) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + bc * S / 2) / S)},${Math.floor((y + br * S / 2) / S)}`) : null;
       const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single',
         { ...bandOpts, sym: csym, inside, maskOutside: cfg.maskOutside, hand, edit: editHere });
@@ -265,7 +307,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     } else if (cfg.style === 'circuit') {
       const S = Math.max(1, cfg.bundle ?? 1) * C;
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
-      const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, bc, br) : null;
+      const mask = masked(cfg) ? run.maskAt(bc, br) : null;
       const R = circuitLayer(L, cfg, seed, csym, mask ? (i, j) => mask.has(`${i},${j}`) : null, { ...bandOpts, hand, edit: editHere });
       if (R.edited) record(R.edited.op, R.edited.route);
       for (const P of R.holes ?? []) bands.push([polyContour(toDesign(P))]);
@@ -286,12 +328,14 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
         planes.some(q => q.n[1] === -1) ? 0 : lh / 2,
       ];
       const cols = Math.max(1, Math.round(lw / C)), rows = Math.max(1, Math.round(lh / C));
-      const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, cols, rows) : null;
+      const mask = masked(cfg) ? run.maskAt(cols, rows) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + lw / 2) / C)},${Math.floor((y + lh / 2) / C)}`) : null;
       const fill = (tiles) => angularLayer(L, { ...cfg, tiling, regularity: settings.regularity }, seed, dom, inside, { ops, planes }, tiles);
       // With outlines on, the content shrinks by half a line all round so the
       // full-width Edge (below) frames it like the borders between tiles.
-      const fx = cfg.outline ? (lw - L.lineW) / lw : 1, fy = cfg.outline ? (lh - L.lineW) / lh : 1;
+      // A shape's run has no Edge of its own (its box isn't an edge in the design).
+      const edged = cfg.outline && !run.sub;
+      const fx = edged ? (lw - L.lineW) / lw : 1, fy = edged ? (lh - L.lineW) / lh : 1;
       let A = fill(hand?.tiles ?? null);
       if (editHere) {
         const done = editTiles(A.tiles, hand?.tiles ?? {}, editHere, ops, [fx, fy]);
@@ -340,13 +384,63 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
         // Edge layer evens that up (and can be recoloured or hidden alone).
         const outer = finish(layerRect), innerP = inset(layerRect, L.lineW);
         const inner = innerP ? finish(innerP) : null;
-        if (outer) {
+        if (outer && !run.sub) {
           push({
             key: `${tag}:edge`, name: 'Edge', kind: 'outline', centre: t,
             contours: [polyContour(outer, true), ...(inner ? [polyContour(inner, false)] : [])],
           });
         }
       }
+    }
+  };
+
+  // One layer in one frame; `tag` prefixes its items' keys.
+  const buildLayer = (cfg, li, frame, tag) => {
+    const { basePlanes } = frame;
+    const plate = li > 0;
+    const { lw, lh, m, t } = layerPlace(cfg, li, frame);
+    const toDesign = (P) => P.map(p => add(applyLinear(m, p), t));
+    // Plates are cut to the canvas too.
+    const finish = (P) => (plate ? clipToPlanes(toDesign(P), basePlanes) : toDesign(P));
+    const push = (item) => items.push({ layer: li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), ...item });
+
+    // A plate's background shape, its corners rounded; inset by d. The base
+    // layer takes the same backings: Square is its ground when split from
+    // the canvas (as before), the banded ones follow its bundles.
+    let backing = cfg.backing ?? 'square';
+    if (BANDED[backing] && cfg.style !== 'circuit') backing = 'square';
+    const banded = !!BANDED[backing];
+    const radius = plate ? Math.max(0, cfg.corner ?? 0) * Math.min(lw, lh) / 2 : 0;
+    const plateShape = (d = 0) => (lw - 2 * d > 0 && lh - 2 * d > 0
+      ? roundedRectPoly(-lw / 2 + d, -lh / 2 + d, lw - 2 * d, lh - 2 * d, Math.max(0, radius - d)) : null);
+    // The base casts a shadow only from a banded ground (a square one fills the canvas).
+    const shadow = (plate ? backing !== 'none' : banded) && cfg.shadow && cfg.shadow !== 'none' && (cfg.depth ?? 0) > 0
+      ? { d: cfg.depth * CELL, soft: cfg.shadow === 'soft' } : null;
+    const shadowItem = (contours) => {
+      const off = [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2];
+      return { key: `${tag}:shadow`, name: NAMES.shadow, kind: 'shadow', contours: contours.map(c => mapContour(c, [1, 0, 0, 1], off)),
+        blur: shadow.soft ? shadow.d * 0.6 : 0, opacity: shadow.soft ? 0.55 : 1 };
+    };
+
+    // A plate's shadow and ground sit under its lines. A banded ground is
+    // only known once the bundles are built: it goes in here afterwards.
+    const groundAt = items.length;
+    if (plate ? backing === 'square' : baseGround && backing === 'square') {
+      const P = finish(plateShape());
+      if (P) {
+        if (shadow) {
+          const S = clipToPlanes(P.map(q => add(q, [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2])), basePlanes);
+          if (S) push({ ...shadowItem([]), contours: [polyContour(S)] });
+        }
+        push({ key: `${tag}:ground`, name: NAMES.ground, kind: 'ground', contours: [polyContour(P)] });
+      }
+    }
+    // Banded grounds: each bundle's band (one group per copy), plus the
+    // cells an Outline encloses.
+    const bands = [];
+    const bandOpts = banded ? { band: backing === 'infill' ? 0 : (cfg.pad ?? 0.15) * CELL, holes: backing === 'outline' } : {};
+    for (const run of layerRuns(cfg, li, lw, lh, tag)) {
+      runLayer(run, li, frame, tag, { m, t: add(t, applyLinear(m, run.c)), bands, bandOpts });
     }
 
     if (banded && bands.length) {

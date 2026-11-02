@@ -855,9 +855,12 @@ export function DocumentEditor({ mode: appMode }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Step 1: extract pixel buffer when image or work area changes
+  // Step 1: extract pixel buffer when image or work area changes. A Linework
+  // layer can use Image colour mode on its own.
+  const [lineworkLayersRaw] = useDocField('lineworkSettings');
+  const imageColour = colorMode === 'image' || !!lineworkLayersRaw?.layers?.some(l => l?.colorMode === 'image');
   useEffect(() => {
-    if (colorMode !== 'image' || !imageSrc) {
+    if (!imageColour || !imageSrc) {
       setImagePixels(null);
       return;
     }
@@ -890,7 +893,7 @@ export function DocumentEditor({ mode: appMode }) {
     img.src = imageSrc;
     return () => { img.onload = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colorMode, imageSrc, workArea.width, workArea.height]);
+  }, [imageColour, imageSrc, workArea.width, workArea.height]);
 
   // Virtual cell state — flat array of { id, libKey, cellX, cellY, cellW, cellH }.
   // Memoized so it only recomputes on block or grid geometry changes, not image changes.
@@ -1702,10 +1705,12 @@ export function DocumentEditor({ mode: appMode }) {
     if (!isLinework || !gridComputed) return null;
     const masks = lineworkSettings.layers.map(l => (l.mask && l.mask !== 'none' && l.mask !== 'word'
       ? layerMaskSettings(l, fillSettingsById[l.mask]) : null));
+    // The colour modes in use: the document's and any layer's own.
+    const modes = new Set([colorMode, ...lineworkSettings.layers.map(l => l.colorMode)]);
     const str = JSON.stringify([
       LINEWORK_ENGINE, lineworkSettings, gridComputed.cols, gridComputed.rows, colorMode, activePalette, lineworkRoles,
-      colorMode === 'gradient' ? activeGradientSettings : null, colorMode === 'mesh' ? meshSettings : null,
-      colorMode === 'image' ? imageSrc : null,
+      modes.has('gradient') ? activeGradientSettings : null, modes.has('mesh') ? meshSettings : null,
+      modes.has('image') ? imageSrc : null,
       lineworkSettings.inkFromImage ? [backdropSrc, backdropSettings.fit, !!backdropPixels] : null,
       masks, silhouetteTick, !!imagePixels, activeLayoutId,
     ]);
@@ -1909,8 +1914,13 @@ export function DocumentEditor({ mode: appMode }) {
     updateLinework(s => ({ ...s, layers: s.layers.map(l => (locked.has(l.id) ? l : { ...l, seed: Math.floor(Math.random() * 0x80000000) })) }), 'New Seed');
   }, [updateLinework, lockedLineworkLayers, showToast, lineworkSettings.layers]);
 
-  const recolourLinework = useCallback(() => {
-    updateLinework(s => ({ ...s, colourSeed: Math.floor(Math.random() * 0x80000000) || 1 }), 'Shuffle Colours');
+  // Shuffle Colours: every layer, or with layerId just that one (it gets a
+  // seed of its own).
+  const recolourLinework = useCallback((layerId) => {
+    const seed = () => Math.floor(Math.random() * 0x80000000) || 1;
+    updateLinework(s => (typeof layerId === 'string'
+      ? { ...s, layers: s.layers.map(l => (l.id === layerId ? { ...l, colourSeed: seed() } : l)) }
+      : { ...s, colourSeed: seed(), layers: s.layers.map(l => (l.colourSeed != null ? { ...l, colourSeed: seed() } : l)) }), 'Shuffle Colours');
   }, [updateLinework]);
 
   // A preset sets the design, its colours (ink and shadow as the document

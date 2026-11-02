@@ -21,6 +21,9 @@ export const lineworkLayerDefaults = (over = {}) => ({
   backing: 'square', corner: 0, pad: 0.15,
   // Any layer
   scale: 1, invert: false, style: 'angular', sym: 'mirror-both', seed: randomSeed(),
+  // Colour mode and shuffle seed of its own, or null for the document's
+  // (utils/linework/colour.js).
+  colorMode: null, colourSeed: null,
   // Base only: an ink frame round the canvas, in cells
   frame: 0,
   // A · angular (the cell shape is the document's `tiling`; tile size sets
@@ -34,7 +37,9 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // Region mask: a Generate-panel fill or 'word'. maskSettings holds this
   // layer's own settings for each mask it has used, by mask id; a mask the
   // layer hasn't changed yet starts from the document's (layerMaskSettings).
-  mask: 'none', maskFills: ['rings'], maskOutside: 'fill', maskSettings: {},
+  // maskShapes: 'one' lays the design over the whole mask, 'each' gives each
+  // separate shape in it a design of its own (compose.js layerRuns).
+  mask: 'none', maskFills: ['rings'], maskOutside: 'fill', maskSettings: {}, maskShapes: 'one',
   ...over,
 });
 

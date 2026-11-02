@@ -95,7 +95,7 @@ function MeanderRoles() {
 // mode's colour roles, then (Grid Pattern and Linework) the colour mode with
 // its options, temperature and blend, and a Shuffle for modes that use it.
 export function ColourPanel() {
-  const { actions, status, mode } = useEditor();
+  const { actions, status, mode, linework: lw } = useEditor();
   const linework = mode === 'linework';
   const meander = mode === 'knotwork';
   const imageProgress = status.imageProgress;
@@ -158,10 +158,22 @@ export function ColourPanel() {
     });
   }, [setMeshSettings]);
 
+  // Linework: the colour mode and Shuffle apply to every layer, or to one
+  // layer, which can have a mode of its own (or follow all layers).
+  const [target, setTarget] = useState('all');
+  const targetLayer = linework && target !== 'all' ? lw.settings.layers.find(l => l.id === target) : null;
+  const shownMode = targetLayer?.colorMode ?? colorMode;
+  const setMode = (v) => {
+    if (!targetLayer) { setColorMode(v); return; }
+    lw.update(prev => ({
+      ...prev, layers: prev.layers.map(l => (l.id === targetLayer.id ? { ...l, colorMode: v || null } : l)),
+    }), 'Layer Colour Mode');
+  };
+
   // Grid Pattern's palette only shows in the palette-based colour modes.
   const usesPalette = colorMode !== 'none' && colorMode !== 'image' && colorMode !== 'mesh';
   const shuffle = meander ? actions.knotworkRecolour
-    : linework ? actions.lineworkRecolour
+    : linework ? () => actions.lineworkRecolour(targetLayer?.id)
     : colorMode === 'random' ? actions.randomRerun : null;
 
   return (
@@ -172,12 +184,27 @@ export function ColourPanel() {
 
       {!meander && (
       <>
-        <div className={styles.formRow} style={{ marginTop: 8 }}>
+        {linework && (
+          <div className={styles.formRow} style={{ marginTop: 8 }}>
+            <span className={styles.label}>
+              Apply to
+              <InfoTip text="Set the colour mode and Shuffle for every layer, or for one layer on its own." />
+            </span>
+            <select className={styles.select} value={targetLayer ? target : 'all'} onChange={e => setTarget(e.target.value)}>
+              <option value="all">All layers</option>
+              {[...lw.settings.layers].reverse().map(l => (
+                <option key={l.id} value={l.id}>{l.name}{l.colorMode ? ' (own colours)' : ''}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className={styles.formRow} style={{ marginTop: linework ? 0 : 8 }}>
           <span className={styles.label}>
             Colour mode
             {linework && <InfoTip text="Single: every line takes the ink colour. Uniform cycles the palette over the line groups; Random, Gradient, Mesh and Image colour each group by where it sits." />}
           </span>
-          <select className={styles.select} value={colorMode} onChange={e => setColorMode(e.target.value)}>
+          <select className={styles.select} value={targetLayer ? targetLayer.colorMode ?? '' : colorMode} onChange={e => setMode(e.target.value)}>
+            {targetLayer && <option value="">Same as all layers</option>}
             {COLOUR_MODES.map(m => <option key={m.key} value={m.key}>{(linework && m.lineworkLabel) || m.label}</option>)}
           </select>
         </div>
@@ -252,7 +279,7 @@ export function ColourPanel() {
           </select>
         </div>
 
-        {colorMode === 'image' && (
+        {shownMode === 'image' && (
           <div style={{ marginTop: 8 }}>
             <ImagePicker src={imageSrc} onChange={setImageSrc} alt="Colour source" />
             {imageProgress !== null && (
@@ -274,7 +301,7 @@ export function ColourPanel() {
           </div>
         )}
 
-        {colorMode === 'gradient' && gradientSettings && (
+        {shownMode === 'gradient' && gradientSettings && (
           <div className={styles.gradientControls}>
             <div className={styles.formRow}>
               <span className={styles.label}>Style</span>
@@ -518,7 +545,7 @@ export function ColourPanel() {
           </div>
         )}
 
-        {colorMode === 'mesh' && meshDraft && (
+        {shownMode === 'mesh' && meshDraft && (
           <div className={styles.gradientControls}>
             <div className={styles.formRow}>
               <span className={styles.label}>Power</span>
