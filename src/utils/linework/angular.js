@@ -98,11 +98,16 @@ const KIND_NAMES = {
 // cfg.tiling: 'square' (default, with quadtree subdivision) or 'hex',
 // 'triangle', 'voronoi' (tilings.js), whose cells take the same fills;
 // "split" fills fan each cell into triangles from its centre.
-// Returns { regions: [{ key, kind, name, shapes }], outlines: shapes }.
-export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}) {
+// hand: a hand-built layer's tiles, { [tile key]: 0 (removed, left empty)
+// or [kind, seed] (filled again with that fill, its own randomness) }.
+// Returns { regions: [{ key, kind, name, shapes }], outlines: shapes,
+// tiles: [{ key, P, kinds, filled }] } -- tiles are every tile or cell
+// (before clipping to the domain), with the fills it may take.
+export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = null) {
   const { C, lineW: w, p } = L;
   const regions = [];
   const outlines = [];
+  const tiles = [];
   // Whole tiles that exactly fill the layer: the nearest count to the tile
   // size on each axis, stretched a touch if the layer isn't a multiple of it.
   const T = Math.max(1, cfg.tile) * C;
@@ -134,6 +139,20 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}) {
     if (band) outlines.push(band);
   };
 
+  // Records a tile or cell about to be filled. Returns false when it's left
+  // empty (removed by hand -- its outline stays -- or outside a mask that's
+  // left empty), { kind, r } when it's filled again by hand, else null.
+  const handTile = (key, P, kinds, rngOf) => {
+    const t = { key, P, kinds: kinds ?? (cfg.fills?.length ? cfg.fills : ['spiral']), filled: false };
+    tiles.push(t);
+    const h = hand?.[key];
+    if (h === 0) { pushOutline(P); return false; }
+    if (h) { t.filled = true; return { kind: h[0], r: rngOf() }; }
+    if (!kinds) return false;
+    t.filled = true;
+    return null;
+  };
+
   function region(key, P, mode, r, startHint, tri) {
     let shapes;
     if (mode === 'spiral') {
@@ -154,19 +173,21 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}) {
   // A tile tw × th at (x, y); quadtree subdivision splits it into four.
   function tile(x, y, tw, th, depth) {
     if (dom && (x >= dom[2] || y >= dom[3] || x + tw <= dom[0] || y + th <= dom[1])) return;
-    const r = rngAt(seed, x, y, tw, 7);
+    let r = rngAt(seed, x, y, tw, 7);
     if (depth < 3 && Math.min(tw, th) / 2 >= (cfg.minTile ?? 1) * C - 1e-6 && r() < (cfg.subdiv ?? 0)) {
       const hw = tw / 2, hh = th / 2;
       tile(x, y, hw, hh, depth + 1); tile(x + hw, y, hw, hh, depth + 1);
       tile(x, y + hh, hw, hh, depth + 1); tile(x + hw, y + hh, hw, hh, depth + 1);
       return;
     }
-    const kinds = kindsFor(x, y, tw, th);
-    if (!kinds) return;
-    const kind = uni ? kinds[hash(seed, Math.round(tw)) % kinds.length] : kinds[Math.floor(r() * kinds.length)];
     const key = `${Math.round(x)},${Math.round(y)},${Math.round(tw)}`;
     const TL = [x, y], TR = [x + tw, y], BR = [x + tw, y + th], BL = [x, y + th];
     const sq = [TL, TR, BR, BL];
+    const kinds = kindsFor(x, y, tw, th);
+    const own = handTile(key, sq, kinds, () => rngAt(hand[key][1], x, y, tw, 7));
+    if (own === false) return;
+    if (own) r = own.r;
+    const kind = own ? own.kind : uni ? kinds[hash(seed, Math.round(tw)) % kinds.length] : kinds[Math.floor(r() * kinds.length)];
     switch (kind) {
       case 'spiral': region(key, sq, 'spiral', r, 0); break;
       case 'rings': region(key, sq, 'rings', r); break;
@@ -206,10 +227,11 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}) {
   // A convex cell of a hex / triangle / Voronoi tiling.
   function cell({ key, P, box }) {
     const kinds = kindsFor(box[0], box[1], box[2] - box[0], box[3] - box[1]);
-    if (!kinds) return;
     const c = centroid(P);
-    const r = rngAt(seed, c[0], c[1], 7);
-    const kind = uni ? kinds[hash(seed, P.length) % kinds.length] : kinds[Math.floor(r() * kinds.length)];
+    const own = handTile(key, P, kinds, () => rngAt(hand[key][1], c[0], c[1], 7));
+    if (own === false) return;
+    const r = own ? own.r : rngAt(seed, c[0], c[1], 7);
+    const kind = own ? own.kind : uni ? kinds[hash(seed, P.length) % kinds.length] : kinds[Math.floor(r() * kinds.length)];
     switch (kind) {
       case 'spiral': region(key, P, 'spiral', r, 0); break;
       case 'rings': region(key, P, 'rings', r); break;
@@ -233,5 +255,5 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}) {
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) tile(x0 + i * Tw, y0 + j * Th, Tw, Th, 0);
   }
   for (const reg of regions) reg.name = KIND_NAMES[reg.kind];
-  return { regions, outlines };
+  return { regions, outlines, tiles };
 }

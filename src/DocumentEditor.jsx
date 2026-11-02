@@ -15,8 +15,9 @@ import { GuideLines, Rulers } from './components/RulersGuides';
 import { useGuideDrag } from './hooks/useGuideDrag';
 import { PRESETS, computeGrid, getValidCols, snapCols } from './gridPresets';
 import { extractPalette } from './utils/kmeans';
-import { composeKnotworkLayers } from './utils/knotworkCompose';
+import { composeKnotworkLayers, meanderLayoutSig } from './utils/knotworkCompose';
 import { buildMeanderBlocks, carryGeneratedEdits, isMeanderBlock, vectorTransform, vectorAt } from './utils/meanderBlocks';
+import { meanderLayoutOf, meanderRebuildLayout, meanderPartners, meanderStrandAt, isMeanderStrand, growMeanderStrands, addMeanderStrands } from './utils/meanderHand';
 import { composeMeanderPlates } from './utils/meanderPlates';
 import { LAYOUTS, computeGridMask, computeLayoutRegions, buildWireframeBlocks, wireframeRects } from './utils/layouts';
 import { colorizeSvg, colorizeSvgByImage, buildColourRemap, applyColorTemperatureShift, findLayer } from './utils/colorize';
@@ -593,6 +594,10 @@ export function DocumentEditor({ mode: appMode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workArea.width, workArea.height, gridSettings.cols, gridSettings.borderPct]
   );
+  // Dev builds: the active grid, for UI checks (see App.jsx's window.__mps).
+  useEffect(() => {
+    if (import.meta.env.DEV && window.__mps) window.__mps.gridComputed = () => gridComputed;
+  }, [gridComputed]);
 
   // Visible canvas-space rectangle, derived from the on-screen viewport size
   // and current pan/zoom — lets PlacedBlocks render only blocks that are
@@ -1363,29 +1368,123 @@ export function DocumentEditor({ mode: appMode }) {
   // grid's own inset footprint (same cols/rows/border the preview shows) so
   // the generated pattern lines up with what was previewed before hitting
   // Fill, rather than bleeding past the border to the page edges.
-  const buildKnotworkBlocks = useCallback((fullSettings) => {
+  // layoutOf(prefix, sig): a design's hand-built layout to draw instead of
+  // walking one from the seed (prefix '' is the main design, 'p<id>:' a plate).
+  const buildKnotworkBlocks = useCallback((fullSettings, layoutOf = () => null) => {
     if (!gridComputed) return null;
     const localGrid = { cols: gridComputed.cols, rows: gridComputed.rows, cellSize: 100, gridOriginX: 0, gridOriginY: 0 };
     // The main design, then any plates stacked over it.
     return [
-      ...buildMeanderBlocks(composeKnotworkLayers(localGrid, fullSettings), gridComputed),
-      ...composeMeanderPlates(fullSettings, gridComputed),
+      ...buildMeanderBlocks(composeKnotworkLayers(localGrid, fullSettings, layoutOf('', meanderLayoutSig(localGrid, fullSettings))), gridComputed),
+      ...composeMeanderPlates(fullSettings, gridComputed, layoutOf),
     ];
   }, [gridComputed]);
 
-  // Rebuilds the current design in place (same seed, so same layout),
-  // carrying each strand's layer edits across -- including its colour when
-  // keepFill, i.e. when only the shape changed. Old single-image designs
-  // (before v1.4.1) are simply replaced.
-  const regenerateKnotwork = useCallback((fullSettings, label, { keepFill }) => {
+  // Rebuilds the current design in place, carrying each strand's layer
+  // edits across -- including its colour when keepFill, i.e. when only the
+  // shape changed. The layout is the one on the canvas (its blocks' cells,
+  // so hand edits stay) while its layout settings are unchanged, else laid
+  // out from the seed; `fresh` always lays it out from the seed. Old
+  // single-image designs (before v1.4.1) are simply replaced.
+  const regenerateKnotwork = useCallback((fullSettings, label, { keepFill, fresh = false }) => {
     const prev = placedBlocksRef.current;
     if (!prev.length) return;
-    const blocks = buildKnotworkBlocks(fullSettings);
+    const blocks = buildKnotworkBlocks(fullSettings, fresh ? undefined : (prefix, sig) => meanderRebuildLayout(prev, prefix, sig));
     if (!blocks) return;
     pushHistory(prev, { label });
     setPlacedBlocks(carryGeneratedEdits(blocks, prev, { keepFill, swatchMap }));
     syncHistorySize();
   }, [buildKnotworkBlocks, pushHistory, setPlacedBlocks, syncHistorySize, swatchMap]);
+
+  // Hand edits (Build tool, Delete): strands taken out with their symmetric
+  // partners, or grown into empty cells, each as one undo step. The design
+  // is drawn again from the layout on the canvas -- adopted as current even
+  // if a layout setting has changed since -- and every strand keeps its edits.
+  // The blocks to edit: a design from before v1.11 carries no cells, so it's
+  // rebuilt (same seed, same strands) to get them.
+  const knotworkHandBase = useCallback(() => {
+    const prev = placedBlocksRef.current;
+    if (!prev.some(b => isMeanderStrand(b, /^(p[^:]+:)?/.exec(b.meanderKey ?? '')[0]) && !b.cells)) return prev;
+    const fresh = buildKnotworkBlocks({ ...knotworkSettings, ...knotworkThemeColors });
+    return fresh ? carryGeneratedEdits(fresh, prev, { keepFill: true, swatchMap }) : prev;
+  }, [buildKnotworkBlocks, knotworkSettings, knotworkThemeColors, swatchMap]);
+  // layoutOf(prefix): each design's new layout, or null to keep the one on the canvas.
+  // dropKeys: other generated layers (a plate's background...) deleted with it.
+  const commitKnotworkHand = useCallback((base, layoutOf, label, dropKeys = null) => {
+    const prev = placedBlocksRef.current;
+    const built = buildKnotworkBlocks({ ...knotworkSettings, ...knotworkThemeColors },
+      (prefix, sig) => { const l = layoutOf(prefix) ?? meanderRebuildLayout(base, prefix, sig); return l && { ...l, sig }; });
+    if (!built) return;
+    const next = carryGeneratedEdits(built, base, { keepFill: true, swatchMap })
+      .filter(b => !dropKeys?.has(b.meanderKey));
+    pushHistory(prev, { label });
+    placedBlocksRef.current = next;
+    setPlacedBlocks(next);
+    const ids = new Set(next.map(b => b.id));
+    setSelectedIds(sel => new Set([...sel].filter(id => ids.has(id))));
+    syncHistorySize();
+  }, [buildKnotworkBlocks, knotworkSettings, knotworkThemeColors, swatchMap, pushHistory, setPlacedBlocks, setSelectedIds, syncHistorySize]);
+
+  // Takes out the given layers: strands with their symmetric partners (the
+  // main design's), anything else generated just as itself. False when
+  // there's nothing to take out.
+  const removeKnotworkByHand = useCallback((ids, label) => {
+    const base = knotworkHandBase();
+    const gone = new Set(), dropKeys = new Set();
+    for (const b of base) {
+      if (!ids.has(b.id) || b.locked || b.meanderKey == null) continue;
+      if (isMeanderStrand(b)) {
+        for (const id of meanderPartners(base, b, knotworkSettings, gridComputed)) {
+          if (!base.find(x => x.id === id)?.locked) gone.add(id);
+        }
+      } else if (/^p[^:]+:[sd]\d+$/.test(b.meanderKey)) {
+        gone.add(b.id);
+      } else {
+        dropKeys.add(b.meanderKey);
+      }
+    }
+    if (!gone.size && !dropKeys.size) return false;
+    const goneKeys = new Set(base.filter(b => gone.has(b.id)).map(b => b.meanderKey));
+    const layoutOf = (prefix) => {
+      const l = meanderLayoutOf(base, prefix);
+      if (!l) return null;
+      const keep = e => !goneKeys.has(prefix + e.key);
+      return { ...l, strands: l.strands.filter(keep), dots: l.dots.filter(keep) };
+    };
+    commitKnotworkHand(base, layoutOf, label ?? (gone.size > 1 ? `Remove ${gone.size} Strands` : 'Remove Strand'), dropKeys);
+    return true;
+  }, [knotworkHandBase, knotworkSettings, gridComputed, commitKnotworkHand]);
+
+  // Build tool, Meander: a strand under the pointer (or in the cell) comes
+  // out; an empty cell of the main design grows a new strand.
+  const knotworkBuildAt = useCallback((pt) => {
+    if (!gridComputed) return;
+    const { cellSize, gridOriginX, gridOriginY, cols, rows } = gridComputed;
+    const base = knotworkHandBase();
+    const top = vectorAt(pt, base, gridComputed);
+    if (top?.meanderKey?.startsWith('p')) {
+      if (top.locked) { showToast('That layer is locked (Layers panel)'); return; }
+      if (/^p[^:]+:[sd]\d+$/.test(top.meanderKey)) removeKnotworkByHand(new Set([top.id]));
+      else showToast('Build grows strands in the main design, not on a plate');
+      return;
+    }
+    const col = Math.floor((pt.x - gridOriginX) / cellSize), row = Math.floor((pt.y - gridOriginY) / cellSize);
+    if (col < 0 || row < 0 || col >= cols || row >= rows) return;
+    const hit = meanderStrandAt(base, '', col, row);
+    if (hit) {
+      if (hit.locked) { showToast('That strand is locked (Layers panel)'); return; }
+      removeKnotworkByHand(new Set([hit.id]));
+      return;
+    }
+    const local = { cols, rows, cellSize: 100, gridOriginX: 0, gridOriginY: 0 };
+    const layout = meanderLayoutOf(base, '') ?? { strands: [], dots: [] };
+    const grown = growMeanderStrands(local, knotworkSettings, layout, { col, row }, Math.random);
+    if (!grown.length) { showToast('No room to grow a strand here'); return; }
+    const next = addMeanderStrands(layout, grown);
+    const cells = grown.reduce((n, s) => n + s.length, 0);
+    commitKnotworkHand(base, prefix => (prefix === '' ? next : null),
+      grown.length > 1 ? `Grow ${grown.length} Strands` : cells > 1 ? 'Grow Strand' : 'Grow Dot');
+  }, [gridComputed, knotworkHandBase, removeKnotworkByHand, knotworkSettings, commitKnotworkHand, showToast]);
 
   // Randomises the seed on every press rather than reusing whatever was
   // last set, so each click of Fill gives a fresh variation without
@@ -1407,7 +1506,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (appMode !== 'knotwork' || !placedBlocksRef.current.some(isMeanderBlock) || isRestoring()) { knotSeedRef.current = seed; return; }
     const timer = setTimeout(() => {
       knotSeedRef.current = seed;
-      regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'New Seed', { keepFill: false });
+      regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, 'New Seed', { keepFill: false, fresh: true });
     }, 60);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1738,6 +1837,70 @@ export function DocumentEditor({ mode: appMode }) {
     return new Set([...all].filter(([, locked]) => locked).map(([id]) => id));
   }, []);
 
+  // Hand edits (Build tool, Delete): the edit is made to the design as it's
+  // drawn now, and each changed layer keeps its new layout in its settings
+  // (cfg.hand, see compose.js), so it's one undoable settings change and
+  // the rebuild that follows draws it. edit: { at } or { remove } as
+  // composeLinework takes it. Returns the edits made, or null.
+  const editLineworkByHand = useCallback((edit, label) => {
+    if (!gridComputed) return null;
+    const { cols, rows } = gridComputed;
+    const { edits } = composeLinework(lineworkSettings, { cols, rows }, {
+      maskFor: lineworkMaskFor(lineworkSettings), baseGround: !!lineworkSettings.groundSwatch, areas: lineworkAreas,
+      edit: { ...edit, rng: Math.random },
+    });
+    const locked = lockedLineworkLayers();
+    const made = edits.filter(e => !locked.has(e.layerId));
+    if (!made.length) return edits.length ? 'locked' : null;
+    const names = { remove: made.some(e => e.hand.tiles) ? 'Remove Tile' : 'Remove Line', grow: made.some(e => e.hand.tiles) ? 'Fill Tile' : 'Grow Line' };
+    updateLinework(s => ({
+      ...s,
+      layers: s.layers.map((l, li) => {
+        const mine = made.filter(e => e.li === li);
+        if (!mine.length) return l;
+        const hand = { ...(l.hand ?? {}) };
+        for (const e of mine) hand[e.tag] = e.hand;
+        return { ...l, hand };
+      }),
+    }), label ?? names[made[0].op]);
+    return made;
+  }, [gridComputed, lineworkSettings, lineworkMaskFor, lineworkAreas, lockedLineworkLayers, updateLinework]);
+
+  // Build tool, Linework: what's under the pointer comes out -- a bundle
+  // with its mirror images, or an angular tile -- or the empty space there
+  // grows a new bundle, or fills the tile.
+  const lineworkBuildAt = useCallback((pt) => {
+    if (!gridComputed) return;
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    const top = vectorAt(pt, placedBlocksRef.current, gridComputed);
+    if (top?.locked && top.lwKind === 'ink') { showToast('That layer is locked (Layers panel)'); return; }
+    const at = [((pt.x - gridOriginX) / cellSize) * LINEWORK_CELL, ((pt.y - gridOriginY) / cellSize) * LINEWORK_CELL];
+    const made = editLineworkByHand({ at });
+    if (made === 'locked') showToast('That layer is locked (Layers panel)');
+    else if (!made) showToast('No room to grow a line here');
+  }, [gridComputed, editLineworkByHand, showToast]);
+
+  // Delete, in Meander and Linework, takes strands, bundles and tiles out
+  // by hand, so they stay out when the design is rebuilt. False when the
+  // blocks aren't any of those (they're deleted as usual).
+  const deleteByHand = useCallback((ids) => {
+    if (appMode === 'knotwork') return removeKnotworkByHand(ids);
+    if (appMode !== 'linework') return false;
+    const keys = new Set(placedBlocksRef.current
+      .filter(b => ids.has(b.id) && !b.locked && b.lwKind === 'ink' && /^[^:]+:[abc]:/.test(b.genKey ?? ''))
+      .map(b => b.genKey));
+    return keys.size > 0 && Array.isArray(editLineworkByHand({ remove: keys }));
+  }, [appMode, removeKnotworkByHand, editLineworkByHand]);
+  const deleteSelected = useCallback(() => {
+    if (deleteByHand(selectedIdsRef.current)) { setSelectedIds(new Set()); return; }
+    handleDeleteSelected();
+  }, [deleteByHand, setSelectedIds, handleDeleteSelected]);
+  const contextDelete = useCallback(() => {
+    const id = contextMenu?.block?.id;
+    if (id && deleteByHand(new Set([id]))) return;
+    handleContextDelete();
+  }, [contextMenu, deleteByHand, handleContextDelete]);
+
   const reseedLinework = useCallback(() => {
     const locked = lockedLineworkLayers();
     if (lineworkSettings.layers.every(l => locked.has(l.id))) { showToast('Every layer is locked: unlock one in Layers to generate it'); return; }
@@ -2052,7 +2215,7 @@ export function DocumentEditor({ mode: appMode }) {
     } else if (appMode === 'knotwork') {
       // Rebuild with the preset's own seed (Generate would pick a new one).
       knotSeedRef.current = knotworkSettings.seed;
-      if (placedBlocksRef.current.length) regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, label, { keepFill: false });
+      if (placedBlocksRef.current.length) regenerateKnotwork({ ...knotworkSettings, ...knotworkThemeColors }, label, { keepFill: false, fresh: true });
       else handleKnotworkFill();
     }
     showToast(`Applied preset “${preset.name}”`);
@@ -2385,6 +2548,11 @@ export function DocumentEditor({ mode: appMode }) {
       return;
     }
     if (phase === 'up') { toolDrag.current = null; return; }
+    // Build (Meander, Linework): one click takes out a line or grows one.
+    if (tool === 'build') {
+      if (phase === 'down') (appMode === 'linework' ? lineworkBuildAt : knotworkBuildAt)(pt);
+      return;
+    }
     const hit = hitTest(pt, blocks);
 
     // Drag tools: Stamp and Eraser paint across cells, one undo step per
@@ -2544,7 +2712,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (tool === 'reflect') {
       updateBlocks([block.id], b => (pt.altKey ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }), 'Reflect');
     }
-  }, [docId, hitTest, stampSymmetric, symmetricHits, handleMovePointer, handleLassoSelect, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
+  }, [docId, appMode, lineworkBuildAt, knotworkBuildAt, hitTest, stampSymmetric, symmetricHits, handleMovePointer, handleLassoSelect, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
 
   // Actions on the current selection, shared by the task bar, the right-click
   // menu and the Object / Select menus. Locked shapes are never edited.
@@ -2731,7 +2899,7 @@ export function DocumentEditor({ mode: appMode }) {
       const clip = clipFrom(new Set(placedBlocks.filter(b => selectedIds.has(b.id) && !b.locked).map(b => b.id)));
       if (!clip) return;
       setClipboard(clip);
-      handleDeleteSelected();
+      deleteSelected();
       showToast(`Cut ${clip.blocks.length} ${clip.blocks.length === 1 ? 'shape' : 'shapes'}`);
     },
     // Centred on the cell under the pointer; the middle of the view if the
@@ -2757,7 +2925,7 @@ export function DocumentEditor({ mode: appMode }) {
       else if (row + clip.h * 2 <= gridComputed.rows) placeClip(clip, col, row + clip.h, 'Duplicate');
       else placeClip(clip, col + clip.w, row, 'Duplicate');
     },
-  }), [clipFrom, placeClip, selectedIds, placedBlocks, setClipboard, showToast, handleDeleteSelected, gridComputed, cellAt, viewportSize, viewTransform]);
+  }), [clipFrom, placeClip, selectedIds, placedBlocks, setClipboard, showToast, deleteSelected, gridComputed, cellAt, viewportSize, viewTransform]);
 
   // ── Overlays, rulers & guides (View menu) ──────────────────────────────────
   const overlayIds = useAppStore(s => s.overlays);
@@ -2908,7 +3076,7 @@ export function DocumentEditor({ mode: appMode }) {
     selectAll: () => setSelectedIds(new Set(placedBlocks.map(b => b.id))),
     selectInverse: handleSelectInverse,
     deselectAll: handleDeselectAll,
-    deleteSelection: handleDeleteSelected,
+    deleteSelection: deleteSelected,
     exportSvg: () => handleExport({ format: 'svg' }),
     toggleShortcuts: () => setShowShortcuts(s => !s),
     buildThumbnail,
@@ -2956,7 +3124,7 @@ export function DocumentEditor({ mode: appMode }) {
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, savePreset, setShowRecolour, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
+  }), [openExport, savePreset, setShowRecolour, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, deleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -3111,7 +3279,7 @@ export function DocumentEditor({ mode: appMode }) {
               { label: 'Hide', action: selectionActions.hide },
               { label: 'Lock', action: selectionActions.lock },
               null,
-              { label: 'Delete', shortcut: 'Del', action: handleContextDelete, danger: true },
+              { label: 'Delete', shortcut: 'Del', action: contextDelete, danger: true },
             ].filter(item => item !== false && item !== undefined)}
           />
         )}

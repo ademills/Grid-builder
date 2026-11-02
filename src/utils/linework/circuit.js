@@ -34,30 +34,54 @@ const EPS = 1e-6;
 // side, round at hairpin ends (a plate's Outline / Sticker / In-fill).
 // opts.holes: also return the empty cells the bundles wall in, as `holes`
 // (rectangles reaching the bands), so an Outline backing fills them.
+//
+// Routing and drawing are separate steps. The route (plain data, see
+// bundleData) is what a hand-built layer keeps: opts.hand draws that route
+// instead of walking one from the seed, and opts.edit changes it first
+// (see editSquare). The route drawn is returned as `route`, and the edit
+// made as `edited` ({ route, op }, or null when it changed nothing).
 export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
-  if (cfg.route === 'single' && cfg.fill) {
-    const whole = singleCircuit(L, cfg, seed, sym, opts);
-    if (whole) return whole;
+  const G = squareGrid(L, cfg, sym);
+  let route = opts.hand ?? routeSquare(G, cfg, seed, L, sym, insideCell, opts);
+  let edited = null;
+  if (opts.edit) {
+    edited = editSquare(G, cfg, route, opts.edit);
+    if (edited) route = edited.route;
   }
-  const one = cfg.route === 'single';
+  return { ...drawSquare(G, L, cfg, seed, sym, route, opts), route, edited };
+}
+
+// The bundle grid: cells S across, k strands of width w at pitch p, cols ×
+// rows whole cells centred on the layer (origin ox, oy). With mirror
+// symmetry only cells i < limI (j < limJ) are routed, plus the axis column
+// axI (row axJ) of an odd count, which bundles may only end in.
+function squareGrid(L, cfg, sym) {
   const S = Math.max(1, cfg.bundle ?? 1) * L.C;
   const k = Math.max(1, Math.round(S / L.p));
   const p = S / k, w = p * L.ratio;
   // Whole bundles only; any remainder becomes an even margin.
   const cols = Math.max(1, Math.floor(L.w / S + 1e-6)), rows = Math.max(1, Math.floor(L.h / S + 1e-6));
-  const ox = -cols * S / 2, oy = -rows * S / 2;
-  const flush = Math.abs(cols * S - L.w) < 1e-6 && Math.abs(rows * S - L.h) < 1e-6;
   const mx = sym === 'mirror-x' || sym === 'mirror-both';
   const my = sym === 'mirror-y' || sym === 'mirror-both';
-  const axI = mx && cols % 2 ? (cols - 1) / 2 : -1, axJ = my && rows % 2 ? (rows - 1) / 2 : -1;
-  const limI = mx ? Math.floor(cols / 2) : cols, limJ = my ? Math.floor(rows / 2) : rows;
+  return {
+    S, k, p, w, cols, rows, ox: -cols * S / 2, oy: -rows * S / 2, mx, my,
+    flush: Math.abs(cols * S - L.w) < 1e-6 && Math.abs(rows * S - L.h) < 1e-6,
+    axI: mx && cols % 2 ? (cols - 1) / 2 : -1, axJ: my && rows % 2 ? (rows - 1) / 2 : -1,
+    limI: mx ? Math.floor(cols / 2) : cols, limJ: my ? Math.floor(rows / 2) : rows,
+  };
+}
+
+// The walker over the bundle grid, with its occupancy: each cell's bundle
+// and how it runs there (H, V, T a turn or end, X a crossing, E left empty).
+// start(i, j, b) walks a new bundle b both ways from the free cell (i, j).
+function squareRouter(G, cfg, r, insideCell, one) {
+  const { cols, rows, S, ox, oy, flush, axI, axJ, limI, limJ } = G;
   const occ = new Map();
   const key = (i, j) => i + ',' + j;
-  const r = rngAt(seed, 99);
-  const bundles = [], crossings = [], crossSet = new Set();
+  const crossings = [], crossSet = new Set();
   const edgeExit = cfg.edgeExit ?? 0;
   const weave = cfg.weave ?? 'off';
-  let phase = insideCell ? 'inside' : 'all';
+  const router = { occ, key, crossings, phase: insideCell ? 'inside' : 'all' };
 
   const outside = (i, j) => i < 0 || j < 0 || i >= cols || j >= rows || (i >= limI && i !== axI) || (j >= limJ && j !== axJ);
   // One circuit looks ahead: the free area still reachable after stepping
@@ -105,13 +129,13 @@ export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
     const o = occ.get(key(ni, nj));
     if (ni === axI || nj === axJ) {
       if (o || (ni === axI && nj === axJ)) return null;
-      if (phase === 'inside' && !insideCell(ni, nj)) return null;
+      if (router.phase === 'inside' && !insideCell(ni, nj)) return null;
       if (ni === axI && horiz) return { t: 'half', i: ni, j: nj, axis: 'x' };
       if (nj === axJ && !horiz) return { t: 'half', i: ni, j: nj, axis: 'y' };
       return null;
     }
     if (!o) {
-      if (phase === 'inside' && !insideCell(ni, nj)) return null;
+      if (router.phase === 'inside' && !insideCell(ni, nj)) return null;
       return { t: 'free', i: ni, j: nj };
     }
     // Crossings never touch: their cut-backs would overlap.
@@ -183,6 +207,7 @@ export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
           crossings.push({
             i: st.i, j: st.j,
             under: walkerTop ? st.under.b : bIdx,
+            over: walkerTop ? bIdx : st.under.b,
             axis: walkerTop ? st.under.dir : walkerAxis,
           });
           crossSet.add(key(st.i, st.j));
@@ -199,12 +224,78 @@ export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
     return { cells, heads, end };
   }
 
+  // A new bundle bIdx: a walk each way from (i, j). Null for a lone cell
+  // when eyes are off (the cell is left empty).
+  router.start = (i, j, bIdx) => {
+    occ.set(key(i, j), { b: bIdx, dir: '?' });
+    const axes = new Set();
+    const h0 = Math.floor(r() * 4);
+    const fw = walk(i, j, h0, bIdx, -1, axes);
+    const bw = walk(i, j, opp(h0), bIdx, fw.heads.length ? fw.heads[0] : -1, axes);
+    // Assemble: the backward walk reversed, the start, then the forward walk.
+    const cells = [...bw.cells.slice().reverse(), [i, j], ...fw.cells];
+    const hs = [...bw.heads.slice(0, bw.cells.length).reverse().map(opp), ...fw.heads.slice(0, fw.cells.length)];
+    const startType = bw.end, endType = fw.end;
+    const pcs = cells.map(([ci, cj], m) => ({
+      i: ci, j: cj, c: [ox + (ci + 0.5) * S, oy + (cj + 0.5) * S],
+      in: m > 0 ? hs[m - 1] : (startType === 'open' ? opp(bw.heads[bw.heads.length - 1]) : null),
+      out: m < cells.length - 1 ? hs[m] : (endType === 'open' ? fw.heads[fw.heads.length - 1] : null),
+    }));
+    if (pcs.length === 1 && pcs[0].in == null && pcs[0].out == null && !cfg.eyes) {
+      occ.set(key(i, j), { b: -1, dir: 'E' });
+      return null;
+    }
+    for (const pc of pcs) {
+      const o = occ.get(key(pc.i, pc.j));
+      if (o && o.b === bIdx && o.dir === '?') o.dir = pc.in != null && pc.in === pc.out ? (pc.in % 2 === 0 ? 'H' : 'V') : 'T';
+    }
+    return { pcs, startType, endType, axes, index: bIdx };
+  };
+  // Marks a route's cells and crossings taken, to grow a bundle beside it.
+  router.place = (route) => {
+    for (const B of route.bundles) {
+      for (const [i, j, a, b] of B.cells ?? []) {
+        const o = occ.get(key(i, j));
+        if (o) { o.dir = 'X'; continue; }
+        occ.set(key(i, j), { b: B.index, dir: a >= 0 && a === b ? (a % 2 === 0 ? 'H' : 'V') : 'T' });
+      }
+    }
+    for (const [i, j] of route.crossings) crossSet.add(key(i, j));
+  };
+  router.outside = outside;
+  return router;
+}
+
+// A route as plain data (a hand-built layer keeps it in its settings):
+//   { bundles: [{ index, cells: [[i, j, in, out], ...], s, e, axes }],
+//     crossings: [[i, j, under, over, axis], ...] }
+// in / out are headings into DIRS (-1: none), s / e the start and end types
+// ('cap', 'open' or 'half'), under / over bundle indices. One circuit
+// filling the layer (singleCircuit) is { bundles: [{ index: 0, whole: true }] }.
+const bundleData = (B) => ({
+  index: B.index, cells: B.pcs.map(pc => [pc.i, pc.j, pc.in ?? -1, pc.out ?? -1]),
+  s: B.startType, e: B.endType, axes: [...B.axes],
+});
+const crossingData = (X) => [X.i, X.j, X.under, X.over, X.axis];
+
+// Walks the layer's route from the seed.
+function routeSquare(G, cfg, seed, L, sym, insideCell, opts) {
+  if (cfg.route === 'single' && cfg.fill && singleCircuit(L, cfg, seed, sym, opts)) {
+    return { bundles: [{ index: 0, whole: true }], crossings: [] };
+  }
+  const one = cfg.route === 'single';
+  const { cols, rows, limI, limJ } = G;
+  const r = rngAt(seed, 99);
+  const router = squareRouter(G, cfg, r, insideCell, one);
+  const { occ, key } = router;
+  const bundles = [];
+
   const starts = [];
   for (let j = 0; j < Math.min(rows, limJ); j++) for (let i = 0; i < Math.min(cols, limI); i++) starts.push([i, j]);
   shuffle(starts, r);
   // One circuit starts in a corner and sweeps from there.
   if (one) {
-    const ways = ([i, j]) => DIRS.filter(([a, b]) => !outside(i + a, j + b)).length;
+    const ways = ([i, j]) => DIRS.filter(([a, b]) => !router.outside(i + a, j + b)).length;
     starts.sort((a, b) => ways(a) - ways(b));
   }
 
@@ -213,39 +304,85 @@ export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
       if (one && bundles.length) return;
       if (occ.has(key(i, j)) || !canStart(i, j)) continue;
       if (!one && r() > (cfg.density ?? 1)) { occ.set(key(i, j), { b: -1, dir: 'E' }); continue; }
-      const bIdx = bundles.length;
-      occ.set(key(i, j), { b: bIdx, dir: '?' });
-      const axes = new Set();
-      const h0 = Math.floor(r() * 4);
-      const fw = walk(i, j, h0, bIdx, -1, axes);
-      const bw = walk(i, j, opp(h0), bIdx, fw.heads.length ? fw.heads[0] : -1, axes);
-      // Assemble: the backward walk reversed, the start, then the forward walk.
-      const cells = [...bw.cells.slice().reverse(), [i, j], ...fw.cells];
-      const hs = [...bw.heads.slice(0, bw.cells.length).reverse().map(opp), ...fw.heads.slice(0, fw.cells.length)];
-      const startType = bw.end, endType = fw.end;
-      const pcs = cells.map(([ci, cj], m) => ({
-        i: ci, j: cj, c: [ox + (ci + 0.5) * S, oy + (cj + 0.5) * S],
-        in: m > 0 ? hs[m - 1] : (startType === 'open' ? opp(bw.heads[bw.heads.length - 1]) : null),
-        out: m < cells.length - 1 ? hs[m] : (endType === 'open' ? fw.heads[fw.heads.length - 1] : null),
-      }));
-      if (pcs.length === 1 && pcs[0].in == null && pcs[0].out == null && !cfg.eyes) {
-        occ.set(key(i, j), { b: -1, dir: 'E' });
-        continue;
-      }
-      for (const pc of pcs) {
-        const o = occ.get(key(pc.i, pc.j));
-        if (o && o.b === bIdx && o.dir === '?') o.dir = pc.in != null && pc.in === pc.out ? (pc.in % 2 === 0 ? 'H' : 'V') : 'T';
-      }
-      bundles.push({ pcs, startType, endType, axes, index: bIdx });
+      const B = router.start(i, j, bundles.length);
+      if (B) bundles.push(B);
     }
   };
   if (insideCell) {
     runPass((i, j) => insideCell(i, j));
-    phase = 'all';
+    router.phase = 'all';
     if (cfg.maskOutside !== 'empty') runPass(() => true);
   } else {
     runPass(() => true);
   }
+  return { bundles: bundles.map(bundleData), crossings: router.crossings.map(crossingData) };
+}
+
+const withoutBundles = (route, gone) => ({
+  bundles: route.bundles.filter(b => !gone.has(b.index)),
+  crossings: route.crossings.filter(([, , under, over]) => !gone.has(under) && !gone.has(over)),
+});
+
+// A hand edit to a route. edit.remove (a Set of bundle indices) takes those
+// bundles out; edit.at (a point in the layer's frame) takes out the bundle
+// there, or grows a new one from that empty cell with the same walk and
+// rules, drawing from edit.rng. With mirror symmetry the point is folded
+// into the routed half first. Returns { route, op: 'remove' | 'grow' }, or
+// null when nothing changed.
+function editSquare(G, cfg, route, edit) {
+  if (edit.remove) {
+    if (!route.bundles.some(b => edit.remove.has(b.index))) return null;
+    return { op: 'remove', route: withoutBundles(route, edit.remove) };
+  }
+  let [x, y] = edit.at;
+  // (A point on an axis goes just inside the routed half.)
+  if (G.mx) x = -Math.abs(x) - 1e-6;
+  if (G.my) y = -Math.abs(y) - 1e-6;
+  let i = Math.floor((x - G.ox) / G.S), j = Math.floor((y - G.oy) / G.S);
+  if (i < 0 || j < 0 || i >= G.cols || j >= G.rows) return null;
+  // One circuit fills every cell: any click takes it out.
+  const whole = route.bundles.find(b => b.whole);
+  if (whole) return { op: 'remove', route: withoutBundles(route, new Set([whole.index])) };
+  const owners = route.bundles.filter(b => b.cells.some(([ci, cj]) => ci === i && cj === j));
+  if (owners.length) {
+    // At a crossing, the bundle on top.
+    const X = route.crossings.find(([ci, cj]) => ci === i && cj === j);
+    const target = (X && owners.find(b => b.index === X[3])) || owners[0];
+    return { op: 'remove', route: withoutBundles(route, new Set([target.index])) };
+  }
+  // Bundles only end in a mirror axis's cells: start beside it instead.
+  if (i === G.axI) i -= 1;
+  if (j === G.axJ) j -= 1;
+  const router = squareRouter(G, cfg, edit.rng, null, cfg.route === 'single');
+  router.place(route);
+  if (router.outside(i, j) || router.occ.has(router.key(i, j))) return null;
+  const index = route.bundles.reduce((m, b) => Math.max(m, b.index + 1), 0);
+  const B = router.start(i, j, index);
+  if (!B) return null;
+  return {
+    op: 'grow',
+    route: { bundles: [...route.bundles, bundleData(B)], crossings: [...route.crossings, ...router.crossings.map(crossingData)] },
+  };
+}
+
+// Draws a route: each bundle's strands as filled outlines, cut back where
+// it passes under another, with its band and the walled-in holes when asked.
+function drawSquare(G, L, cfg, seed, sym, route, opts) {
+  const { S, k, p, w, cols, rows, ox, oy, mx, my } = G;
+  if (route.bundles.some(b => b.whole)) {
+    const whole = singleCircuit(L, cfg, seed, sym, opts);
+    if (whole) return whole;
+  }
+  const key = (i, j) => i + ',' + j;
+  const bundles = route.bundles.filter(b => !b.whole).map(b => ({
+    index: b.index, startType: b.s, endType: b.e, axes: new Set(b.axes),
+    pcs: b.cells.map(([i, j, a, c]) => ({ i, j, c: [ox + (i + 0.5) * S, oy + (j + 0.5) * S], in: a < 0 ? null : a, out: c < 0 ? null : c })),
+  }));
+  const present = new Set(bundles.map(b => b.index));
+  const crossings = route.crossings
+    .filter(([, , under, over]) => present.has(under) && present.has(over))
+    .map(([i, j, under, , axis]) => ({ i, j, under, axis }));
+  const taken = new Set(bundles.flatMap(b => b.pcs.map(pc => key(pc.i, pc.j))));
 
   // ── Centrelines ────────────────────────────────────────────────────────────
   const half = S / 2;
@@ -312,11 +449,7 @@ export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
   // Empty cells with no way out to the layer's edge but through bundles.
   let holes = null;
   if (opts.holes) {
-    const used = (i, j) => {
-      const a = mx ? Math.min(i, cols - 1 - i) : i, b = my ? Math.min(j, rows - 1 - j) : j;
-      const o = occ.get(key(a, b));
-      return !!o && o.b >= 0;
-    };
+    const used = (i, j) => taken.has(key(mx ? Math.min(i, cols - 1 - i) : i, my ? Math.min(j, rows - 1 - j) : j));
     const open = new Set(), stack = [];
     for (let i = 0; i < cols; i++) for (const j of [0, rows - 1]) if (!used(i, j)) stack.push([i, j]);
     for (let j = 0; j < rows; j++) for (const i of [0, cols - 1]) if (!used(i, j)) stack.push([i, j]);

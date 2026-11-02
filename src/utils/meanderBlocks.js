@@ -41,7 +41,7 @@ export function buildMeanderBlocks(layers, gridComputed) {
       id: crypto.randomUUID(), type: 'vector', ...footprint,
       d: item.d, fill: item.fill, viewW: w, viewH: h, bounds: item.bounds,
       name: item.kind === 'dot' ? `Dot ${++dot}` : `${item.letter ? 'Letter strand' : 'Strand'} ${++strand}`,
-      meanderKey: item.key,
+      meanderKey: item.key, cells: item.cells, layoutSig: layers.layoutSig, ...(item.letter ? { letter: true } : {}),
     })),
     ...core('coreOver', 'Centre', coreOver),
   ];

@@ -90,26 +90,102 @@ export function lineworkGridCells(settings, grid, { areas = null } = {}) {
   });
 }
 
-export function composeLinework(settings, grid, { maskFor = () => null, baseGround = false, areas = null } = {}) {
+// A layer's size and placement in one frame: lw × lh, turned by m about its
+// centre t (design units).
+function layerPlace(cfg, li, { base, baseM, centre }) {
+  const plate = li > 0;
+  const [pw, ph] = plate ? plateCells(cfg, { w: base.w, h: base.h }) : [0, 0];
+  const rotDeg = base.rot + (plate && cfg.shape === 'diamond' ? 45 : 0);
+  return {
+    lw: plate ? pw * CELL : base.w, lh: plate ? ph * CELL : base.h, m: rotation(rotDeg),
+    t: plate ? add(centre, applyLinear(baseM, [(cfg.ox ?? 0) * CELL, (cfg.oy ?? 0) * CELL])) : centre,
+  };
+}
+// A design point in a layer's own frame (m is a rotation: its inverse is its transpose).
+const toLocal = ({ m, t }, q) => applyLinear([m[0], m[2], m[1], m[3]], [q[0] - t[0], q[1] - t[1]]);
+
+// Hand-built layers (v1.11). A layer keeps, for each frame it's built in
+// (its tag), the route or tiles it was edited to: cfg.hand[tag] = { sig,
+// ...data } -- a circuit's route (circuit.js, cellCircuit.js) or an angular
+// layer's { tiles } (angular.js). It's drawn while sig, the settings and
+// size the layer's layout comes from, still matches; anything else lays the
+// layer out afresh.
+const HAND_KEYS = {
+  circuit: ['seed', 'bundle', 'scale', 'route', 'fill', 'loop', 'straight', 'density', 'maxLen', 'edgeExit', 'weave', 'eyes', 'mask', 'maskOutside'],
+  angular: ['seed', 'tile', 'scale', 'subdiv', 'minTile'],
+};
+function handSig(cfg, settings, lw, lh, sym) {
+  const style = cfg.style === 'circuit' ? 'circuit' : 'angular';
+  const tiling = settings.tiling ?? 'square';
+  return JSON.stringify([style, ...HAND_KEYS[style].map(k => cfg[k] ?? null), tiling,
+    tiling === 'square' ? null : settings.regularity ?? 0.5, sym, Math.round(lw), Math.round(lh)]);
+}
+
+const insidePoly = (P, [x, y]) => {
+  let inside = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+    const [xi, yi] = P[i], [xj, yj] = P[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+};
+
+// edit (a hand edit, see lineworkHandEdit): { at: [x, y] } a design point
+// -- the topmost layer there takes out what's at that point or grows
+// something new into it -- or { remove: Set of item keys }; rng draws the
+// randomness for anything grown. The changed layers come back as `edits`:
+// [{ li, layerId, tag, op: 'remove' | 'grow', hand }], hand being the
+// layer's new cfg.hand[tag].
+export function composeLinework(settings, grid, { maskFor = () => null, baseGround = false, areas = null, edit = null } = {}) {
   const W = grid.cols * CELL, H = grid.rows * CELL;
   const frames = baseFrames(settings, grid, areas);
   const { n, ratio } = lineSize(settings);
   const items = [];
+  const edits = [];
   const counts = {};
   const nameFor = (layer, label) => {
     const k = `${layer}:${label}`;
     counts[k] = (counts[k] ?? 0) + 1;
     return `${label} ${counts[k]}`;
   };
+  const layers = settings.layers ?? [];
+  const framesOf = (cfg, li) => (li === 0 ? frames.map((f, ai) => [f, ai ? `L0a${ai}` : 'L0']) : [[frames[0], `P${cfg.id ?? li}`]]);
+  const shown = (cfg, li) => cfg && (li === 0 || cfg.enabled);
+
+  // The layer and frame a point edit goes to: the topmost one under it.
+  let target = null;
+  if (edit?.at) {
+    for (let li = layers.length - 1; li >= 0 && !target; li--) {
+      if (!shown(layers[li], li)) continue;
+      for (const [f, tag] of framesOf(layers[li], li)) {
+        const place = layerPlace(layers[li], li, f);
+        const [x, y] = toLocal(place, edit.at);
+        if (Math.abs(x) <= place.lw / 2 && Math.abs(y) <= place.lh / 2) { target = { li, tag, at: [x, y] }; break; }
+      }
+    }
+  }
+  // The edit for one layer's frame, as its engine takes it, or null.
+  // remove: item keys `${tag}:b:<bundle>#<copy>` (`:c:` on cells) or
+  // `${tag}:a:<region>#<copy>`, a region's key being its tile's or, for a
+  // split tile, `<tile>:<part>`.
+  const editFor = (li, tag, style) => {
+    if (edit?.at) return target && target.li === li && target.tag === tag ? { at: target.at, rng: edit.rng } : null;
+    if (!edit?.remove) return null;
+    const ids = new Set();
+    for (const k of edit.remove) {
+      const m = /^([^:]+):([abc]):(.+)#\d+$/.exec(k);
+      if (!m || m[1] !== tag) continue;
+      if (style === 'angular' && m[2] === 'a') ids.add(m[3].replace(/:\d+$/, ''));
+      if (style === 'circuit' && m[2] !== 'a') ids.add(Number(m[3]));
+    }
+    return ids.size ? { remove: ids, rng: edit.rng } : null;
+  };
 
   // One layer in one frame; `tag` prefixes its items' keys.
-  const buildLayer = (cfg, li, { base, baseM, centre, basePlanes }, tag) => {
+  const buildLayer = (cfg, li, frame, tag) => {
+    const { centre, basePlanes } = frame;
     const plate = li > 0;
-    const [pw, ph] = plate ? plateCells(cfg, { w: base.w, h: base.h }) : [0, 0];
-    const lw = plate ? pw * CELL : base.w, lh = plate ? ph * CELL : base.h;
-    const rotDeg = base.rot + (plate && cfg.shape === 'diamond' ? 45 : 0);
-    const m = rotation(rotDeg);
-    const t = plate ? add(centre, applyLinear(baseM, [(cfg.ox ?? 0) * CELL, (cfg.oy ?? 0) * CELL])) : centre;
+    const { lw, lh, m, t } = layerPlace(cfg, li, frame);
     const toDesign = (P) => P.map(p => add(applyLinear(m, p), t));
     // Plates are cut to the canvas too.
     const finish = (P) => (plate ? clipToPlanes(toDesign(P), basePlanes) : toDesign(P));
@@ -162,6 +238,13 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     const tiling = settings.tiling ?? 'square';
     // Circuit symmetry: mirrors only; rotations become their mirror equivalent.
     const csym = sym === 'mirror-x' || sym === 'mirror-y' || sym === 'none' ? sym : 'mirror-both';
+    // A hand-built layout, while it's current; and any edit to make to it.
+    const style = cfg.style === 'circuit' ? 'circuit' : 'angular';
+    const sig = handSig(cfg, settings, lw, lh, style === 'circuit' ? csym : sym);
+    const stored = cfg.hand?.[tag];
+    const hand = stored && stored.sig === sig ? stored : null;
+    const editHere = editFor(li, tag, style);
+    const record = (op, data) => edits.push({ li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), tag, op, hand: { sig, ...data } });
     if (cfg.style === 'circuit' && tiling !== 'square') {
       // Circuits through hexagons, triangles or Voronoi cells. The mask is
       // read on a bundle-sized grid, each cell by its centre.
@@ -170,7 +253,8 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, bc, br) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + bc * S / 2) / S)},${Math.floor((y + br * S / 2) / S)}`) : null;
       const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single',
-        { ...bandOpts, sym: csym, inside, maskOutside: cfg.maskOutside });
+        { ...bandOpts, sym: csym, inside, maskOutside: cfg.maskOutside, hand, edit: editHere });
+      if (R.edited) record(R.edited.op, R.edited.route);
       for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym, { keepWinding: true })) {
         toBand(b.bands);
         push({
@@ -182,7 +266,8 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const S = Math.max(1, cfg.bundle ?? 1) * C;
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
       const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, bc, br) : null;
-      const R = circuitLayer(L, cfg, seed, csym, mask ? (i, j) => mask.has(`${i},${j}`) : null, bandOpts);
+      const R = circuitLayer(L, cfg, seed, csym, mask ? (i, j) => mask.has(`${i},${j}`) : null, { ...bandOpts, hand, edit: editHere });
+      if (R.edited) record(R.edited.op, R.edited.route);
       for (const P of R.holes ?? []) bands.push([polyContour(toDesign(P))]);
       // One circuit is built whole (already symmetric), so it isn't copied.
       for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym)) {
@@ -203,11 +288,20 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const cols = Math.max(1, Math.round(lw / C)), rows = Math.max(1, Math.round(lh / C));
       const mask = cfg.mask && cfg.mask !== 'none' ? maskFor(li, cols, rows) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + lw / 2) / C)},${Math.floor((y + lh / 2) / C)}`) : null;
-      const { regions, outlines } = angularLayer(L, { ...cfg, tiling, regularity: settings.regularity }, seed, dom, inside, { ops, planes });
-      // Clip to the symmetry domain, copy by each map, clip to the layer.
+      const fill = (tiles) => angularLayer(L, { ...cfg, tiling, regularity: settings.regularity }, seed, dom, inside, { ops, planes }, tiles);
       // With outlines on, the content shrinks by half a line all round so the
       // full-width Edge (below) frames it like the borders between tiles.
       const fx = cfg.outline ? (lw - L.lineW) / lw : 1, fy = cfg.outline ? (lh - L.lineW) / lh : 1;
+      let A = fill(hand?.tiles ?? null);
+      if (editHere) {
+        const done = editTiles(A.tiles, hand?.tiles ?? {}, editHere, ops, [fx, fy]);
+        if (done) {
+          record(done.op, { tiles: done.tiles });
+          A = fill(done.tiles);
+        }
+      }
+      const { regions, outlines } = A;
+      // Clip to the symmetry domain, copy by each map, clip to the layer.
       const at = (op, v) => { const q = applyLinear(op, v); return [q[0] * fx, q[1] * fy]; };
       const place = (shapes, opIdx) => {
         const op = ops[opIdx];
@@ -280,15 +374,41 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     }
   };
 
-  const layers = settings.layers ?? [];
   layers.forEach((cfg, li) => {
-    if (!cfg || (li > 0 && !cfg.enabled)) return;
-    if (li === 0) frames.forEach((f, ai) => buildLayer(cfg, 0, f, ai ? `L0a${ai}` : 'L0'));
-    else buildLayer(cfg, li, frames[0], `P${cfg.id ?? li}`);
+    if (!shown(cfg, li)) return;
+    for (const [f, tag] of framesOf(cfg, li)) buildLayer(cfg, li, f, tag);
   });
 
   for (const it of items) it.centre ??= frames[0].centre;
-  return { width: W, height: H, items, baseCells: frames[0].base.cells };
+  return { width: W, height: H, items, baseCells: frames[0].base.cells, edits };
+}
+
+// An edit to an angular layer's hand-built tiles (tiles: angularLayer's,
+// own: the layer's { [tile key]: 0 | [kind, seed] }). remove takes out
+// those tiles; at takes out the tile there or, when it's empty, fills it
+// with one of its fills at random. The point is found in the symmetry
+// domain by trying each map back (scale: the outline's shrink).
+// Returns { op, tiles } or null.
+function editTiles(tiles, own, edit, ops, scale) {
+  const next = { ...own };
+  if (edit.remove) {
+    const gone = tiles.filter(t => t.filled && edit.remove.has(t.key));
+    for (const t of gone) next[t.key] = 0;
+    return gone.length ? { op: 'remove', tiles: next } : null;
+  }
+  const q0 = [edit.at[0] / scale[0], edit.at[1] / scale[1]];
+  for (const op of ops) {
+    const q = applyLinear([op[0], op[2], op[1], op[3]], q0);
+    const tile = tiles.find(t => insidePoly(t.P, q));
+    if (!tile) continue;
+    if (tile.filled) {
+      next[tile.key] = 0;
+      return { op: 'remove', tiles: next };
+    }
+    next[tile.key] = [tile.kinds[Math.floor(edit.rng() * tile.kinds.length)], Math.floor(edit.rng() * 0x7fffffff)];
+    return { op: 'grow', tiles: next };
+  }
+  return null;
 }
 
 // Plates as groups: the layer index each plate's items belong to.

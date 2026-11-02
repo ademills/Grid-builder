@@ -1,4 +1,4 @@
-import { composeKnotworkLayers } from './knotworkCompose';
+import { composeKnotworkLayers, meanderLayoutSig } from './knotworkCompose';
 
 // Meander plates: smaller panels stacked over the main design, each holding
 // a Meander of its own (its own seed; the rest of the main design's
@@ -125,7 +125,8 @@ const boundsOf = (pts) => {
 // The blocks for every enabled plate, bottom to top: shadow, background, rim
 // and strands. settings: the Meander's settings with its theme colours (fg,
 // bg, palette) as for composeKnotworkLayers; grid: { cols, rows }.
-export function composeMeanderPlates(settings, grid) {
+// layoutOf(prefix, sig): a plate's hand-built layout (see meanderHand.js).
+export function composeMeanderPlates(settings, grid, layoutOf = () => null) {
   const blocks = [];
   (settings.plates ?? []).forEach((plate, i) => {
     if (!plate.enabled) return;
@@ -161,16 +162,15 @@ export function composeMeanderPlates(settings, grid) {
     // The plate's own Meander: the main settings, its own seed and any of
     // the layout settings it sets; no centre motif or word.
     const own = Object.fromEntries(PLATE_LAYOUT_KEYS.filter(k => plate[k] != null).map(k => [k, plate[k]]));
-    const design = composeKnotworkLayers(
-      { cols: P.cols, rows: P.rows, cellSize: CELL, gridOriginX: 0, gridOriginY: 0 },
-      { ...settings, ...own, seed: plate.seed, coreStyle: 'none', seedWord: '', weaveAsLetters: false },
-    );
+    const local = { cols: P.cols, rows: P.rows, cellSize: CELL, gridOriginX: 0, gridOriginY: 0 };
+    const plateSettings = { ...settings, ...own, seed: plate.seed, coreStyle: 'none', seedWord: '', weaveAsLetters: false };
+    const design = composeKnotworkLayers(local, plateSettings, layoutOf(`${tag}:`, meanderLayoutSig(local, plateSettings)));
     let strand = 0, dot = 0;
     for (const item of design.items) {
       const b = item.bounds;
       const box = b ? boundsOf([[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]].map(c => P.fromDesign(...c))) : undefined;
       blocks.push(block(item.key, item.kind === 'dot' ? `Dot ${++dot}` : `Strand ${++strand}`,
-        mapPath(item.d, P.fromDesign), item.fill, box));
+        mapPath(item.d, P.fromDesign), item.fill, box, { cells: item.cells, layoutSig: design.layoutSig }));
     }
   });
   return blocks;

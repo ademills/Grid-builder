@@ -1,6 +1,6 @@
 import {
   SelectIcon, LassoIcon, MoveIcon, HandIcon, ZoomIcon, WandIcon, EyedropperIcon, BucketIcon, StampIcon, EraserIcon, RotateIcon, ReflectIcon,
-  GridModeMark, MeanderModeMark, LineworkModeMark,
+  BuildIcon, GridModeMark, MeanderModeMark, LineworkModeMark,
 } from '../shell/icons';
 import { PropertiesPanel } from '../panels/PropertiesPanel';
 import { InfoPanel } from '../panels/InfoPanel';
@@ -36,6 +36,7 @@ export const TOOLS = {
   rotate:     { id: 'rotate',     label: 'Rotate',      key: 'R', icon: RotateIcon, hint: 'Click to rotate 90° clockwise, Alt+click anticlockwise' },
   reflect:    { id: 'reflect',    label: 'Reflect',     key: 'O', icon: ReflectIcon, hint: 'Click to mirror horizontally, Alt+click vertically' },
   bucket:     { id: 'bucket',     label: 'Paint Bucket', key: 'K', icon: BucketIcon, hint: 'Click a part of a shape to paint it; Alt+click to paint every part of that colour' },
+  build:      { id: 'build',      label: 'Build',       key: 'B', icon: BuildIcon, hint: 'Click a line to remove it, with its mirror images · Click an empty space to grow a new one there' },
   eyedropper: { id: 'eyedropper', label: 'Eyedropper',  key: 'I', icon: EyedropperIcon, hint: 'Click a part of a shape to pick up its colour' },
   hand:       { id: 'hand',       label: 'Hand',        key: 'H', icon: HandIcon, hint: 'Or hold Space with any tool' },
   zoom:       { id: 'zoom',       label: 'Zoom',        key: 'Z', icon: ZoomIcon, hint: 'Click to zoom in, Alt+click to zoom out' },
@@ -83,7 +84,7 @@ export const MODE_REGISTRY = {
     accent: '#e0a33a',
     onAccent: '#1f1608', // white is too faint on the amber
     mark: MeanderModeMark,
-    tools: ['select', 'lasso', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
+    tools: ['select', 'lasso', 'wand', '|', 'build', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
     dock: [
       { id: 'properties', panels: [
         { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },
@@ -111,7 +112,7 @@ MODE_REGISTRY.linework = {
   description: 'Greek-key spirals, nested triangles, hatching and parallel circuit routing, with symmetry, diamond grids and stacked plates.',
   accent: '#2f8fe3',
   mark: LineworkModeMark,
-  tools: ['select', 'lasso', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
+  tools: ['select', 'lasso', 'wand', '|', 'build', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
   dock: [
     { id: 'properties', panels: [
       { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },

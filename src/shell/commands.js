@@ -31,6 +31,8 @@ export function commandContext() {
   return {
     app, activeDoc, cmds, status, hasDoc, gridDoc,
     hasSel: gridDoc && (status?.selectedCount ?? 0) > 0,
+    // Any mode: Delete takes Meander strands and Linework lines out by hand.
+    anySel: hasDoc && (status?.selectedCount ?? 0) > 0,
   };
 }
 
@@ -67,7 +69,7 @@ export const COMMANDS = {
   'edit.copy':      { label: 'Copy', shortcut: 'Ctrl+C', enabled: hasSel, run: c => c.cmds.clipboard.copy() },
   'edit.paste':     { label: 'Paste', shortcut: 'Ctrl+V', enabled: c => c.gridDoc && !!c.app.clipboard, run: c => c.cmds.clipboard.paste() },
   'edit.duplicate': { label: 'Duplicate', shortcut: 'Ctrl+D', enabled: hasSel, run: c => c.cmds.clipboard.duplicate() },
-  'edit.delete':    { label: 'Delete', shortcut: 'Del', keys: ['Backspace'], enabled: hasSel, run: c => c.cmds.deleteSelection() },
+  'edit.delete':    { label: 'Delete', shortcut: 'Del', keys: ['Backspace'], enabled: c => c.anySel, run: c => c.cmds.deleteSelection() },
 
   // Object
   'object.rotateCw':  { label: 'Rotate 90° Clockwise', enabled: hasSel, run: c => c.cmds.selection.rotate(true) },

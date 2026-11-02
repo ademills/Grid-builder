@@ -125,6 +125,14 @@ export const BucketIcon = (p) => (
   </Icon>
 );
 
+// A strand turning back on itself, and a plus: build by hand.
+export const BuildIcon = (p) => (
+  <Icon {...p}>
+    <path d="M3.5 16.5V8.5h7v5h-3.5" />
+    <path d="M14.5 3v6M11.5 6h6" />
+  </Icon>
+);
+
 export const StampIcon = (p) => (
   <Icon {...p}>
     <rect x="3.5" y="12.5" width="13" height="3" rx="0.8" />

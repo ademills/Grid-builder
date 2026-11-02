@@ -135,15 +135,34 @@ export function meanderCornerSettings(s) {
   };
 }
 
+// The settings a Meander's layout (which cells each strand runs through) is
+// walked from, with the grid size. A hand-built layout is drawn only while
+// these still match what it was built with; anything else lays out afresh.
+const LAYOUT_KEYS = [
+  'seed', 'coreStyle', 'coreRadius', 'density', 'straightBias', 'minStraightRun', 'wallDensity', 'symmetryMode',
+  'kaleidoscopeFold', 'seedWord', 'weaveAsLetters', 'letterSize', 'letterLayout', 'letterArrangementSeed',
+  'letterRandomSize', 'letterRandomPlacement', 'letterAlign',
+];
+export function meanderLayoutSig(gridComputed, settings) {
+  return JSON.stringify([gridComputed.cols, gridComputed.rows, ...LAYOUT_KEYS.map(k => settings[k] ?? null)]);
+}
+
+// The number in a strand or dot key ('s12' → 12), which picks its palette
+// colour and width, so a hand-built layout keeps each strand's look.
+export const meanderKeyIndex = (key) => Number(/(\d+)$/.exec(key)?.[1] ?? 0);
+
 // gridComputed: a self-contained local grid ({ cols, rows, cellSize,
 // gridOriginX: 0, gridOriginY: 0 }) -- independent of the live app grid's
 // own origin. Returns
-//   { width, height,
-//     items: [{ key, kind: 'strand'|'dot', d, fill, letter }],
+//   { width, height, layoutSig,
+//     items: [{ key, kind: 'strand'|'dot', d, fill, letter, cells }],
 //     coreUnder, coreOver }   (SVG markup strings, or '' when empty)
 // Keys ('s<i>' / 'd<i>') are stable for a given seed and layout settings,
 // which is what lets a reshape keep each strand's per-layer edits.
-export function composeKnotworkLayers(gridComputed, settings) {
+// layout: a hand-built layout ({ sig, strands, dots }, each strand or dot
+// { key, cells: [[col, row], ...], letter }) drawn instead of walking one
+// from the seed, while its sig matches (see meanderLayoutSig).
+export function composeKnotworkLayers(gridComputed, settings, layout = null) {
   const { cols, rows, cellSize } = gridComputed;
   const {
     seed = 0,
@@ -243,10 +262,31 @@ export function composeKnotworkLayers(gridComputed, settings) {
       : computeTextMaskCells(gridComputed, seedWord, letterSize))
     : null;
 
-  const { paths: strandPaths, singleCellDots, letterPathCount, letterDotCount } = computeKnotworkMeanderStrands(gridComputed, {
-    seed, coreRadius, density, straightBias, minStraightRun, wallDensity, symmetryMode, kaleidoscopeFold,
-    textMaskCells,
-  });
+  const layoutSig = meanderLayoutSig(gridComputed, settings);
+  const hand = layout && layout.sig === layoutSig ? layout : null;
+  // Each strand's and dot's key number (its colour and width) and whether
+  // it spells the word.
+  let strandPaths, singleCellDots, strandIdx, dotIdx, strandLetter, dotLetter;
+  if (hand) {
+    const toCells = cells => cells.map(([col, row]) => ({ col, row }));
+    strandPaths = hand.strands.map(s => toCells(s.cells));
+    singleCellDots = hand.dots.map(d => toCells(d.cells)[0]);
+    strandIdx = hand.strands.map(s => meanderKeyIndex(s.key));
+    dotIdx = hand.dots.map(d => meanderKeyIndex(d.key));
+    strandLetter = hand.strands.map(s => !!s.letter);
+    dotLetter = hand.dots.map(d => !!d.letter);
+  } else {
+    const walked = computeKnotworkMeanderStrands(gridComputed, {
+      seed, coreRadius, density, straightBias, minStraightRun, wallDensity, symmetryMode, kaleidoscopeFold,
+      textMaskCells,
+    });
+    strandPaths = walked.paths;
+    singleCellDots = walked.singleCellDots;
+    strandIdx = strandPaths.map((_, i) => i);
+    dotIdx = singleCellDots.map((_, i) => i);
+    strandLetter = strandPaths.map((_, i) => i < walked.letterPathCount);
+    dotLetter = singleCellDots.map((_, i) => i < walked.letterDotCount);
+  }
 
   // Independent RNG stream from the geometry walk's own mulberry32(seed)
   // instance (that one is closed over inside computeKnotworkMeanderStrands
@@ -256,9 +296,10 @@ export function composeKnotworkLayers(gridComputed, settings) {
   // seed (not colorSeed) so per-strand width stays stable across a
   // Recolour, which only ever changes colorSeed.
   const widthRng = mulberry32(seed ^ 0x9e3779b9);
-  const strandWidths = strandPaths.map(() =>
+  const widthByIdx = Array.from({ length: strandIdx.reduce((m, i) => Math.max(m, i + 1), 0) }, () =>
     strandStrokeWidth * (1 + (widthRng() * 2 - 1) * widthJitter)
   );
+  const strandWidths = strandIdx.map(i => widthByIdx[i]);
 
   const strandMergeInfo = strandPaths.map(findSelfMergeEnds);
   const strandPixelPointsList = strandPaths.map(path => knotworkPathToPixels(path, gridComputed));
@@ -288,7 +329,7 @@ export function composeKnotworkLayers(gridComputed, settings) {
   // that colour removed from the cycle (letterColourExclusive) so it
   // reads as unique to the word rather than a coincidence of the cycle.
   const basePalette = palette.length ? palette : [fg];
-  const hasLetterOverride = weaveAsLetters && letterPathCount > 0;
+  const hasLetterOverride = weaveAsLetters && strandLetter.some(Boolean);
   const effectiveLetterColour = letterColour || fg;
   const generalPaletteRaw = (hasLetterOverride && letterColourExclusive)
     ? basePalette.filter(c => c !== effectiveLetterColour)
@@ -299,13 +340,16 @@ export function composeKnotworkLayers(gridComputed, settings) {
     ? sampleStrandColours(strandPixelPointsList, imagePixels, cols * cellSize, rows * cellSize, imageFit, generalPalette)
     : null;
   const shuffledPalette = colorSeed ? shuffleColors(generalPalette, colorSeed) : generalPalette;
-  const generalColourAt = i => (imageColours && imageColours.length)
+  // i: the strand's place in the list (image colours are sampled per
+  // strand); idx: its key number (palette colours follow the key).
+  const generalColourAt = (i, idx) => (imageColours && imageColours.length)
     ? imageColours[i % imageColours.length]
-    : shuffledPalette[i % shuffledPalette.length];
+    : shuffledPalette[idx % shuffledPalette.length];
 
   const strandColors = strandPaths.map((_, i) =>
-    (hasLetterOverride && i < letterPathCount) ? effectiveLetterColour : generalColourAt(i)
+    (hasLetterOverride && strandLetter[i]) ? effectiveLetterColour : generalColourAt(i, strandIdx[i])
   );
+  const cellsOf = path => path.map(({ col, row }) => [col, row]);
 
   const holeRadius = showTerminalDots ? strandStrokeWidth * 0.15 : 0;
   const items = [];
@@ -319,7 +363,7 @@ export function composeKnotworkLayers(gridComputed, settings) {
     };
     const { startMerge, endMerge } = strandMergeInfo[i];
     const d = compileKnotworkOutline(extendForMerge(pts, cellSize, startMerge, endMerge), hw, radii, { startMerge, endMerge, holeRadius });
-    if (d) items.push({ key: `s${i}`, kind: 'strand', d, fill: strandColors[i], letter: hasLetterOverride && i < letterPathCount, bounds: pointBounds(pts, hw) });
+    if (d) items.push({ key: `s${strandIdx[i]}`, kind: 'strand', d, fill: strandColors[i], letter: hasLetterOverride && strandLetter[i], bounds: pointBounds(pts, hw), cells: cellsOf(strandPaths[i]) });
   });
 
   // Cells a walk could not extend beyond: a square the strand's width,
@@ -329,9 +373,9 @@ export function composeKnotworkLayers(gridComputed, settings) {
   // needing its own RNG draw index.
   singleCellDots.forEach(({ col, row }, i) => {
     const [center] = knotworkPathToPixels([{ col, row }], gridComputed);
-    const hw = (strandWidths.length ? strandWidths[i % strandWidths.length] : strandStrokeWidth) / 2;
-    const letter = hasLetterOverride && i < letterDotCount;
-    items.push({ key: `d${i}`, kind: 'dot', d: compileKnotworkDot(center, hw, corners.capRoundness * hw), fill: letter ? effectiveLetterColour : generalColourAt(i), letter, bounds: pointBounds([center], hw) });
+    const hw = (widthByIdx.length ? widthByIdx[dotIdx[i] % widthByIdx.length] : strandStrokeWidth) / 2;
+    const letter = hasLetterOverride && dotLetter[i];
+    items.push({ key: `d${dotIdx[i]}`, kind: 'dot', d: compileKnotworkDot(center, hw, corners.capRoundness * hw), fill: letter ? effectiveLetterColour : generalColourAt(i, dotIdx[i]), letter, bounds: pointBounds([center], hw), cells: [[col, row]] });
   });
 
   let celticCoreMarkup = '';
@@ -343,6 +387,7 @@ export function composeKnotworkLayers(gridComputed, settings) {
   return {
     width: cols * cellSize,
     height: rows * cellSize,
+    layoutSig,
     items,
     coreUnder: layersMarkup(weave.barUnderLayers),
     coreOver: celticCoreMarkup + layersMarkup(weave.ringOverLayers) + layersMarkup(weave.barOverLayers),
