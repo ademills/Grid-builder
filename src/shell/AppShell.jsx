@@ -137,7 +137,7 @@ const MENUS = [
     'object.rotateCw', 'object.rotateCcw', 'object.reflectH', 'object.reflectV', 'separator',
     'object.paint', 'object.unpin', 'object.randomOpacity', 'object.resetOpacity', 'separator',
     'object.hide', 'object.showAll', 'object.lock', 'object.unlockAll'] },
-  { label: 'Select', items: ['select.all', 'select.none', 'separator', 'select.sameColour', 'select.sameShape'] },
+  { label: 'Select', items: ['select.all', 'select.none', 'select.inverse', 'separator', 'select.sameColour', 'select.sameShape'] },
   { label: 'Generate', items: ['generate.fill', 'generate.fillGaps', 'generate.surprise', 'separator',
     'generate.flipH', 'generate.flipV', 'generate.clearLayout', 'generate.clear', 'separator',
     'meander.fill', 'meander.recolour'] },

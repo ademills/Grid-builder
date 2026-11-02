@@ -47,7 +47,7 @@ import { brushCells, brushOrigin, clampBrush } from './utils/brush';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA, LINEWORK_LAYER_SCHEMA } from './modes/linework/schema';
-import { SymmetryAxes, MoveGhost, BrushOutline } from './components/ToolOverlays';
+import { SymmetryAxes, MoveGhost, BrushOutline, LassoPath } from './components/ToolOverlays';
 import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
 import { tidySvg } from './utils/svgExport';
 import { composeLinework, lineworkGridCells, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL } from './utils/linework/compose';
@@ -854,7 +854,7 @@ export function DocumentEditor({ mode: appMode }) {
     handleSelectBlock, handleDeselectAll,
     handleOpenContextMenu,
     handleContextRefresh, handleContextRandomise, handleContextToggleLock, handleContextDelete,
-    handleMarqueeSelect,
+    handleMarqueeSelect, handleLassoSelect, handleSelectInverse,
     handleDeleteSelected, handleRefreshSelected, handleRandomiseSelected,
     handleFlipH, handleFlipV,
     handleToggleLockSelected, handleSwapSelected,
@@ -1989,6 +1989,8 @@ export function DocumentEditor({ mode: appMode }) {
   const toolOptions = useAppStore(s => s.toolOptions);
   const setToolOption = useAppStore(s => s.setToolOption);
   const toolDrag = useRef(null);
+  // The Lasso's loop while it's being drawn (artboard px).
+  const [lassoPath, setLassoPath] = useState(null);
 
   // Cell under an artboard point, and the visible block covering it with the
   // point's position (u, v) inside that block.
@@ -2176,6 +2178,27 @@ export function DocumentEditor({ mode: appMode }) {
     const blocks = placedBlocksRef.current;
 
     if (tool === 'move') { handleMovePointer(phase, pt); return; }
+    if (tool === 'lasso') {
+      if (phase === 'down') {
+        toolDrag.current = { points: [pt], op: pt.altKey ? 'subtract' : pt.shiftKey ? 'add' : 'replace' };
+      } else if (phase === 'move' && toolDrag.current?.points && pt) {
+        const pts = toolDrag.current.points;
+        const last = pts[pts.length - 1];
+        if (Math.hypot(pt.x - last.x, pt.y - last.y) < 2 / (useDocumentStore.getState().docs[docId]?.state.viewTransform?.scale ?? 1)) return;
+        pts.push(pt);
+      } else if (phase === 'up') {
+        const drag = toolDrag.current;
+        toolDrag.current = null;
+        setLassoPath(null);
+        if (pt && drag?.points) {
+          if (drag.points.length < 3) { if (drag.op === 'replace') setSelectedIds(new Set()); }
+          else handleLassoSelect(drag.points, drag.op);
+        }
+        return;
+      }
+      setLassoPath(toolDrag.current?.points ? [...toolDrag.current.points] : null);
+      return;
+    }
     if (phase === 'up') { toolDrag.current = null; return; }
     const hit = hitTest(pt, blocks);
 
@@ -2336,7 +2359,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (tool === 'reflect') {
       updateBlocks([block.id], b => (pt.altKey ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }), 'Reflect');
     }
-  }, [hitTest, stampSymmetric, symmetricHits, handleMovePointer, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
+  }, [docId, hitTest, stampSymmetric, symmetricHits, handleMovePointer, handleLassoSelect, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
 
   // Actions on the current selection, shared by the task bar, the right-click
   // menu and the Object / Select menus. Locked shapes are never edited.
@@ -2696,6 +2719,7 @@ export function DocumentEditor({ mode: appMode }) {
     setZoom: handleSetZoom,
     fitView: handleResetView,
     selectAll: () => setSelectedIds(new Set(placedBlocks.map(b => b.id))),
+    selectInverse: handleSelectInverse,
     deselectAll: handleDeselectAll,
     deleteSelection: handleDeleteSelected,
     exportSvg: () => handleExport({ format: 'svg' }),
@@ -2743,7 +2767,7 @@ export function DocumentEditor({ mode: appMode }) {
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, selectionActions, fillSelection, layerActions, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
+  }), [openExport, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, handleDeleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -2849,6 +2873,7 @@ export function DocumentEditor({ mode: appMode }) {
           )}
           {(activeTool === 'stamp' || activeTool === 'eraser') && <BrushOutline tool={activeTool} gridComputed={gridComputed} />}
           <MoveGhost plan={movePreview} gridComputed={gridComputed} />
+          <LassoPath points={lassoPath} />
           {(showGuides || guideDrag.drag) && (
             <GuideLines guides={guides} drag={guideDrag.drag} onStartDrag={startGuideDrag}
               interactive={activeTool === 'select'} scale={viewTransform.scale} />

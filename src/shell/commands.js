@@ -87,6 +87,7 @@ export const COMMANDS = {
   // Select
   'select.all':       { label: 'All', shortcut: 'Ctrl+A', enabled: hasDoc, run: c => c.cmds.selectAll() },
   'select.none':      { label: 'Deselect', shortcut: 'Ctrl+Shift+A', enabled: hasDoc, run: c => c.cmds.deselectAll() },
+  'select.inverse':   { label: 'Inverse', shortcut: 'Ctrl+Shift+I', enabled: hasDoc, run: c => c.cmds.selectInverse() },
   'select.sameColour': { label: 'Same Colour', enabled: hasSel, run: c => c.cmds.selection.selectSameColour() },
   'select.sameShape': { label: 'Same Shape', enabled: hasSel, run: c => c.cmds.selection.selectSameShape() },
 

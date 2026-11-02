@@ -64,6 +64,18 @@ export function BrushOutline({ tool, gridComputed }) {
   );
 }
 
+// The Lasso's loop while it's being drawn.
+export function LassoPath({ points }) {
+  if (!points || points.length < 2) return null;
+  const d = points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join('') + 'Z';
+  return (
+    <g pointerEvents="none" data-noexport="true">
+      <path d={d} fill="rgba(124,58,237,0.08)" stroke="#fff" strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+      <path d={d} fill="none" stroke="#7c3aed" strokeWidth={1.25} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
+    </g>
+  );
+}
+
 // Where dragged shapes will land (Move tool): purple when the drop works,
 // red when it can't (locked shapes in the way, or no room to swap).
 export function MoveGhost({ plan, gridComputed }) {

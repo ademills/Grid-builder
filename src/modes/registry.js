@@ -1,5 +1,5 @@
 import {
-  SelectIcon, MoveIcon, HandIcon, ZoomIcon, WandIcon, EyedropperIcon, BucketIcon, StampIcon, EraserIcon, RotateIcon, ReflectIcon,
+  SelectIcon, LassoIcon, MoveIcon, HandIcon, ZoomIcon, WandIcon, EyedropperIcon, BucketIcon, StampIcon, EraserIcon, RotateIcon, ReflectIcon,
   GridModeMark, MeanderModeMark, LineworkModeMark,
 } from '../shell/icons';
 import { PropertiesPanel } from '../panels/PropertiesPanel';
@@ -27,6 +27,7 @@ import { LineworkPanel } from '../panels/LineworkPanels';
 // Tool ids in a mode's `tools` list; '|' draws a divider in the tool bar.
 export const TOOLS = {
   select:     { id: 'select',     label: 'Selection',   key: 'V', icon: SelectIcon },
+  lasso:      { id: 'lasso',      label: 'Lasso',       key: 'Q', icon: LassoIcon, hint: 'Drag around shapes to select them · Shift adds · Alt removes' },
   move:       { id: 'move',       label: 'Move',        key: 'M', icon: MoveIcon, hint: 'Drag shapes to other cells · Alt+drag copies · Shift keeps it straight · Esc cancels' },
   wand:       { id: 'wand',       label: 'Magic Wand',  key: 'Y', icon: WandIcon, hint: 'Click a shape to select every shape with the same colour (or shape / size)' },
   stamp:      { id: 'stamp',      label: 'Shape Stamp', key: 'S', icon: StampIcon, hint: 'Click or drag to place shapes; Alt+click to replace; [ ] size' },
@@ -47,7 +48,7 @@ export const MODE_REGISTRY = {
     description: 'Fill a grid from the shape library, then colour it with palettes, gradients, images and generative fills.',
     accent: '#7b61ff',
     mark: GridModeMark,
-    tools: ['select', 'move', 'wand', '|', 'stamp', 'eraser', 'rotate', 'reflect', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
+    tools: ['select', 'lasso', 'move', 'wand', '|', 'stamp', 'eraser', 'rotate', 'reflect', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
     dock: [
       { id: 'properties', panels: [
         { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'generate.fillGaps', 'generate.flipH', 'generate.flipV', 'file.export'] },
@@ -80,7 +81,7 @@ export const MODE_REGISTRY = {
     accent: '#e0a33a',
     onAccent: '#1f1608', // white is too faint on the amber
     mark: MeanderModeMark,
-    tools: ['select', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
+    tools: ['select', 'lasso', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
     dock: [
       { id: 'properties', panels: [
         { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },
@@ -105,7 +106,7 @@ MODE_REGISTRY.linework = {
   description: 'Greek-key spirals, nested triangles, hatching and parallel circuit routing, with symmetry, diamond grids and stacked plates.',
   accent: '#2f8fe3',
   mark: LineworkModeMark,
-  tools: ['select', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
+  tools: ['select', 'lasso', 'wand', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
   dock: [
     { id: 'properties', panels: [
       { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },

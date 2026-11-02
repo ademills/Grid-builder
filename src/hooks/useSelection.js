@@ -2,6 +2,16 @@ import { useState, useMemo, useCallback } from 'react';
 import { expandToGroups } from '../utils/groups';
 import { vectorBounds } from '../utils/meanderBlocks';
 
+// Even-odd ray test against a polygon of { x, y } points.
+export function pointInPolygon(x, y, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
 export function useSelection({
   placedBlocks, setPlacedBlocks,
   gridComputed, viewTransform,
@@ -94,6 +104,32 @@ export function useSelection({
     });
     setSelectedIds(expandToGroups(hits.map(b => b.id), placedBlocks));
   }, [gridComputed, viewTransform, placedBlocks]);
+
+  // Lasso (Q): shapes whose centre is inside the drawn loop (artboard px).
+  // op: 'replace' | 'add' | 'subtract'.
+  const handleLassoSelect = useCallback((points, op = 'replace') => {
+    if (!gridComputed || points.length < 3) return;
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    const hits = placedBlocks.filter(b => {
+      if (b.hidden || b.locked || b.type === 'wireframe') return false;
+      const box = { x: gridOriginX + b.gridCol * cellSize, y: gridOriginY + b.gridRow * cellSize, w: b.cols * cellSize, h: b.rows * cellSize };
+      const { x, y, w, h } = b.type === 'vector' ? vectorBounds(b, box) : box;
+      return pointInPolygon(x + w / 2, y + h / 2, points);
+    });
+    const ids = expandToGroups(hits.map(b => b.id), placedBlocks);
+    setSelectedIds(prev => {
+      if (op === 'add') return new Set([...prev, ...ids]);
+      if (op === 'subtract') return new Set([...prev].filter(id => !ids.has(id)));
+      return ids;
+    });
+  }, [gridComputed, placedBlocks]);
+
+  // Select › Inverse: every visible, unlocked shape not selected now.
+  const handleSelectInverse = useCallback(() => {
+    setSelectedIds(prev => new Set(placedBlocks
+      .filter(b => !prev.has(b.id) && !b.hidden && !b.locked && b.type !== 'wireframe')
+      .map(b => b.id)));
+  }, [placedBlocks]);
 
   const handleDeleteSelected = useCallback(() => {
     pushHistory(placedBlocks, { label: 'Delete' });
@@ -204,6 +240,8 @@ export function useSelection({
     handleContextToggleLock,
     handleContextDelete,
     handleMarqueeSelect,
+    handleLassoSelect,
+    handleSelectInverse,
     handleDeleteSelected,
     handleRefreshSelected,
     handleRandomiseSelected,
