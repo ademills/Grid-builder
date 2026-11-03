@@ -61,7 +61,7 @@ import { composeLinework, lineworkGridCells, baseFrame as lineworkBaseFrame, CEL
 import { colourItems as lineworkColours } from './utils/linework/colour';
 import { pathD, contoursBounds } from './utils/linework/geometry';
 import { computeLineworkMask, layerMaskSettings } from './modes/linework/masks';
-import { LINEWORK_PRESETS, mergeLineworkSettings, newPlate } from './modes/linework/settings';
+import { LINEWORK_PRESETS, mergeLineworkSettings, newPlate, fitPlates } from './modes/linework/settings';
 import { effectsActive } from './effects/effectDefs';
 import { applyEffectsToCanvas } from './effects/effectsRenderer';
 import './App.css';
@@ -543,8 +543,12 @@ const isTypingTarget = (el) =>
 // tab switch instead of reacting to the previous document's values.
 // Raise when the Linework generator draws the same settings differently, so
 // saved designs are rebuilt on open (2: backing bands that merge, v1.7.2;
-// 3: One circuit margins and circuits on hex/triangle/Voronoi cells, v1.9).
-const LINEWORK_ENGINE = 3;
+// 3: One circuit margins and circuits on hex/triangle/Voronoi cells, v1.9;
+// 4: masks remove or invert, v1.13).
+const LINEWORK_ENGINE = 4;
+// The settings a design is drawn from: plateFit only records what the
+// plates were last fitted to, so it's left out.
+const lineworkDesign = (s) => ({ ...s, plateFit: undefined });
 
 export function DocumentEditor({ mode: appMode }) {
   const docId = useDocId();
@@ -1708,7 +1712,7 @@ export function DocumentEditor({ mode: appMode }) {
     // The colour modes in use: the document's and any layer's own.
     const modes = new Set([colorMode, ...lineworkSettings.layers.map(l => l.colorMode)]);
     const str = JSON.stringify([
-      LINEWORK_ENGINE, lineworkSettings, gridComputed.cols, gridComputed.rows, colorMode, activePalette, lineworkRoles,
+      LINEWORK_ENGINE, lineworkDesign(lineworkSettings), gridComputed.cols, gridComputed.rows, colorMode, activePalette, lineworkRoles,
       modes.has('gradient') ? activeGradientSettings : null, modes.has('mesh') ? meshSettings : null,
       modes.has('image') ? imageSrc : null,
       lineworkSettings.inkFromImage ? [backdropSrc, backdropSettings.fit, !!backdropPixels] : null,
@@ -1723,6 +1727,19 @@ export function DocumentEditor({ mode: appMode }) {
   const lineworkAreas = useMemo(() => (activeLayout && gridComputed
     ? computeLayoutRegions(activeLayout, gridComputed).filter(r => r.role === 'grid').map(({ x, y, w, h }) => ({ x, y, w, h }))
     : null), [activeLayout, gridComputed]);
+
+  // Plates are sized in cells: when the base layer has more or fewer cells
+  // (artboard, columns, border, orientation), they scale with it so the
+  // design keeps its proportions (fitPlates). Made during the user's grid
+  // change, it folds into that undo step, and undo puts back the matching
+  // plateFit, so the plates aren't scaled twice.
+  useEffect(() => {
+    if (!isLinework || !gridComputed) return;
+    const area = lineworkAreas?.[0] ?? { w: gridComputed.cols, h: gridComputed.rows };
+    const f = lineworkBaseFrame(lineworkSettings, { cols: area.w, rows: area.h });
+    const next = fitPlates(lineworkSettings, [f.w / LINEWORK_CELL, f.h / LINEWORK_CELL]);
+    if (next !== lineworkSettings) setLineworkSettings(next);
+  }, [isLinework, gridComputed, lineworkAreas, lineworkSettings, setLineworkSettings]);
 
   // Hexagon, triangle or Voronoi cells for View › Grid (square cells use the plain grid).
   const lineworkCells = useMemo(() => {
@@ -1768,7 +1785,7 @@ export function DocumentEditor({ mode: appMode }) {
       const next = buildLineworkBlocks(lineworkSettings, lineworkSig);
       if (!next) return;
       const prev = lineworkLast.current;
-      const changed = prev && JSON.stringify(prev) !== JSON.stringify(lineworkSettings);
+      const changed = prev && JSON.stringify(lineworkDesign(prev)) !== JSON.stringify(lineworkDesign(lineworkSettings));
       if (changed) {
         const label = lineworkLabel.current ?? 'Linework Settings';
         pushHistory(placedBlocksRef.current, { label, fields: { lineworkSettings: prev }, coalesce: !lineworkLabel.current });

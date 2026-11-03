@@ -19,7 +19,7 @@
 //     top half). A bundle may end on a mirror axis — through a cell edge on
 //     the axis, or at the axis line inside a cell the axis runs through —
 //     and replicateBundles joins it to its mirror image there.
-//   - Region masks: bundles route inside the mask first, then outside.
+//   - Region masks: bundles route only through the cells a mask keeps.
 //   - Single-cell eyes: a lone cell gets concentric rings.
 //   - Fill every cell (One circuit): fillCircuit, a route round a random
 //     spanning tree of the cells.
@@ -248,7 +248,7 @@ function cellRouter(nodes, cfg, r, one) {
 }
 
 // Walks a layer's bundles from the seed. passes: the cells each pass may
-// use, in turn (a mask's inside, then its outside).
+// use, in turn.
 function routeCells(nodes, cfg, r, one, passes) {
   const router = cellRouter(nodes, cfg, r, one);
   const bundles = [];
@@ -528,8 +528,7 @@ export function cellCircuitSize(L, cfg, tiling) {
 
 // opts.band: a backing band per bundle, as circuitLayer's. opts.sym:
 // 'none' | 'mirror-x' | 'mirror-y' | 'mirror-both'. opts.inside(x, y): a
-// region mask, or null; opts.maskOutside: 'fill' (route outside it after)
-// or 'empty'. opts.hand / opts.edit, and the `route` and `edited` returned:
+// region mask, the only cells routed, or null. opts.hand / opts.edit, and the `route` and `edited` returned:
 // a hand-built route, as circuitLayer's (see bundleData).
 export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one, opts = {}) {
   const { k, p, width } = bundleSize(L, cfg);
@@ -560,10 +559,7 @@ export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one, opts = {
       route = { bundles: [{ index: 0, fill: true }], crossings: [] };
     } else {
       const inside = opts.inside ? (i) => opts.inside(nodes[i].c[0], nodes[i].c[1]) : null;
-      const passes = inside
-        ? [inside, ...(opts.maskOutside === 'empty' ? [] : [i => !inside(i)])]
-        : [() => true];
-      const routed = routeCells(nodes, cfg, r, one, passes);
+      const routed = routeCells(nodes, cfg, r, one, [inside ?? (() => true)]);
       route = { bundles: routed.bundles.map(B => bundleData(nodes, B)), crossings: routed.crossings.map(crossingData) };
     }
   }

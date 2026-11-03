@@ -308,13 +308,8 @@ function routeSquare(G, cfg, seed, L, sym, insideCell, opts) {
       if (B) bundles.push(B);
     }
   };
-  if (insideCell) {
-    runPass((i, j) => insideCell(i, j));
-    router.phase = 'all';
-    if (cfg.maskOutside !== 'empty') runPass(() => true);
-  } else {
-    runPass(() => true);
-  }
+  // A mask's cells are the only ones routed.
+  runPass(insideCell ?? (() => true));
   return { bundles: bundles.map(bundleData), crossings: router.crossings.map(crossingData) };
 }
 

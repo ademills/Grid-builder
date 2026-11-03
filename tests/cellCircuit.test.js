@@ -41,11 +41,11 @@ describe('circuits on hexagon, triangle and Voronoi cells', () => {
 
   it.each(TILINGS)('%s: a mask keeps bundles inside it', (tiling) => {
     const inside = (x) => x < 0;
-    const R = cellCircuitLayer(L, cfgOf({ density: 1 }), 5, tiling, 0.5, false, { inside, maskOutside: 'empty' });
+    const R = cellCircuitLayer(L, cfgOf({ density: 1 }), 5, tiling, 0.5, false, { inside });
     sane(R);
     for (const b of R.bundles) expect(b.centre[0]).toBeLessThan(0);
-    const both = cellCircuitLayer(L, cfgOf({ density: 1 }), 5, tiling, 0.5, false, { inside, maskOutside: 'fill' });
-    expect(both.bundles.some(b => b.centre[0] > 0)).toBe(true);
+    const all = cellCircuitLayer(L, cfgOf({ density: 1 }), 5, tiling, 0.5, false, {});
+    expect(all.bundles.some(b => b.centre[0] > 0)).toBe(true);
   });
 
   it('hexagons: over / under crossings', () => {

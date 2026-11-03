@@ -2,7 +2,8 @@
 //
 // Sizes are grid-relative so a design keeps its look when the artboard or
 // column count changes: lines per cell and the line : pitch ratio set the
-// line weight; plate sizes, offsets, depths and rims are in cells.
+// line weight; plate sizes, offsets, depths and rims are in cells, scaled
+// with the base layer when its cell count changes (fitPlates).
 
 const randomSeed = () => Math.floor(Math.random() * 0x80000000);
 
@@ -28,8 +29,14 @@ export const lineworkLayerDefaults = (over = {}) => ({
   frame: 0,
   // A · angular (the cell shape is the document's `tiling`; tile size sets
   // the cell size)
-  tile: 2, subdiv: 0, minTile: 1, fills: ['spiral'], triFill: 'spiral', angles: ['45', '135'],
+  tile: 2, subdiv: 0, minTile: 1, fills: ANGULAR_FILLS.map(([k]) => k), triFill: 'spiral', angles: ['45', '135'],
   orient: 'random', outline: true, core: true,
+  // merge: chance a tile joins its neighbours into a 2 × 1, 1 × 2 or 2 × 2
+  // block (square cells); gap: a ground gutter between tiles, in cells;
+  // outlineWeight: tile outlines' width as a multiple of the lines'.
+  merge: 0, gap: 0, outlineWeight: 1,
+  // Whether the panel lists the experimental fills (EXPERIMENTAL_FILLS).
+  showExperimental: false,
   // How tiles pick from `fills`: placement 'random' (weighted by
   // fillWeights, { [fill]: 0–1 }, even when unset) or 'checker' | 'rows' |
   // 'cols' | 'rings' (cycling through them); spiralTurn 'random' | 'cw' |
@@ -39,12 +46,14 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // rules); `fill` makes the single route visit every cell (no crossings),
   // optionally as a closed `loop`. maxLen 200 means no limit.
   route: 'bundles', fill: false, loop: false, bundle: 1, straight: 0.6, maxLen: 40, density: 1, edgeExit: 0.5, weave: 'off', eyes: true,
-  // Region mask: a Generate-panel fill or 'word'. maskSettings holds this
-  // layer's own settings for each mask it has used, by mask id; a mask the
-  // layer hasn't changed yet starts from the document's (layerMaskSettings).
-  // maskShapes: 'one' lays the design over the whole mask, 'each' gives each
-  // separate shape in it a design of its own (compose.js layerRuns).
-  mask: 'none', maskFills: ['rings'], maskOutside: 'fill', maskSettings: {}, maskShapes: 'one',
+  // Region mask: a Generate-panel fill or 'word'. maskMode 'remove' empties
+  // the masked area, 'invert' keeps only the masked area; what's kept takes
+  // the layer's own fills. maskSettings holds this layer's own settings for
+  // each mask it has used, by mask id; a mask the layer hasn't changed yet
+  // starts from the document's (layerMaskSettings). maskShapes: 'one' lays
+  // the design over everything kept, 'each' gives each separate shape of it
+  // a design of its own (compose.js layerRuns).
+  mask: 'none', maskMode: 'remove', maskSettings: {}, maskShapes: 'one',
   ...over,
 });
 
@@ -67,6 +76,9 @@ export const createLineworkSettings = () => ({
   // layer's word mask starts from.
   word: { text: '', letterSize: 0.7, layout: 'line', randomSize: true, randomPlacement: true, align: 'center' },
   layers: [lineworkLayerDefaults()],
+  // The base layer's size in cells, [w, h], the plates are sized for
+  // (fitPlates); null until there are plates.
+  plateFit: null,
 });
 
 const newId = () => Math.random().toString(36).slice(2, 8);
@@ -106,7 +118,7 @@ export function plateCells(cfg, grid = null) {
 const DESIGN_KEYS = [
   'style', 'sym', 'scale',
   'tile', 'subdiv', 'minTile', 'fills', 'triFill', 'angles', 'orient', 'outline', 'core',
-  'placement', 'fillWeights', 'spiralTurn',
+  'placement', 'fillWeights', 'spiralTurn', 'merge', 'gap', 'outlineWeight',
   'route', 'fill', 'loop', 'bundle', 'straight', 'maxLen', 'density', 'edgeExit', 'weave', 'eyes',
   'backing', 'corner', 'pad',
 ];
@@ -123,13 +135,56 @@ export function newPlate(layers, over = {}) {
   return lineworkLayerDefaults({ ...design, id: newId(), name: `Plate ${n}`, size, ...over });
 }
 
-// The angular style's fills, in panel order.
+// The angular style's fills, in panel order: the main ones (all on for a
+// new layer), then the experimental ones, off until picked.
 export const ANGULAR_FILLS = [
   ['spiral', 'Key spiral'], ['rings', 'Rings'], ['split2', '◩ 2 triangles'],
   ['split4', '⊠ 4 triangles'], ['hatch', 'Hatch'], ['chevron', 'Chevron'],
   ['diamond', 'Diamond'], ['octagon', 'Octagon'], ['cornerL', 'Corner L'], ['cross', 'Cross'],
   ['weave', 'Weave'], ['twin', 'Twin spiral'], ['quad', 'Quad spiral'], ['pinwheel', 'Pinwheel'], ['bowtie', 'Bowtie'],
+  ['zigzag', 'Zigzag'], ['ziggurat', 'Ziggurat'], ['nestedU', 'Nested U'], ['spin', 'Spinning squares'],
+  ['stripes', 'Stripes'], ['herring', 'Herringbone'], ['stairs', 'Stairs'], ['sunburst', 'Sunburst'],
+  ['brick', 'Brick'], ['cornerSteps', 'Corner steps'], ['quadSpin', 'Quad spin'], ['spinTri', 'Spin triangles'],
 ];
+export const EXPERIMENTAL_FILLS = [
+  ['broken', 'Broken rings'], ['solid', 'Solid'], ['blank', 'Empty'], ['crosshatch', 'Crosshatch'],
+  ['moire', 'Moiré'], ['dots', 'Dots'], ['checker', 'Checker'], ['twist', 'Twist rings'],
+  ['tunnel', 'Tunnel'], ['fan', 'Corner fan'],
+];
+
+// Plates are sized in cells, so a base layer with fewer cells (a smaller
+// artboard, fewer columns) would leave them too big for it. base: the base
+// layer's size in cells now, [w, h]. Scales the plates' size, place, line
+// scale, shadow, rim and padding by as much as the base has shrunk or grown
+// since settings.plateFit, and records the new size (or forgets it once
+// there are no plates). Returns the same settings when nothing changes.
+const PLATE_LENGTHS = ['size', 'w', 'h', 'ox', 'oy', 'depth', 'rim', 'pad', 'scale'];
+export function fitPlates(settings, base) {
+  const ref = settings.plateFit;
+  if ((settings.layers?.length ?? 0) < 2) return ref ? { ...settings, plateFit: null } : settings;
+  if (ref && Math.abs(ref[0] - base[0]) < 1e-6 && Math.abs(ref[1] - base[1]) < 1e-6) return settings;
+  if (!ref) return { ...settings, plateFit: base };
+  const k = Math.min(base[0] / ref[0], base[1] / ref[1]);
+  const round = v => Math.round(v * 1000) / 1000;
+  return {
+    ...settings,
+    plateFit: base,
+    layers: settings.layers.map((l, i) => (i === 0 ? l : {
+      ...l, ...Object.fromEntries(PLATE_LENGTHS.filter(f => typeof l[f] === 'number').map(f => [f, round(l[f] * k)])),
+    })),
+  };
+}
+
+// Masks once had inside fills of their own and an Outside setting: Outside
+// Empty kept just the masked area (now Invert); otherwise the masked area
+// is now emptied.
+function maskModeOf(l) {
+  if (!l || l.maskMode) return l;
+  const rest = { ...l, maskMode: l.maskOutside === 'empty' ? 'invert' : 'remove' };
+  delete rest.maskFills;
+  delete rest.maskOutside;
+  return rest;
+}
 
 // Fills older or partial settings out to the full shape. Documents from
 // before plates could be added had three fixed slots with an on/off switch:
@@ -145,9 +200,9 @@ export function mergeLineworkSettings(saved) {
     ...saved,
     word: { ...d.word, ...(saved.word ?? {}) },
     layers: [
-      { ...lineworkLayerDefaults(), ...base, id: 'base', name: 'Base' },
+      { ...lineworkLayerDefaults(), ...maskModeOf(base), id: 'base', name: 'Base' },
       ...plates.filter(l => l && l.enabled !== false).map((l, i) => ({
-        ...lineworkLayerDefaults(), ...l, id: l.id ?? `p${i + 1}`, name: l.name ?? `Plate ${i + 1}`, enabled: true,
+        ...lineworkLayerDefaults(), ...maskModeOf(l), id: l.id ?? `p${i + 1}`, name: l.name ?? `Plate ${i + 1}`, enabled: true,
       })),
     ],
   };

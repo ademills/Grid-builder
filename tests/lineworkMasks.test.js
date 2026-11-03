@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { layerMaskSettings } from '../src/modes/linework/masks';
-import { lineworkLayerDefaults, mergeLineworkSettings, createLineworkSettings } from '../src/modes/linework/settings';
+import { lineworkLayerDefaults, mergeLineworkSettings, createLineworkSettings, fitPlates } from '../src/modes/linework/settings';
 import { composeLinework, maskShapes } from '../src/utils/linework/compose';
 import { colourItems } from '../src/utils/linework/colour';
 
@@ -28,9 +28,9 @@ describe('Linework region masks are per layer', () => {
 
 describe('Linework mask shapes taken separately', () => {
   const two = new Set(['0,0', '1,0', '0,1', '1,1', '4,3', '5,3', '4,4', '5,4']);
-  const settings = (style, maskShapes, maskOutside = 'empty') => ({
+  const settings = (style, maskShapes, maskMode = 'invert') => ({
     ...createLineworkSettings(),
-    layers: [lineworkLayerDefaults({ style, sym: 'mirror-both', seed: 5, mask: 'noise', maskShapes, maskOutside })],
+    layers: [lineworkLayerDefaults({ style, sym: 'mirror-both', seed: 5, mask: 'noise', maskShapes, maskMode })],
   });
   const maskFor = (li, cols, rows) => new Set([...two].filter(k => { const [i, j] = k.split(',').map(Number); return i < cols && j < rows; }));
 
@@ -46,9 +46,65 @@ describe('Linework mask shapes taken separately', () => {
     }
   });
 
-  it('adds a run for the outside unless it is empty', () => {
-    const { items } = composeLinework(settings('angular', 'each', 'fill'), { cols: 6, rows: 6 }, { maskFor });
-    expect(new Set(items.filter(it => it.kind === 'ink').map(it => it.key.split(':')[0]))).toEqual(new Set(['L0s1', 'L0s2', 'L0']));
+  it('takes the shapes left over when the mask removes', () => {
+    const { items } = composeLinework(settings('angular', 'each', 'remove'), { cols: 6, rows: 6 }, { maskFor });
+    // Everything but the two squares is one shape, joined edge to edge.
+    expect(new Set(items.filter(it => it.kind === 'ink').map(it => it.key.split(':')[0]))).toEqual(new Set(['L0s1']));
+  });
+});
+
+describe('Linework masks remove or invert', () => {
+  const left = (li, cols, rows) => {
+    const m = new Set();
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols / 2; i++) m.add(`${i},${j}`);
+    return m;
+  };
+  const build = (over) => composeLinework({
+    ...createLineworkSettings(),
+    layers: [lineworkLayerDefaults({ sym: 'none', seed: 3, tile: 1, mask: 'noise', ...over })],
+  }, { cols: 8, rows: 8 }, { maskFor: left });
+  const sides = (items) => {
+    const ink = items.filter(it => it.kind === 'ink');
+    return [ink.some(it => it.centre[0] < 400), ink.some(it => it.centre[0] > 400)];
+  };
+
+  it.each(['angular', 'circuit'])('%s: Remove empties the masked side, Invert keeps only it', (style) => {
+    expect(sides(build({ style, maskMode: 'remove', edgeExit: 0 }).items)).toEqual([false, true]);
+    expect(sides(build({ style, maskMode: 'invert', edgeExit: 0 }).items)).toEqual([true, false]);
+  });
+
+  it('fills what it keeps with the layer’s own fills', () => {
+    const { items } = build({ fills: ['hatch'], maskMode: 'remove' });
+    expect(items.filter(it => it.kind === 'ink').every(it => it.name.startsWith('Hatch'))).toBe(true);
+  });
+
+  it('reads older documents’ Outside setting as Remove or Invert', () => {
+    const s = mergeLineworkSettings({ layers: [{ mask: 'noise', maskOutside: 'empty', maskFills: ['rings'] }, { id: 'p1', mask: 'noise', maskOutside: 'fill' }] });
+    expect(s.layers.map(l => l.maskMode)).toEqual(['invert', 'remove']);
+    expect(s.layers[0].maskFills).toBeUndefined();
+  });
+});
+
+describe('Linework plates follow the base layer’s size', () => {
+  const doc = (plateFit) => ({
+    ...createLineworkSettings(), plateFit,
+    layers: [lineworkLayerDefaults(), lineworkLayerDefaults({ id: 'p1', size: 6, ox: 2, oy: -1, scale: 0.5, depth: 0.3 })],
+  });
+
+  it('records the size the plates were made for, then scales them with it', () => {
+    const first = fitPlates(doc(null), [10, 12]);
+    expect(first.plateFit).toEqual([10, 12]);
+    expect(first.layers[1].size).toBe(6);
+    const half = fitPlates(first, [5, 8]);
+    expect(half.layers[1]).toMatchObject({ size: 3, ox: 1, oy: -0.5, scale: 0.25, depth: 0.15 });
+    expect(half.layers[0]).toBe(first.layers[0]);
+    expect(fitPlates(half, [5, 8])).toBe(half);
+  });
+
+  it('forgets the size once there are no plates', () => {
+    const s = { ...doc([10, 10]), layers: [lineworkLayerDefaults()] };
+    expect(fitPlates(s, [4, 4]).plateFit).toBeNull();
+    expect(fitPlates({ ...s, plateFit: null }, [4, 4]).plateFit).toBeNull();
   });
 });
 

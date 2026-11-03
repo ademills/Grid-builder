@@ -1,7 +1,7 @@
 import { LINEWORK_SYMMETRY } from '../../utils/symmetry';
 import { MASK_SOURCES } from './masks';
 import { PlateSize, DiamondNote, MaskWord, MaskFillSettings, EditLayer, FillWeights } from './schemaFields';
-import { ANGULAR_FILLS } from './settings';
+import { ANGULAR_FILLS, EXPERIMENTAL_FILLS } from './settings';
 import { range, oneOf } from '../../panels/schemaUtils';
 
 // Linework's settings as data (see panels/schema.jsx). The document-wide
@@ -17,6 +17,7 @@ const cells = v => `${+v.toFixed(2)}`;
 
 const FILL_OPTIONS = ANGULAR_FILLS;
 const FILL_KEYS = FILL_OPTIONS.map(([k]) => k);
+const MAIN_KEYS = new Set(FILL_KEYS);
 // One to three fills, in a random order.
 const shuffledFills = (r) => FILL_KEYS.map(k => [k, r()]).sort((a, b) => a[1] - b[1]).slice(0, 1 + Math.floor(r() * 3)).map(([k]) => k);
 const ANGLE_OPTIONS = [['0', '0°'], ['45', '45°'], ['90', '90°'], ['135', '135°']];
@@ -25,7 +26,7 @@ export const TILING_OPTIONS = [
   { key: 'triangle', label: 'Triangles' }, { key: 'voronoi', label: 'Voronoi' },
 ];
 
-const usesFill = (L, keys) => keys.some(k => L.fills?.includes(k) || L.maskFills?.includes(k));
+const usesFill = (L, keys) => keys.some(k => L.fills?.includes(k));
 const angular = L => L.style !== 'circuit';
 const single = L => L.style === 'circuit' && L.route === 'single';
 const filled = L => single(L) && L.fill;
@@ -148,7 +149,23 @@ export const LINEWORK_LAYER_SCHEMA = [
         help: 'Chance each tile splits into four smaller ones', surprise: oneOf([0, 0, 0.2, 0.4]) },
       { key: 'minTile', label: 'Smallest tile', type: 'slider', min: 0.25, max: 8, step: 0.25, format: cells,
         showIf: (L, ctx) => square(L, ctx) && L.subdiv > 0 },
-      { key: 'fills', label: 'Fills', type: 'chips', options: FILL_OPTIONS, surprise: shuffledFills },
+      { key: 'merge', label: 'Merge tiles', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, showIf: square,
+        help: 'Chance a tile joins its neighbours into a 2 × 1, 1 × 2 or 2 × 2 block', surprise: oneOf([0, 0, 0.2, 0.4]) },
+      { key: 'gap', label: 'Tile gap', type: 'slider', min: 0, max: 1, step: 0.05, format: cells,
+        help: 'A ground gutter between tiles, in cells', surprise: oneOf([0, 0, 0, 0.15, 0.3]) },
+      // One list of fills, shown as two groups: each row edits only its own.
+      { key: 'fills', label: 'Fills', type: 'chips', options: FILL_OPTIONS, surprise: shuffledFills,
+        value: L => (L.fills ?? []).filter(k => MAIN_KEYS.has(k)),
+        onChange: (v, L) => ({ fills: [...v, ...(L.fills ?? []).filter(k => !MAIN_KEYS.has(k))] }) },
+      { key: 'showExperimental', label: 'Experimental fills', type: 'toggle',
+        help: 'List the fills still being tried out. Hiding them leaves any you picked in use, still listed',
+        surprise: (_, L) => !!L.showExperimental },
+      // Listed while shown, or while the layer uses one, so a fill in use is never hidden.
+      { key: 'fillsExperimental', label: 'Experimental', type: 'chips', options: EXPERIMENTAL_FILLS,
+        showIf: L => L.showExperimental || (L.fills ?? []).some(k => !MAIN_KEYS.has(k)),
+        info: 'Fills still being tried out. Off until you pick them.',
+        value: L => (L.fills ?? []).filter(k => !MAIN_KEYS.has(k)),
+        onChange: (v, L) => ({ fills: [...(L.fills ?? []).filter(k => MAIN_KEYS.has(k)), ...v] }) },
       { key: 'placement', label: 'Placement', type: 'select', showIf: L => (L.fills?.length ?? 0) > 1,
         help: 'Where each fill goes: at random (weighted below), or cycling through the fills in a pattern',
         options: [
@@ -157,8 +174,8 @@ export const LINEWORK_LAYER_SCHEMA = [
         ], surprise: r => (r() < 0.6 ? 'random' : oneOf(['checker', 'rows', 'cols', 'rings'])(r)) },
       { key: 'fillWeights', type: 'custom', render: FillWeights, showIf: L => (L.fills?.length ?? 0) > 1 && (L.placement ?? 'random') === 'random' },
       { key: 'spiralTurn', label: 'Spiral turn', type: 'segmented',
-        showIf: L => usesFill(L, ['spiral', 'twin', 'quad', 'split2', 'split4', 'diamond', 'octagon', 'bowtie']),
-        help: 'Which way the key spirals wind; Alternate mirrors neighbouring tiles',
+        showIf: L => usesFill(L, ['spiral', 'twin', 'quad', 'split2', 'split4', 'diamond', 'octagon', 'bowtie', 'spin', 'quadSpin', 'spinTri', 'twist']),
+        help: 'Which way the key spirals and spinning squares wind; Alternate mirrors neighbouring tiles',
         options: [{ key: 'random', label: 'Random' }, { key: 'cw', label: '↻' }, { key: 'ccw', label: '↺' }, { key: 'alternate', label: 'Alternate' }],
         surprise: oneOf(['random', 'random', 'cw', 'alternate']) },
       { key: 'triFill', label: 'Triangle fill', type: 'segmented', showIf: L => usesFill(L, ['split2', 'split4', 'diamond', 'octagon', 'bowtie']),
@@ -168,6 +185,8 @@ export const LINEWORK_LAYER_SCHEMA = [
       { key: 'orient', label: 'Orientation', type: 'segmented',
         options: [{ key: 'random', label: 'Random' }, { key: 'uniform', label: 'Uniform' }], surprise: oneOf(['uniform', 'random']) },
       { key: 'outline', label: 'Tile outlines', type: 'toggle' },
+      { key: 'outlineWeight', label: 'Outline weight', type: 'slider', min: 0.25, max: 3, step: 0.25, format: v => `${v}×`,
+        showIf: L => L.outline, help: "Tile outlines' width, as a multiple of the lines'", surprise: oneOf([1, 1, 1, 0.5, 2]) },
       { key: 'core', label: 'Solid centres', type: 'toggle', help: "Fill the last ring's middle" },
     ],
   },
@@ -200,19 +219,16 @@ export const LINEWORK_LAYER_SCHEMA = [
   {
     // A route through every cell has nothing for a mask to steer.
     id: 'linework.mask', title: 'Region mask', showIf: L => !filled(L), defaultOpen: masked,
-    info: 'Confine part of the design to a shape, image or word. Angular tiles inside it take their own fills; circuit bundles route inside it first.',
+    info: 'Cut a shape, image or word out of the design, or invert it to keep the design only inside the mask.',
     fields: [
       { key: 'mask', label: 'Mask', type: 'select',
         options: [{ key: 'none', label: 'None' }, ...MASK_SOURCES.map(m => ({ key: m.id, label: m.label }))], surprise: () => 'none' },
+      { key: 'maskMode', label: 'Masked area', type: 'segmented', showIf: masked,
+        options: [{ key: 'remove', label: 'Remove' }, { key: 'invert', label: 'Invert' }],
+        help: 'Remove: the masked area is left empty. Invert: only the masked area is filled' },
       { key: 'maskShapes', label: 'Shapes', type: 'segmented', showIf: masked,
         options: [{ key: 'one', label: 'As one' }, { key: 'each', label: 'Each separately' }],
-        help: 'Each separately: every separate shape in the mask gets its own design, centred and mirrored on itself' },
-      { key: 'maskFills', label: 'Inside fills', type: 'chips', options: FILL_OPTIONS, showIf: L => masked(L) && angular(L) },
-      { key: 'maskOutside', label: 'Outside', type: 'segmented', showIf: L => masked(L) && angular(L),
-        options: [{ key: 'fill', label: 'Layer fills' }, { key: 'empty', label: 'Empty' }] },
-      { key: 'maskOutsideRoute', label: 'Outside', type: 'segmented', showIf: L => masked(L) && !angular(L),
-        value: L => L.maskOutside, onChange: v => ({ maskOutside: v }),
-        options: [{ key: 'fill', label: 'Route after' }, { key: 'empty', label: 'Empty' }] },
+        help: 'Each separately: every separate filled shape gets its own design, centred and mirrored on itself' },
       { key: 'maskWord', type: 'custom', render: MaskWord, showIf: L => L.mask === 'word' },
       { key: 'maskFill', type: 'custom', render: MaskFillSettings,
         showIf: L => !!MASK_SOURCES.find(m => m.id === L.mask)?.fill },

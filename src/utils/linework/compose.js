@@ -111,13 +111,15 @@ const toLocal = ({ m, t }, q) => applyLinear([m[0], m[2], m[1], m[3]], [q[0] - t
 // size the layer's layout comes from, still matches; anything else lays the
 // layer out afresh.
 const HAND_KEYS = {
-  circuit: ['seed', 'bundle', 'scale', 'route', 'fill', 'loop', 'straight', 'density', 'maxLen', 'edgeExit', 'weave', 'eyes', 'mask', 'maskOutside'],
+  circuit: ['seed', 'bundle', 'scale', 'route', 'fill', 'loop', 'straight', 'density', 'maxLen', 'edgeExit', 'weave', 'eyes', 'mask', 'maskMode'],
   angular: ['seed', 'tile', 'scale', 'subdiv', 'minTile'],
 };
 function handSig(cfg, settings, lw, lh, sym) {
   const style = cfg.style === 'circuit' ? 'circuit' : 'angular';
   const tiling = settings.tiling ?? 'square';
-  return JSON.stringify([style, ...HAND_KEYS[style].map(k => cfg[k] ?? null), tiling,
+  // Merged tiles move the tiles too (left out while off, so older layouts still match).
+  const merge = style === 'angular' && cfg.merge > 0 ? [cfg.merge] : [];
+  return JSON.stringify([style, ...HAND_KEYS[style].map(k => cfg[k] ?? null), ...merge, tiling,
     tiling === 'square' ? null : settings.regularity ?? 0.5, sym, Math.round(lw), Math.round(lh)]);
 }
 
@@ -218,14 +220,25 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     return ids.size ? { remove: ids, rng: edit.rng } : null;
   };
 
+  // The cells a masked layer fills over a cols × rows grid: the mask's own
+  // (Invert) or every other one (Remove). Null for no mask.
+  const keptFor = (cfg, li) => (cols, rows) => {
+    const mask = maskFor(li, cols, rows);
+    if (!mask || cfg.maskMode === 'invert') return mask;
+    const rest = new Set();
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) if (!mask.has(`${i},${j}`)) rest.add(`${i},${j}`);
+    return rest;
+  };
+
   // The runs of its engine a layer is built from: one over the whole layer
-  // or, with its mask's shapes taken separately (cfg.maskShapes 'each'), one
-  // per shape -- sized to its bounding box, centred and mirrored on it, with
-  // its own seed and nothing outside it -- plus one over the cells outside
-  // them all unless Outside is Empty. A run: { cfg, tag, lw, lh, c (its
-  // centre in the layer's frame), maskAt(cols, rows), owns(point), sub }.
+  // or, with a mask's shapes taken separately (cfg.maskShapes 'each'), one
+  // per separate shape it keeps -- sized to its bounding box, centred and
+  // mirrored on it, with its own seed. A run: { cfg, tag, lw, lh, c (its
+  // centre in the layer's frame), maskAt(cols, rows) (the cells it fills),
+  // owns(point), sub }.
   const layerRuns = (cfg, li, lw, lh, tag) => {
-    const whole = { cfg, tag, lw, lh, c: [0, 0], maskAt: (cols, rows) => maskFor(li, cols, rows), owns: () => true };
+    const keep = keptFor(cfg, li);
+    const whole = { cfg, tag, lw, lh, c: [0, 0], maskAt: keep, owns: () => true };
     if (!masked(cfg) || cfg.maskShapes !== 'each') return [whole];
     // The grid the layer reads its mask on (as in runLayer): bundles, or cells.
     const C = CELL * (cfg.scale ?? 1);
@@ -233,30 +246,23 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     const g = circuit ? Math.max(1, cfg.bundle ?? 1) * C : C;
     const cols = circuit ? Math.max(1, Math.floor(lw / g + 1e-6)) : Math.max(1, Math.round(lw / C));
     const rows = circuit ? Math.max(1, Math.floor(lh / g + 1e-6)) : Math.max(1, Math.round(lh / C));
-    const mask = maskFor(li, cols, rows);
+    const mask = keep(cols, rows);
     if (!mask?.size) return [whole];
     const ox = circuit ? -cols * g / 2 : -lw / 2, oy = circuit ? -rows * g / 2 : -lh / 2;
     const cellAt = ([x, y]) => `${Math.floor((x - ox) / g)},${Math.floor((y - oy) / g)}`;
-    const runs = maskShapes(mask, cols, rows).map((sh, k) => {
+    return maskShapes(mask, cols, rows).map((sh, k) => {
       const own = new Set([...sh.cells].map(key => {
         const [i, j] = key.split(',').map(Number);
         return `${i - sh.x},${j - sh.y}`;
       }));
       return {
         // A bundle running off a shape's box would stop dead inside the design.
-        cfg: { ...cfg, maskOutside: 'empty', edgeExit: 0, seed: hash(cfg.seed | 0, k + 1) & 0x7fffffff },
+        cfg: { ...cfg, edgeExit: 0, seed: hash(cfg.seed | 0, k + 1) & 0x7fffffff },
         tag: `${tag}s${k + 1}`, lw: sh.w * g, lh: sh.h * g,
         c: [ox + (sh.x + sh.w / 2) * g, oy + (sh.y + sh.h / 2) * g],
         maskAt: () => own, owns: at => sh.cells.has(cellAt(at)), sub: [sh.x, sh.y],
       };
     });
-    if (cfg.maskOutside !== 'empty') {
-      const rest = new Set();
-      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) if (!mask.has(`${i},${j}`)) rest.add(`${i},${j}`);
-      // Outside the shapes, angular tiles take the layer's own fills.
-      runs.push({ ...whole, cfg: { ...cfg, maskOutside: 'empty', maskFills: cfg.fills }, maskAt: () => rest, owns: at => !mask.has(cellAt(at)) });
-    }
-    return runs;
   };
 
   // One run of a layer's engine (see layerRuns): its lines, placed at t.
@@ -295,7 +301,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       const mask = masked(cfg) ? run.maskAt(bc, br) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + bc * S / 2) / S)},${Math.floor((y + br * S / 2) / S)}`) : null;
       const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single',
-        { ...bandOpts, sym: csym, inside, maskOutside: cfg.maskOutside, hand, edit: editHere });
+        { ...bandOpts, sym: csym, inside, hand, edit: editHere });
       if (R.edited) record(R.edited.op, R.edited.route);
       for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym, { keepWinding: true })) {
         toBand(b.bands);
@@ -335,7 +341,8 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
       // full-width Edge (below) frames it like the borders between tiles.
       // A shape's run has no Edge of its own (its box isn't an edge in the design).
       const edged = cfg.outline && !run.sub;
-      const fx = edged ? (lw - L.lineW) / lw : 1, fy = edged ? (lh - L.lineW) / lh : 1;
+      const edgeW = L.lineW * (cfg.outlineWeight ?? 1);
+      const fx = edged ? (lw - edgeW) / lw : 1, fy = edged ? (lh - edgeW) / lh : 1;
       let A = fill(hand?.tiles ?? null);
       if (editHere) {
         const done = editTiles(A.tiles, hand?.tiles ?? {}, editHere, ops, [fx, fy]);
@@ -382,7 +389,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
         // Tiles draw half of each shared border, so the layer's own edge
         // would be half as thick as the borders inside it; its own full-width
         // Edge layer evens that up (and can be recoloured or hidden alone).
-        const outer = finish(layerRect), innerP = inset(layerRect, L.lineW);
+        const outer = finish(layerRect), innerP = inset(layerRect, edgeW);
         const inner = innerP ? finish(innerP) : null;
         if (outer && !run.sub) {
           push({

@@ -134,7 +134,8 @@ describe('Linework hand-build', () => {
   }
 
   it('angular: clicking an emptied tile fills it again', () => {
-    const s = settingsFor({ style: 'angular', seed: 9 });
+    // One fill, so the tile comes back as it was.
+    const s = settingsFor({ style: 'angular', seed: 9, fills: ['spiral'] });
     const R = composeLinework(s, grid);
     const target = inks(R).find(i => /:a:[^:]+#0$/.test(i.key));
     const removed = composeLinework(s, grid, { edit: { at: target.centre, rng: mulberry32(1) } });
