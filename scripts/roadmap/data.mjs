@@ -252,14 +252,25 @@ export const SHIPPED = [
     also: 'Circuit backgrounds (Outline, Sticker, In-fill, Transparent, with shadow) for the base layer too.' },
   { ver: '1.10.0', date: '2 Nov', title: 'Your own material', items: ['2.1','3.2','3.3','3.4','4.2','4.13','4.23','5.1','5.3','5.9','6.2','6.4','6.7','7.3'],
     also: 'Fills are now seeded per press, so live preview and presets can repeat a layout.' },
+  { ver: '1.11.0', date: '2 Nov', title: 'Hand-build', items: [],
+    also: 'Build tool (B) in Meander and Linework: click a line to take it out, click empty space to grow a new strand, bundle or tile; Delete works in every mode. Fixes the Linework silhouette mask.' },
+  { ver: '1.11.1', date: '2 Nov', title: 'Masks per layer', items: [],
+    also: 'Each Linework layer keeps its own region mask settings.' },
+  { ver: '1.12.0', date: '2 Nov', title: 'Mask shapes & layer colour', items: [],
+    also: 'A mask\'s separate shapes can each get their own design; colour mode per Linework layer.' },
+  { ver: '1.12.1', date: '2 Nov', title: 'More angular fills', items: [],
+    also: 'Nine more fills (diamond, octagon, corner L, cross, weave, twin and quad spirals, pinwheel, bowtie), plus placement patterns, fill weights and spiral turn.' },
+  { ver: '1.13.0', date: '3 Nov', title: 'Fills & masks', items: [],
+    also: 'Masks just Remove or Invert. Twelve new angular fills, all on for a new layer, and an Experimental group behind a toggle. Merge tiles, tile gap and outline weight. Plates scale with the grid, so a smaller artboard no longer pushes them off the page.' },
 ];
 
-// Proposed releases. Order is the suggestion.
+// Proposed releases. Order is the suggestion. (Output and Motion were 1.11
+// and 1.12 in the 1 Nov plan; the Linework releases took those numbers.)
 export const PLAN = [
-  { ver: '1.11', name: 'Output', theme: 'Get designs out in more forms',
+  { ver: '1.14', name: 'Output', theme: 'Get designs out in more forms',
     items: ['8.12','8.5','8.6','8.4','8.8','5.7'],
     why: 'Copy as SVG, batch export, seamless repeats and print PDF.' },
-  { ver: '1.12', name: 'Motion', theme: 'Animation you can export',
+  { ver: '1.15', name: 'Motion', theme: 'Animation you can export',
     items: ['0.6','9.3','8.2','8.1','12.7'],
     why: 'Deterministic frames first, then image sequences, then video.' },
   { ver: '2.0', name: 'Driven by Claude', theme: 'Describe it, get it',
