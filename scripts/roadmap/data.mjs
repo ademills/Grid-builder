@@ -5,6 +5,12 @@
 // [status, version-or-null, note]
 // status: shipped | partial | open | hold | cut (cut = suggested cut)
 export const REVIEW = {
+  '13.1': ['shipped', '1.14.0', 'Ctrl/Shift+click plates in Layers; the Linework panel and control bar set a change on all of them, and list the settings that differ.'],
+  '13.2': ['shipped', '1.14.0', 'Properties › Grid › Plates › Refresh…: plates match the edited SVG by part name and take its shapes, place and size; new parts can be added, gone ones deleted.'],
+  '13.3': ['shipped', '1.14.0', 'Plates › Word…: a plate per letter, or the whole word, in any installed font, traced from the letterforms with their holes.'],
+  '13.4': ['shipped', '1.14.0', 'Outline inside, centred on or outside the edge, a double ring with its own gap, in ink or ground.'],
+  '13.5': ['shipped', '1.14.0', 'Region masks › Edges: Exact for Silhouette and Word (line) masks, with an outline along the cut. Other masks stay cell-based.'],
+  '13.6': ['shipped', '1.14.0', 'The Move tool in Linework drags plates (snapping to the canvas and other plates) and resizes them from handles; one undo step each.'],
   '4.23': ['shipped', '1.10.0', "Save Design as Preset…: an app-wide library per mode, as thumbnails in the Presets panel; applying is one undo step and reproduces the design."],
   '0.4': ['shipped', '1.8.0', 'A crash in one editor stays in its tab, with Reload Document, Close Tab and Export Diagnostics.'],
   '0.5': ['shipped', '1.8.0', 'tauri-plugin-persisted-scope remembers folders opened through a dialog, so files on other drives reopen after a restart.'],
@@ -259,14 +265,13 @@ export const SHIPPED = [
     also: 'Nine more fills (diamond, octagon, corner L, cross, weave, twin and quad spirals, pinwheel, bowtie), plus placement patterns, fill weights and spiral turn.' },
   { ver: '1.13.0', date: '3 Nov', title: 'Fills & masks', items: [],
     also: 'Masks just Remove or Invert. Twelve new angular fills, all on for a new layer, and an Experimental group behind a toggle. Merge tiles, tile gap and outline weight. Plates scale with the grid, so a smaller artboard no longer pushes them off the page.' },
+  { ver: '1.14.0', date: '4 Nov', title: 'Shape plates', items: ['13.1','13.2','13.3','13.4','13.5','13.6'],
+    also: 'Plates from SVG cut to exact outlines (Cutout or Mask), word plates in any font, exact mask edges, plates dragged on the canvas. Plates on a diamond base now reach past it. The Animation and Audio panels are gone.' },
 ];
 
 // Proposed releases. Order is the suggestion. (Output was 1.11 in the 1 Nov
 // plan; the Linework releases took that number.)
 export const PLAN = [
-  { ver: '1.14', name: 'Shape plates', theme: 'Plates from SVG, and shape plates you can work with in bulk',
-    items: ['13.1','13.2','13.3','13.4','13.5','13.6'],
-    why: 'Builds on Plates from SVG and the exact Cutout mode (done on feature/v1.14). Edit many plates together, keep them in step with the SVG, word plates, outline options, exact mask edges and plates you drag on the canvas.' },
   { ver: '1.15', name: 'Output', theme: 'Get designs out in more forms',
     items: ['8.12','8.5','8.6','8.4','8.8','5.7'],
     why: 'Copy as SVG, batch export, seamless repeats and print PDF.' },
