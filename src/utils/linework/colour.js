@@ -35,7 +35,7 @@ export function colourItems(items, ctx) {
     if (it.kind === 'ground') return ground;
     if (it.kind === 'shadow') return ctx.shadow;
     if (it.kind === 'rim') return ctx.layers?.[it.layer]?.rimInk ? ink : ground;
-    if (it.kind === 'outline') return ink;
+    if (it.kind === 'outline') return it.onGround ? ground : ink;
     const cfg = ctx.layers?.[it.layer];
     const mode = cfg?.colorMode ?? colorMode;
     const seed = cfg?.colourSeed ?? ctx.colourSeed ?? 0;

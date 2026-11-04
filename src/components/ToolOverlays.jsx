@@ -95,3 +95,36 @@ export function MoveGhost({ plan, gridComputed }) {
     </g>
   );
 }
+
+// Linework plates under the Move tool (utils/linework/plateDrag.js): the
+// plate being edited, with its resize handles, or while dragging, where it
+// was (faint), where it will land and the lines it snaps to. Boxes in cells.
+export function PlateGhost({ ghost, editBox, handles, gridComputed, workArea, scale = 1 }) {
+  if (!gridComputed || (!ghost && !editBox)) return null;
+  const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+  const X = v => gridOriginX + v * cellSize, Y = v => gridOriginY + v * cellSize;
+  const poly = (box) => {
+    const a = (box.rot * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+    return [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+      .map(([u, v]) => [box.cx + c * u * box.w / 2 - s * v * box.h / 2, box.cy + s * u * box.w / 2 + c * v * box.h / 2])
+      .map(([x, y]) => `${X(x)},${Y(y)}`).join(' ');
+  };
+  const accent = 'var(--chrome-accent, #7c3aed)';
+  const hs = 7 / scale;
+  return (
+    <g pointerEvents="none" data-noexport="true">
+      {ghost && <polygon points={poly(ghost.from)} fill="none" stroke={accent} strokeOpacity={0.35} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+      {ghost?.guides.map((g, i) => (g.x != null
+        ? <line key={i} x1={X(g.x)} x2={X(g.x)} y1={0} y2={workArea.height} stroke="#ff3d9a" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+        : <line key={i} y1={Y(g.y)} y2={Y(g.y)} x1={0} x2={workArea.width} stroke="#ff3d9a" strokeWidth={1} vectorEffect="non-scaling-stroke" />))}
+      {(ghost?.box ?? editBox) && (
+        <polygon points={poly(ghost?.box ?? editBox)} fill={ghost ? 'rgba(124,58,237,0.08)' : 'none'}
+          stroke={accent} strokeWidth={1.5} strokeDasharray={ghost ? '5 3' : undefined} vectorEffect="non-scaling-stroke" />
+      )}
+      {!ghost && handles?.map(h => (
+        <rect key={h.key} x={X(h.x) - hs / 2} y={Y(h.y) - hs / 2} width={hs} height={hs}
+          fill="#fff" stroke={accent} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      ))}
+    </g>
+  );
+}

@@ -1,9 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { getShapeModel } from '../utils/shapeModel';
 import { blockSlotColours } from '../utils/blockColours';
 import { wireframeRects } from '../utils/layouts';
-import { makeAnimFrame, FILTER_TYPES } from '../utils/animationFrame';
-import { mapAmplitude, blendHexToward } from '../utils/audioAnalysis';
 import { effectsActive } from '../effects/effectDefs';
 import { vectorFit } from '../utils/meanderBlocks';
 import { createEffectsRenderer } from '../effects/effectsRenderer';
@@ -16,8 +14,7 @@ import styles from './Canvas.module.css';
 //   shapes     — every visible shape block, drawn from cached Path2D models
 //                (utils/shapeModel.js) in the colours its colour mode gives,
 //                plus layout wireframes
-// Colour animations redraw the shapes canvas each frame; hue drift and warp
-// are CSS filters on it. Image and text blocks, selection outlines and other
+// Image and text blocks, selection outlines and other
 // overlays stay in the SVG layer above. Export still builds SVG, so exported
 // files don't depend on this renderer.
 
@@ -136,24 +133,8 @@ function drawBackground(ctx, p, image) {
   }
 }
 
-// The colour of each element of `block` this frame.
-function elementColours(block, model, box, p, frame, flicker) {
-  if (frame?.kind === 'position') {
-    const [vbX, vbY, vbW, vbH] = model.vb;
-    const s = Math.min(box.w / vbW, box.h / vbH);
-    const ox = box.x + (box.w - vbW * s) / 2 - vbX * s;
-    const oy = box.y + (box.h - vbH * s) / 2 - vbY * s;
-    return model.elements.map(el => (el.paintable ? frame.colourAt(ox + el.centre[0] * s, oy + el.centre[1] * s) : el.fixed));
-  }
-  if (frame?.kind === 'block') {
-    const c = frame.colourOf.get(block.id);
-    if (c) return model.elements.map(el => (el.paintable ? c : el.fixed));
-  }
-  if (flicker?.has(block.id)) {
-    const pal = flicker.get(block.id);
-    let i = 0;
-    return model.elements.map(el => (el.paintable ? pal[i++ % pal.length] : el.fixed));
-  }
+// The colour of each element of `block`.
+function elementColours(block, model, box, p) {
   if (p.colourCtx.colorMode === 'image' && p.imagePixels) {
     return imageColoursFor(block, model, box, p.imagePixels, p.colourRemap);
   }
@@ -231,7 +212,7 @@ function paintBlock(ctx, block, model, box, colours, base, stroke) {
 //   layers[n]  = Map(key → { path, colour, alpha, rule })
 //   strokes[n] = Map(key → { path, colour, alpha, rule, px, align }) — outlines
 //   own        = blocks with opacity or a blend mode, composited one by one
-function buildBatches(p, frame, flicker) {
+function buildBatches(p) {
   const { cellSize, gridOriginX: gx, gridOriginY: gy } = p.gridComputed;
   const layers = [];
   const strokes = [];
@@ -243,7 +224,7 @@ function buildBatches(p, frame, flicker) {
     const model = getShapeModel(block.svgContent);
     if (!model) continue;
     const box = { x: gx + block.gridCol * cellSize, y: gy + block.gridRow * cellSize, w: block.cols * cellSize, h: block.rows * cellSize };
-    let colours = elementColours(block, model, box, p, frame, flicker);
+    let colours = elementColours(block, model, box, p);
     if (cut) colours = colours.map((c, i) => (model.elements[i].bg ? null : c));
     const outline = resolveShapeStroke(block, p.shapeStroke, p.swatchMap);
     const stroke = outline && { ...outline, px: outline.width * cellSize };
@@ -441,17 +422,14 @@ function prepare(canvas, viewport, view, dpr) {
 }
 
 export function ShapeCanvas(props) {
-  const { viewportSize, animSettings, blendMode } = props;
+  const { viewportSize, blendMode } = props;
   const bgRef = useRef(null);
   const fgRef = useRef(null);
   const fxRef = useRef(null);
   const fxRenderer = useRef(undefined); // undefined: not tried yet; null: no WebGL
   const latest = useRef(props);
-  const animState = useRef(null); // { frame, flicker } while animating
   const staticKey = useRef(null);  // batches for the current static content
   const [, setImageTick] = useState(0);
-  const animating = !!animSettings?.enabled;
-  const filterAnim = animating && FILTER_TYPES.has(animSettings.type);
 
   const draw = () => {
     const p = latest.current;
@@ -463,30 +441,24 @@ export function ShapeCanvas(props) {
     const fg = prepare(fgRef.current, p.viewportSize, p.viewTransform, dpr);
     if (!p.gridComputed) return;
     // Per-shape blend modes blend with what's behind them, so the background
-    // is drawn into the shapes canvas too — unless a whole-layer blend mode or
-    // filter animation is in play, which apply to the shapes alone.
+    // is drawn into the shapes canvas too — unless a whole-layer blend mode
+    // is in play, which applies to the shapes alone.
     const ownBlend = p.blocks.some(b => isShape(b) && b.blendMode && b.blendMode !== 'normal');
-    const layerEffect = (p.blendMode && p.blendMode !== 'normal') || (p.animSettings?.enabled && FILTER_TYPES.has(p.animSettings.type));
+    const layerEffect = p.blendMode && p.blendMode !== 'normal';
     const cutout = cutoutColour(p);
     if (ownBlend && !layerEffect && !cutout) drawBackground(fg, p, image);
-    const a = animState.current;
-    let batches;
-    if (a) {
-      batches = buildBatches(p, a.frame, a.flicker);
-    } else {
-      // Static content: rebuild only when the shapes or their colours change.
-      const key = staticKey.current;
-      if (!key || key.blocks !== p.blocks || key.colourCtx !== p.colourCtx || key.imagePixels !== p.imagePixels
-        || key.colourRemap !== p.colourRemap || key.gridComputed !== p.gridComputed
-        || key.shapeStroke !== p.shapeStroke || key.swatchMap !== p.swatchMap || key.cutout !== !!p.backdropSettings?.cutout) {
-        staticKey.current = {
-          blocks: p.blocks, colourCtx: p.colourCtx, imagePixels: p.imagePixels, colourRemap: p.colourRemap,
-          gridComputed: p.gridComputed, shapeStroke: p.shapeStroke, swatchMap: p.swatchMap, cutout: !!p.backdropSettings?.cutout,
-          batches: buildBatches(p, null, null),
-        };
-      }
-      batches = staticKey.current.batches;
+    // Static content: rebuild only when the shapes or their colours change.
+    const key = staticKey.current;
+    if (!key || key.blocks !== p.blocks || key.colourCtx !== p.colourCtx || key.imagePixels !== p.imagePixels
+      || key.colourRemap !== p.colourRemap || key.gridComputed !== p.gridComputed
+      || key.shapeStroke !== p.shapeStroke || key.swatchMap !== p.swatchMap || key.cutout !== !!p.backdropSettings?.cutout) {
+      staticKey.current = {
+        blocks: p.blocks, colourCtx: p.colourCtx, imagePixels: p.imagePixels, colourRemap: p.colourRemap,
+        gridComputed: p.gridComputed, shapeStroke: p.shapeStroke, swatchMap: p.swatchMap, cutout: !!p.backdropSettings?.cutout,
+        batches: buildBatches(p),
+      };
     }
+    const batches = staticKey.current.batches;
     drawShapes(fg, p, batches, p.viewTransform, dpr);
     if (cutout) {
       drawLayerBlocks(fg, p, p.viewTransform, dpr, () => setImageTick(t => t + 1));
@@ -508,82 +480,12 @@ export function ShapeCanvas(props) {
   // each of these). Layout effect, so the canvas and SVG layer stay in step.
   useLayoutEffect(() => {
     latest.current = props;
-    if (!animating || FILTER_TYPES.has(props.animSettings.type)) draw();
+    draw();
   });
-
-  // Colour animations: redraw every frame. Hue drift and warp only update the
-  // CSS filter on the shapes canvas.
-  useEffect(() => {
-    if (!animating) { animState.current = null; return; }
-    let raf, last = null, phase = 0, lastFlicker = -1, elapsed = 0;
-    const tick = (ts) => {
-      const p = latest.current;
-      const dt = last == null ? 0 : (ts - last) / 1000;
-      last = ts;
-      elapsed += dt;
-      const s = p.animSettings;
-      const audio = p.audioSettings;
-      const amp = audio?.enabled ? 1 + mapAmplitude(p.audioDataRef?.current?.amplitude ?? 0, audio.ampMapping) * 3 : 1;
-      phase += dt * (s.speed * 2) * amp;
-
-      // Audio: bass warms the palette, a beat briefly reverses it.
-      let pal = p.colourCtx.palette;
-      if (audio?.enabled && pal?.length) {
-        const bass = p.audioDataRef?.current?.bands?.[0] ?? 0;
-        if (bass > 0.01) pal = pal.map(hex => blendHexToward(hex, '#ff9500', bass * 0.5));
-        if (p.audioDataRef?.current?.beat) pal = [...pal].reverse();
-      }
-
-      const fg = fgRef.current;
-      if (FILTER_TYPES.has(s.type)) {
-        if (fg && s.type === 'hueDrift') fg.style.filter = `hue-rotate(${((phase * (s.hueDrift?.range ?? 120)) % 360).toFixed(1)}deg)`;
-        if (s.type === 'warp') document.getElementById('gb-anim-warp-turbulence')?.setAttribute('seed', Math.floor(phase * 6) % 1024);
-        raf = requestAnimationFrame(tick);
-        return;
-      }
-      if (!pal?.length || !p.gridComputed) { raf = requestAnimationFrame(tick); return; }
-
-      const frame = makeAnimFrame(s, phase, pal, {
-        cellSize: p.gridComputed.cellSize, workArea: p.workArea, canvasBg: p.canvasBg, blocks: p.blocks.filter(isShape),
-      });
-      let flicker = animState.current?.flicker ?? null;
-      if (frame?.kind === 'flicker' && elapsed - lastFlicker >= 1 / 8) {
-        // ~8 times a second, a random few blocks take shifted palette colours.
-        lastFlicker = elapsed;
-        const shapes = p.blocks.filter(isShape);
-        const count = Math.min(shapes.length, Math.max(1, Math.ceil(shapes.length * (s.flicker?.density ?? 0.07))));
-        flicker = new Map();
-        while (flicker.size < count) {
-          const b = shapes[Math.floor(Math.random() * shapes.length)];
-          const start = Math.floor(Math.random() * pal.length);
-          flicker.set(b.id, pal.map((_, i) => pal[(start + i) % pal.length]));
-        }
-      }
-      animState.current = { frame: frame?.kind === 'flicker' ? null : frame, flicker };
-      draw();
-      raf = requestAnimationFrame(tick);
-    };
-    // Pause while the window is hidden; resume where the phase left off.
-    const onVisibility = () => {
-      cancelAnimationFrame(raf);
-      if (!document.hidden) { last = null; raf = requestAnimationFrame(tick); }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    raf = requestAnimationFrame(tick);
-    const fg = fgRef.current;
-    return () => {
-      cancelAnimationFrame(raf);
-      document.removeEventListener('visibilitychange', onVisibility);
-      animState.current = null;
-      if (fg) fg.style.filter = '';
-      draw();
-    };
-  }, [animating, animSettings?.type]);
 
   if (!viewportSize) return null;
   const fgStyle = {
     mixBlendMode: blendMode && blendMode !== 'normal' ? blendMode : undefined,
-    filter: filterAnim && animSettings.type === 'warp' ? 'url(#gb-anim-warp-filter)' : undefined,
   };
   return (
     <>

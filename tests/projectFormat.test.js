@@ -24,12 +24,6 @@ describe('project files', () => {
     expect(parsed.state.placedBlocks[0]).toMatchObject({ id: 'b1', gridCol: 2, gridRow: 3 });
   });
 
-  it('never saves audio as switched on', () => {
-    const state = createDefaultDocState('gridBuilder');
-    const text = serializeProject(docOf('gridBuilder', { ...state, audioSettings: { ...state.audioSettings, enabled: true } }));
-    expect(JSON.parse(text).state.audioSettings.enabled).toBe(false);
-  });
-
   it('opens a legacy (v4) flat file as a Grid Pattern with defaults filled in', () => {
     const legacy = JSON.stringify({ version: 4, gridSettings: { cols: 12, borderPct: 5 }, placedBlocks: [] });
     const { mode, state } = parseProject(legacy);

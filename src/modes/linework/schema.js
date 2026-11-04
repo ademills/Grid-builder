@@ -1,6 +1,7 @@
 import { LINEWORK_SYMMETRY } from '../../utils/symmetry';
 import { MASK_SOURCES } from './masks';
 import { PlateSize, DiamondNote, MaskWord, MaskFillSettings, EditLayer, FillWeights } from './schemaFields';
+import { SvgPlates } from './SvgPlatesDialog';
 import { ANGULAR_FILLS, EXPERIMENTAL_FILLS } from './settings';
 import { range, oneOf } from '../../panels/schemaUtils';
 
@@ -36,6 +37,11 @@ const square = (_, ctx) => (ctx.tiling ?? 'square') === 'square';
 const canCross = (_, ctx) => ctx.tiling !== 'triangle';
 const plate = (_, ctx) => ctx.plate;
 const masked = L => L.mask && L.mask !== 'none';
+// Masks that can be cut exactly: Silhouette, and Word laid out in a line.
+const exactable = L => L.mask === 'silhouette' || (L.mask === 'word' && (L.maskSettings?.word?.layout ?? 'line') !== 'scatter');
+// Shape plates (Plates from SVG): cut to the shape (Cutout) or masked to its cells (Mask).
+const shaped = (L, ctx) => !!ctx?.plate && !!L.shapeClip?.rings?.length;
+const cutout = (L, ctx) => shaped(L, ctx) && (L.shapeMode ?? 'cutout') === 'cutout';
 
 // Plate backgrounds (settings.js); the band-built ones are circuit-only, and
 // an angular plate set to one draws Square.
@@ -62,6 +68,7 @@ export const LINEWORK_GRID_SCHEMA = [
       { key: 'regularity', label: 'Regularity', type: 'slider', min: 0, max: 1, step: 0.25, format: pct,
         value: s => s.regularity ?? 0.5, showIf: s => s.tiling === 'voronoi',
         help: '0%: scattered cells of every size; 100%: relaxed into even, honeycomb-like cells' },
+      { key: 'svgPlates', type: 'custom', render: SvgPlates },
     ],
   },
 ];
@@ -119,6 +126,23 @@ export const LINEWORK_LAYER_SCHEMA = [
     // A plate's placement (shape, size, offset) and background (its shape,
     // shadow and rim).
     id: 'linework.plate', title: 'Plate', showIf: plate, fields: [
+      { key: 'shapeMode', label: 'Shape', type: 'segmented', showIf: shaped, value: L => L.shapeMode ?? 'cutout',
+        options: [{ key: 'cutout', label: 'Cutout' }, { key: 'mask', label: 'Mask' }],
+        help: "Cutout: the plate cut to the SVG shape exactly, with an outline. Mask: only the cells the shape covers are filled, as a Silhouette mask" },
+      { key: 'shapeOutline', label: 'Outline', type: 'slider', min: 0, max: 1, step: 0.01, format: cells, showIf: cutout,
+        help: "Width of the outline round the shape, in cells" },
+      { key: 'shapeOutlinePos', label: 'Outline at', type: 'segmented', showIf: (L, ctx) => cutout(L, ctx) && L.shapeOutline > 0,
+        value: L => L.shapeOutlinePos ?? 'inside',
+        options: [{ key: 'inside', label: 'Inside' }, { key: 'centre', label: 'Centre' }, { key: 'outside', label: 'Outside' }],
+        help: 'Inside the shape’s edge, centred on it, or outside it' },
+      { key: 'shapeOutlineDouble', label: 'Double outline', type: 'toggle', showIf: (L, ctx) => cutout(L, ctx) && L.shapeOutline > 0,
+        help: 'A second ring, further in (further out for Outside)' },
+      { key: 'shapeOutlineGap', label: 'Gap', type: 'slider', min: 0, max: 1, step: 0.01, format: cells,
+        value: L => L.shapeOutlineGap ?? 0.1, showIf: (L, ctx) => cutout(L, ctx) && L.shapeOutline > 0 && L.shapeOutlineDouble,
+        help: 'Space between the two rings, in cells' },
+      { key: 'shapeOutlineInk', label: 'Outline colour', type: 'segmented', showIf: (L, ctx) => cutout(L, ctx) && L.shapeOutline > 0,
+        value: L => (L.shapeOutlineInk === false ? 'ground' : 'ink'), onChange: v => ({ shapeOutlineInk: v === 'ink' }),
+        options: [{ key: 'ink', label: 'Ink' }, { key: 'ground', label: 'Ground' }] },
       { key: 'plateSize', type: 'custom', render: PlateSize },
       { key: 'ox', label: 'Offset X', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
       { key: 'oy', label: 'Offset Y', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
@@ -126,7 +150,7 @@ export const LINEWORK_LAYER_SCHEMA = [
         options: L => (angular(L) ? BACKINGS.filter(o => !o.circuit) : BACKINGS),
         info: 'Square: the plate itself. Outline: one shape round all its lines, filling what they enclose. Sticker: a shape round each bundle. In-fill: just between each bundle\'s lines. Transparent: no background or shadow.' },
       { key: 'corner', label: 'Corner radius', type: 'slider', min: 0, max: 1, step: 0.05, format: pct,
-        showIf: L => backing(L) === 'square', help: "Rounds the plate's corners (and its shadow and rim)" },
+        showIf: (L, ctx) => backing(L) === 'square' && !cutout(L, ctx), help: "Rounds the plate's corners (and its shadow and rim)" },
       { key: 'pad', label: 'Padding', type: 'slider', min: 0, max: 1, step: 0.05, format: cells,
         showIf: L => ['outline', 'sticker'].includes(backing(L)), help: 'Margin round the lines, in cells' },
       { key: 'shadow', label: 'Shadow', type: 'segmented', showIf: L => backing(L) !== 'none',
@@ -135,8 +159,8 @@ export const LINEWORK_LAYER_SCHEMA = [
       { key: 'depth', label: 'Depth', type: 'slider', min: 0, max: 1, step: 0.01, format: cells, help: 'Shadow offset, in cells',
         showIf: L => backing(L) !== 'none' && L.shadow !== 'none', surprise: range(0.15, 0.4, 0.01) },
       { key: 'rim', label: 'Rim', type: 'slider', min: 0, max: 0.5, step: 0.01, format: cells, help: 'Edge band round the plate, in cells',
-        showIf: L => backing(L) === 'square', surprise: oneOf([0, 0, 0.1, 0.15]) },
-      { key: 'rimInk', label: 'Rim colour', type: 'segmented', showIf: L => backing(L) === 'square' && L.rim > 0,
+        showIf: (L, ctx) => backing(L) === 'square' && !cutout(L, ctx), surprise: oneOf([0, 0, 0.1, 0.15]) },
+      { key: 'rimInk', label: 'Rim colour', type: 'segmented', showIf: (L, ctx) => backing(L) === 'square' && L.rim > 0 && !cutout(L, ctx),
         value: L => (L.rimInk ? 'ink' : 'ground'), onChange: v => ({ rimInk: v === 'ink' }),
         options: [{ key: 'ground', label: 'Ground' }, { key: 'ink', label: 'Ink' }] },
     ],
@@ -218,7 +242,7 @@ export const LINEWORK_LAYER_SCHEMA = [
   },
   {
     // A route through every cell has nothing for a mask to steer.
-    id: 'linework.mask', title: 'Region mask', showIf: L => !filled(L), defaultOpen: masked,
+    id: 'linework.mask', title: 'Region mask', showIf: (L, ctx) => !filled(L) && !(shaped(L, ctx) && L.shapeMode === 'mask'), defaultOpen: masked,
     info: 'Cut a shape, image or word out of the design, or invert it to keep the design only inside the mask.',
     fields: [
       { key: 'mask', label: 'Mask', type: 'select',
@@ -226,7 +250,13 @@ export const LINEWORK_LAYER_SCHEMA = [
       { key: 'maskMode', label: 'Masked area', type: 'segmented', showIf: masked,
         options: [{ key: 'remove', label: 'Remove' }, { key: 'invert', label: 'Invert' }],
         help: 'Remove: the masked area is left empty. Invert: only the masked area is filled' },
-      { key: 'maskShapes', label: 'Shapes', type: 'segmented', showIf: masked,
+      { key: 'maskEdge', label: 'Edges', type: 'segmented', showIf: L => exactable(L), value: L => L.maskEdge ?? 'cells',
+        options: [{ key: 'cells', label: 'Cells' }, { key: 'exact', label: 'Exact' }],
+        help: 'Cells: whole cells are filled or emptied. Exact: the lines are cut to the mask’s real outline' },
+      { key: 'maskOutline', label: 'Outline', type: 'slider', min: 0, max: 1, step: 0.01, format: cells,
+        value: L => L.maskOutline ?? 0, showIf: L => exactable(L) && L.maskEdge === 'exact',
+        help: 'An outline along the cut, in cells (0: none)' },
+      { key: 'maskShapes', label: 'Shapes', type: 'segmented', showIf: L => masked(L) && !(exactable(L) && L.maskEdge === 'exact'),
         options: [{ key: 'one', label: 'As one' }, { key: 'each', label: 'Each separately' }],
         help: 'Each separately: every separate filled shape gets its own design, centred and mirrored on itself' },
       { key: 'maskWord', type: 'custom', render: MaskWord, showIf: L => L.mask === 'word' },
@@ -235,3 +265,17 @@ export const LINEWORK_LAYER_SCHEMA = [
     ],
   },
 ];
+
+// Each layer setting's label, by key, for telling which settings differ
+// between plates edited together (LineworkPanel). The plate's size and
+// shape (a custom row) are listed by hand.
+export function layerFieldLabels() {
+  const out = { shape: 'Shape', size: 'Size', w: 'Width', h: 'Height', sizing: 'Sides', aspect: 'Ratio' };
+  for (const sec of LINEWORK_LAYER_SCHEMA) {
+    for (const f of sec.fields) if (f.label && typeof f.label === 'string') out[f.key] = f.label;
+  }
+  // These two edit the one fills list.
+  delete out.fillsExperimental;
+  out.fills = 'Fills';
+  return out;
+}

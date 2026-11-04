@@ -252,16 +252,15 @@ const html = `<title>Pattern Studio Roadmap</title>
       <section class="sec deps" id="deps">
         <header class="sec-head"><span class="sec-num">→</span><h2>Dependencies, updated</h2></header>
         <div class="sec-intro"><ul>
-          <li><strong>Unblocked since the list was written.</strong> 0.10 (registry) shipped, so 1.8, 1.14, 10.1 and 10.3 are now cheap. 0.8 (workers) shipped, so 4.13 is feasible. 7.5 (strand layers) shipped, so the 3.12 seed brush can start.</li>
-          <li><strong>4.21 Grid Pattern schemas</strong> come before 10.6 and before any decision on 7.7. Schemas are what make settings describable to Claude and to Surprise Me.</li>
+          <li><strong>Unblocked since the list was written.</strong> 0.10 (registry) shipped, so 1.8, 1.14 and 10.3 are now cheap. 0.8 (workers) shipped, so 4.13 is feasible. 7.5 (strand layers) shipped, so the 3.12 seed brush can start.</li>
+          <li><strong>4.21 Grid Pattern schemas</strong> come before any decision on 7.7. Schemas are what make settings describable to Surprise Me.</li>
           <li><strong>0.11 and 0.12</strong> (native smoke test, generator snapshots) should land before more generator work, so that changes to output are caught.</li>
-          <li><strong>0.6 + 9.3</strong> still come before 8.1 and 8.2. Video export needs deterministic, loopable frames.</li>
           <li><strong>5.1 custom shapes</strong> comes before 5.3, 4.15 and the .svg drop in 1.4.</li>
           <li><strong>5.7 path merge</strong> makes 8.8 and 8.9 much better. The Linework backing code already merges solids and can be reused.</li>
           <li><strong>7.1 multi-layer</strong> and <strong>4.18 Grid Pattern hex cells</strong> are still the two most invasive changes. Linework's plates and cell shapes show both ideas working inside one mode, which may be enough.</li>
         </ul></div>
       </section>
-      <footer class="foot">Built from <code>roadmap-candidates.md</code> in the Grid-builder-workspace worktree, reviewed against <code>main</code> at v1.7.2 (78c4ae8). Original research: VectorCraft and EffectCraft READMEs (github.com/storytold), getartcraft.com.</footer>
+      <footer class="foot">Built from <code>roadmap-candidates.md</code> in the Grid-builder-workspace worktree, reviewed against <code>main</code> at v1.7.2 (78c4ae8). Original research: VectorCraft and EffectCraft READMEs (github.com/storytold), getartcraft.com. Animation and AI items removed 4 Nov 2026.</footer>
     </main>
   </div>
 </div>

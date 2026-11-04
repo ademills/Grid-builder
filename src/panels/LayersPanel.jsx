@@ -412,7 +412,7 @@ export function LineworkLayersPanel() {
     const isBase = layer.id === 'base';
     const key = layer.id;
     const isOpen = open.has(key);
-    const editing = linework.editLayer === layer.id || (!layers.some(l => l.id === linework.editLayer) && isBase);
+    const editing = (linework.editLayers ?? [linework.editLayer]).includes(layer.id) || (!layers.some(l => l.id === linework.editLayer) && isBase);
     const lines = blocks.filter(b => b.lwKind === 'ink' || !b.lwKind);
     const parts = blocks.filter(b => b.lwKind && b.lwKind !== 'ink');
     // The layer's ⇄ recolours everything drawn in ink: lines, outlines and edge.
@@ -428,9 +428,15 @@ export function LineworkLayersPanel() {
           className={`${styles.layerRow} ${styles.layerGroupRow} ${sel ? styles.layerRowSelected : ''}`}
           style={editing ? { boxShadow: 'inset 3px 0 0 var(--chrome-accent, #7b61ff)' } : undefined}
           onMouseEnter={() => layerActions.highlight(new Set(blocks.map(b => b.id)))}
-          onClick={() => { linework.setEditLayer(layer.id); layerActions.select(blocks.map(b => b.id)); }}
+          onClick={e => {
+            // Ctrl/Shift+click: edit this plate together with the others picked.
+            const add = (e.ctrlKey || e.metaKey || e.shiftKey) && !isBase;
+            linework.setEditLayer(layer.id, { add });
+            const ids = blocks.map(b => b.id);
+            layerActions.select(add ? [...selectedIds, ...ids] : ids);
+          }}
           onDoubleClick={() => !isBase && setRenaming(layer.id)}
-          title={isBase ? 'Click to select and edit the base layer' : 'Click to select and edit · double-click to rename'}
+          title={isBase ? 'Click to select and edit the base layer' : 'Click to select and edit · Ctrl+click to edit several plates together · double-click to rename'}
         >
           <button className={styles.layerChevron} onClick={e => { e.stopPropagation(); toggleOpen(key); }} aria-expanded={isOpen}>
             <ChevronIcon open={isOpen} />

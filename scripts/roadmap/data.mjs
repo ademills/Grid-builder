@@ -29,12 +29,10 @@ export const REVIEW = {
   '0.11': ['shipped', '1.8.0', 'Release build checked through WebView2: generate in every mode, duplicate, quit and relaunch, crash and recover (17 checks).'],
   '0.12': ['shipped', '1.8.0', 'Snapshots of the seven Linework presets and four Meander designs in tests/generators.test.js.'],
   '0.1': ['shipped', '1.2.0', 'Refactor verified in a native Tauri build and committed one phase at a time.'],
-  '0.2': ['shipped', '1.7.0', 'Resolved by removing the dead Intensity slider (and the disabled jitter/tension sliders) in the shared-controls pass.'],
   '0.3': ['shipped', '1.2.0', 'Native Save and Export work since the Tauri-detection fix. The one failure since then was Controlled Folder Access blocking Documents, not the app scope. Check the Defender log first if it recurs.'],
-  '0.6': ['partial', '1.3.0', 'The canvas renderer pauses when the window is hidden. Deterministic, seeded frames are still missing, and animated export (8.1) needs them. Fold the rest into the Motion release.'],
   '0.7': ['shipped', '1.3.0', 'Superseded. Shapes now draw on a 2D canvas from Path2D models, which beat both SVG approaches (fill 2,446 → 55 ms at 40 columns).'],
   '0.8': ['shipped', '1.3.0', 'Fills run in a worker. Live preview (4.13) is no longer blocked.'],
-  '0.10': ['shipped', '1.2.0', '74 commands now live in shell/commands.js. Palette, macros and MCP can build on it directly.'],
+  '0.10': ['shipped', '1.2.0', '74 commands now live in shell/commands.js. Palette, macros and the CLI can build on it directly.'],
 
   '1.4': ['shipped', '1.2.0', 'Projects open in a tab, images become the reference, .ase and .gpl files import. Dropping an .svg still does nothing; that waits for 5.1.'],
   '1.5': ['shipped', '1.2.0', 'Shows the document name and an unsaved-changes dot.'],
@@ -89,7 +87,6 @@ export const REVIEW = {
   '4.16': ['hold', null, 'Do 4.15 first. WFC is the general form and only pays off once edge data exists.'],
   '4.17': ['shipped', '1.4.0', 'Organic fill: Gray-Scott presets and life-like automata.'],
   '4.18': ['partial', '1.7.0', 'Linework now has hexagon, triangle and Voronoi cells. Grid Pattern stays square, and that only changes if you want a hex/triangle shape library.'],
-  '4.19': ['cut', null, 'Large dependency (a local model or an API) for a niche effect. Brightness and Edge fills cover most of it.'],
   '4.20': ['hold', null, 'Polar layouts suit Meander and Linework better than Grid Pattern. Revisit as a Linework cell shape.'],
 
   '5.1': ['shipped', '1.10.0', "File › Import Shapes…, Assets › Import… or .svg drops: colour slots by colour (reorder, merge, keep), size, background, tags. Files carry the shapes they use."],
@@ -107,7 +104,7 @@ export const REVIEW = {
   '6.3': ['shipped', '1.2.0', 'Start a document from any palette.'],
   '6.4': ['shipped', '1.10.0', "Document swatch groups, and a Colour Guide (complementary, triad, analogous, tetrad, tints, shades) on the selected swatch."],
   '6.5': ['hold', null, 'Only if Illustrator stays the master copy of your palettes.'],
-  '6.6': ['open', null, 'Still a bug in Grid Pattern: pins are ignored by Image colour mode and the continuous animations.'],
+  '6.6': ['open', null, 'Still a bug in Grid Pattern: pins are ignored by Image colour mode.'],
   '6.7': ['shipped', '1.10.0', "Edit › Recolour Artwork…: colour table, reduce to N colours, harmony-locked hue / saturation / brightness and wheel, live preview, one undo step."],
   '6.8': ['hold', null, 'Nice to have. Comes after 6.7.'],
   '6.9': ['open', null, 'Small. Useful for the high-contrast Linework palettes.'],
@@ -126,9 +123,6 @@ export const REVIEW = {
   '7.11': ['hold', null, 'Fits 7.12 better than as a standalone tool.'],
   '7.12': ['hold', null, 'Worth it if you sell on products. Pairs with 8.4.'],
 
-  '8.1': ['open', null, 'Still the biggest missing output. Comes after deterministic frames (0.6) and loop length (9.3).'],
-  '8.2': ['open', null, 'Good first step towards 8.1.'],
-  '8.3': ['cut', null, 'Web or app animation hasn\'t come up as a target.'],
   '8.4': ['partial', null, 'Meander has a single-motif seamless tile preview. Grid Pattern and Linework have no repeat preview or export.'],
   '8.5': ['open', null, 'Still valid. Make 8.6 a preset of it.'],
   '8.6': ['open', null, 'Merge into 8.5.'],
@@ -140,23 +134,10 @@ export const REVIEW = {
   '8.12': ['open', null, 'Small and handy for Figma and Illustrator.'],
   '8.13': ['cut', null, 'Flat-path SVG export (8.11) already pastes into Figma well. Copy as SVG (8.12) covers the rest.'],
 
-  '9.1': ['hold', null, 'Only if live use becomes real.'],
-  '9.2': ['hold', null, 'Comes after seed history (2.5) and video export.'],
-  '9.3': ['open', null, 'Prerequisite for good video export.'],
-  '9.4': ['hold', null, 'A direction decision: motion tool or ambient effects.'],
-  '9.5': ['hold', null, 'Only with a controller and live sets.'],
-  '9.6': ['hold', null, 'Only if live use is real.'],
-  '9.7': ['cut', null, 'Depends on 9.6, which is on hold.'],
 
-  '10.1': ['open', null, 'Better placed than when written: 74 registry commands plus schemas that describe every Meander and Linework setting.'],
-  '10.2': ['hold', null, 'The hard part (running renders outside the webview) is unchanged. Do it after 10.1.'],
+  '10.2': ['hold', null, 'The hard part (running renders outside the webview) is unchanged.'],
   '10.3': ['hold', null, 'Possible on the registry, but no repeated workflow has come up yet.'],
   '10.4': ['open', null, 'Still a good fit for Meander word-weaving.'],
-  '10.5': ['open', null, 'Still valid and small once an API key setting exists (1.13).'],
-  '10.6': ['open', null, 'Much easier now. The schemas give Claude a typed list of settings and ranges to fill in.'],
-  '10.7': ['cut', null, 'A paid dependency for something you can do in any image tool.'],
-  '10.8': ['hold', null, 'Useful with 7.3, but adds a model or an API.'],
-  '10.9': ['cut', null, 'Gimmick risk; nothing has asked for it.'],
 
   '11.1': ['hold', null, 'Only if someone else will use it.'],
   '11.2': ['cut', null, 'No non-Windows users.'],
@@ -184,7 +165,7 @@ export const NEW_ITEMS = [
     desc: 'A strip of the last dozen seeds per document (with small thumbnails) next to the seed field, so a good result is one click away after you reroll past it. The cheap half of 2.3.',
     needs: 'Nothing.' },
   { sec: 4, id: '4.21', title: 'Grid Pattern fills as schemas', cx: 'M', src: 'UI review step 4',
-    desc: 'Meander and Linework settings are now data (<code>modes/*/schema.js</code>) that drive the inspector, control bar, tooltips and Surprise Me. Grid Pattern\'s fill settings (<code>fillSettings.jsx</code>), the Colour panel and Properties are still hand-built. Converting them makes Surprise Me consistent and is the groundwork for 10.6 and 7.7.',
+    desc: 'Meander and Linework settings are now data (<code>modes/*/schema.js</code>) that drive the inspector, control bar, tooltips and Surprise Me. Grid Pattern\'s fill settings (<code>fillSettings.jsx</code>), the Colour panel and Properties are still hand-built. Converting them makes Surprise Me consistent and is the groundwork for 7.7.',
     needs: 'Nothing.' },
   { sec: 4, id: '4.22', title: 'Schema-driven Linework Surprise', cx: 'S', src: 'UI review step 4',
     desc: 'Linework\'s Surprise Me is still hand-written while Meander\'s comes from its schema. Move it over so new settings join Surprise Me automatically.',
@@ -210,15 +191,31 @@ export const NEW_ITEMS = [
   { sec: 12, id: '12.6', title: 'Back-port Linework ideas to the other modes', cx: 'L', src: 'Linework decisions',
     desc: 'Agreed as follow-ups when Linework was integrated: the diamond 45° grid, plates, multi-line strands and over/under weave for Meander and Grid Pattern.',
     needs: 'Which one first. Plates for Meander is the most visible.' },
-  { sec: 12, id: '12.7', title: 'Linework animation', cx: 'M', src: 'Linework decisions',
-    desc: 'Left out of Linework v1. Line growth along the circuit path, ink colour cycling and plate drift are natural fits, and would export through 8.1.',
-    needs: 'Which motion matters: growing lines or colour cycles?' },
   { sec: 12, id: '12.8', title: 'Border change keeps the column count', cx: 'S', src: 'Known quirk',
     desc: 'Changing Border re-snaps Columns to a count that tiles the artboard (within 10% leftover), which can jump a long way, for example down to 2. Snap to the nearest valid count, or keep the count and adjust the leftover.',
+    needs: 'Nothing.' },
+  { sec: 13, id: '13.1', title: 'Edit several plates at once', cx: 'M', src: 'Nov 4 ideas',
+    desc: 'Plates from SVG can make a dozen plates, and each is edited on its own. Select several in Layers (or the control bar’s layer picker) and change style, fills, seed, outline or any other setting for all of them together. Settings that differ show as mixed until you change them.',
+    needs: 'Nothing.' },
+  { sec: 13, id: '13.2', title: 'Refresh shape plates from the SVG', cx: 'M', src: 'Nov 4 ideas',
+    desc: 'Re-import an edited SVG and update the plate shapes in place, matched by layer, group or colour name, keeping each plate’s settings and hand edits where the shape still fits. New parts become new plates; parts that are gone are listed so you can keep or delete their plates.',
+    needs: 'Nothing.' },
+  { sec: 13, id: '13.3', title: 'Word plates', cx: 'M', src: 'Nov 4 ideas',
+    desc: 'Type a word and each letter becomes a cutout shape plate with an exact outline, laid out across the canvas. The Word region mask follows whole cells; this uses the letter outlines themselves, like Plates from SVG does.',
+    needs: 'Which fonts: system fonts, or a few bundled ones?' },
+  { sec: 13, id: '13.4', title: 'More outline options for shape plates', cx: 'S', src: 'Nov 4 ideas',
+    desc: 'The Outline round a shape plate sits inside the edge. Add Inside / Centre / Outside placement and a double outline (two rings with a gap), each in ink or ground.',
+    needs: 'Nothing.' },
+  { sec: 13, id: '13.5', title: 'Exact edges for every region mask', cx: 'L', src: 'Nov 4 ideas',
+    desc: 'Region masks keep or empty whole cells, so Word and Silhouette edges are blocky. Use the shape-plate clipping (clipper-lib) to cut any layer to the mask’s real outline instead, with an optional outline along the cut. Cell masks stay available for the blocky look.',
+    needs: 'Nothing.' },
+  { sec: 13, id: '13.6', title: 'Drag plates on the canvas', cx: 'M', src: 'Nov 4 ideas',
+    desc: 'Move and resize plates directly with the Move tool instead of the Offset and size sliders, snapping to cells and to other plates’ edges and centres. One undo step per drag.',
     needs: 'Nothing.' },
 ];
 
 export const NEW_SECTIONS = {
+  13: { title: 'Shape plates & masks', intro: 'Follow-ups to Plates from SVG and the exact Cutout mode, picked on 4 Nov 2026 for v1.14.' },
   12: { title: 'Linework & Meander follow-ups', intro: 'Known issues and agreed follow-ups from the Linework and Meander releases (v1.4.1 to v1.7.2). Items here are new in this review.' },
 };
 
@@ -238,7 +235,7 @@ export const SHIPPED = [
     also: 'Single-scroll inspector, panel rail, pinned Generate bar, context control bar, click-to-type sliders, one artboard picker.' },
   { ver: '1.6.1', date: '28 Oct', title: 'Plate sizes', items: [],
     also: 'Linework plates with unequal sides, by grid cells or aspect ratio.' },
-  { ver: '1.7.0', date: '31 Oct', title: 'Settings as data', items: ['0.2','1.17','4.18'],
+  { ver: '1.7.0', date: '31 Oct', title: 'Settings as data', items: ['1.17','4.18'],
     also: 'Schemas, one Colour panel, mode accents, shared controls, One circuit, hex/triangle/Voronoi cells, View › Grid.' },
   { ver: '1.7.1', date: '1 Nov', title: 'Plate backgrounds', items: [],
     also: 'Square, Outline, Sticker, In-fill and Transparent backings. Generate leaves locked layers alone.' },
@@ -264,18 +261,15 @@ export const SHIPPED = [
     also: 'Masks just Remove or Invert. Twelve new angular fills, all on for a new layer, and an Experimental group behind a toggle. Merge tiles, tile gap and outline weight. Plates scale with the grid, so a smaller artboard no longer pushes them off the page.' },
 ];
 
-// Proposed releases. Order is the suggestion. (Output and Motion were 1.11
-// and 1.12 in the 1 Nov plan; the Linework releases took those numbers.)
+// Proposed releases. Order is the suggestion. (Output was 1.11 in the 1 Nov
+// plan; the Linework releases took that number.)
 export const PLAN = [
-  { ver: '1.14', name: 'Output', theme: 'Get designs out in more forms',
+  { ver: '1.14', name: 'Shape plates', theme: 'Plates from SVG, and shape plates you can work with in bulk',
+    items: ['13.1','13.2','13.3','13.4','13.5','13.6'],
+    why: 'Builds on Plates from SVG and the exact Cutout mode (done on feature/v1.14). Edit many plates together, keep them in step with the SVG, word plates, outline options, exact mask edges and plates you drag on the canvas.' },
+  { ver: '1.15', name: 'Output', theme: 'Get designs out in more forms',
     items: ['8.12','8.5','8.6','8.4','8.8','5.7'],
     why: 'Copy as SVG, batch export, seamless repeats and print PDF.' },
-  { ver: '1.15', name: 'Motion', theme: 'Animation you can export',
-    items: ['0.6','9.3','8.2','8.1','12.7'],
-    why: 'Deterministic frames first, then image sequences, then video.' },
-  { ver: '2.0', name: 'Driven by Claude', theme: 'Describe it, get it',
-    items: ['10.1','10.6','10.5','10.4','1.13'],
-    why: 'The registry and schemas make the app describable. Preferences holds the API key.' },
 ];
 
 // Things decided-later, grouped for the "Later" lane.

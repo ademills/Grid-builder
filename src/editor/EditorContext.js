@@ -3,7 +3,7 @@ import { useDocField } from '../store/useDocField';
 
 // Everything panels need from the mounted editor that isn't a plain
 // document field: derived values (grid geometry, extracted palette…),
-// transient editor state (pixel buffers, audio file), and actions that
+// transient editor state (pixel buffers), and actions that
 // touch several fields at once or need history (fills, layouts, flips…).
 // Plain fields are read straight from the store with useDocField().
 export const EditorContext = createContext(null);

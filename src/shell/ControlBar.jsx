@@ -10,7 +10,7 @@ import { DiceIcon, RotateIcon, ReflectIcon, WandIcon, PinIcon } from './icons';
 import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY } from '../utils/symmetry';
 import { BRUSH_MAX, clampBrush } from '../utils/brush';
 import { FILLS } from '../modes/gridBuilder/fills';
-import { mergeLineworkSettings } from '../modes/linework/settings';
+import { mergeLineworkSettings, updateLayers } from '../modes/linework/settings';
 import { runCommand } from './commands';
 import { BarFields } from '../panels/schema';
 import { MEANDER_SCHEMA } from '../modes/meander/schema';
@@ -232,6 +232,7 @@ function DesignOptions({ mode }) {
   const [lineworkRaw] = useDocField('lineworkSettings');
   const cmds = useAppStore(s => s.editorCommands);
   const editLayer = useAppStore(s => s.editorStatus?.lineworkEditLayer ?? 'base');
+  const editLayers = useAppStore(s => s.editorStatus?.lineworkEditLayers);
 
   if (mode === 'gridBuilder') {
     return (
@@ -252,15 +253,15 @@ function DesignOptions({ mode }) {
   if (mode === 'linework' && cmds?.updateLinework) {
     const s = mergeLineworkSettings(lineworkRaw);
     const L = s.layers.find(l => l.id === editLayer) ?? s.layers[0];
-    const setLayer = changes => cmds.updateLinework(prev => ({
-      ...prev, layers: prev.layers.map(l => (l.id === L.id ? { ...l, ...changes } : l)),
-    }));
+    const ids = editLayers?.length ? editLayers : [L.id];
+    const setLayer = changes => cmds.updateLinework(prev => updateLayers(prev, ids, changes));
     return (
       <>
         {s.layers.length > 1 && (
           <>
             <span className={styles.label}>Layer</span>
-            <Select value={L.id} onChange={cmds.setLineworkEditLayer}
+            {ids.length > 1 && <span className={styles.label}>{ids.length} plates</span>}
+            <Select value={L.id} onChange={id => cmds.setLineworkEditLayer(id)}
               options={[...s.layers].reverse().map(l => ({ key: l.id, label: l.name }))} />
           </>
         )}
@@ -346,7 +347,7 @@ export function ControlBar({ mode, selectedCount }) {
         </>
       )}
 
-      {tool === 'move' && (
+      {tool === 'move' && mode !== 'linework' && (
         <>
           <span className={styles.label}>Onto shapes</span>
           <Segment value={options.moveDrop} onChange={v => setToolOption({ moveDrop: v })} options={[
@@ -395,7 +396,7 @@ export function ControlBar({ mode, selectedCount }) {
       )}
 
       <span className={styles.spacer} />
-      {def.hint && <span className={styles.hint}>{def.hint}</span>}
+      {(def.modeHints?.[mode] ?? def.hint) && <span className={styles.hint}>{def.modeHints?.[mode] ?? def.hint}</span>}
       {tool === 'bucket' && <span className={styles.hint}>· Shift: every shape</span>}
     </div>
   );

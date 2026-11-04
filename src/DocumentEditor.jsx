@@ -6,9 +6,7 @@ import { MODE_REGISTRY } from './modes/registry';
 import { EditorContext } from './editor/EditorContext';
 import { ExportDialog, ShortcutsDialog } from './editor/Dialogs';
 import { RecolourDialog } from './editor/RecolourDialog';
-import { AnimationLayer } from './components/AnimationLayer';
 import { ShapeCanvas } from './components/ShapeCanvas';
-import { createAudioAnalyser } from './utils/audioAnalysis';
 import { PlacedBlocks } from './components/PlacedBlocks';
 import { Overlays } from './components/Overlays';
 import { GuideLines, Rulers } from './components/RulersGuides';
@@ -54,14 +52,17 @@ import { usePresetStore, presetFields } from './store/presetStore';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA, LINEWORK_LAYER_SCHEMA } from './modes/linework/schema';
-import { SymmetryAxes, MoveGhost, BrushOutline, LassoPath } from './components/ToolOverlays';
-import { silhouetteCoverage, silhouetteCells } from './utils/silhouetteMask';
+import { SymmetryAxes, MoveGhost, BrushOutline, LassoPath, PlateGhost } from './components/ToolOverlays';
+import { silhouetteCoverage, silhouetteCells, silhouetteRaster } from './utils/silhouetteMask';
+import { traceRings, rasterWord, rasterSize } from './utils/linework/traceMask';
 import { tidySvg } from './utils/svgExport';
-import { composeLinework, lineworkGridCells, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL } from './utils/linework/compose';
+import { composeLinework, lineworkGridCells, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL, plateBoxes, plateOffsetFor } from './utils/linework/compose';
+import { hitPlate, handlesOf, snapMove, snappedOffset, resizeBox } from './utils/linework/plateDrag';
+import { isShapePlate, shapeMaskSettings } from './utils/linework/shapeClip';
 import { colourItems as lineworkColours } from './utils/linework/colour';
 import { pathD, contoursBounds } from './utils/linework/geometry';
 import { computeLineworkMask, layerMaskSettings } from './modes/linework/masks';
-import { LINEWORK_PRESETS, mergeLineworkSettings, newPlate, fitPlates } from './modes/linework/settings';
+import { LINEWORK_PRESETS, mergeLineworkSettings, newPlate, fitPlates, platesFromShapes, updateLayers, refreshShapePlates } from './modes/linework/settings';
 import { effectsActive } from './effects/effectDefs';
 import { applyEffectsToCanvas } from './effects/effectsRenderer';
 import './App.css';
@@ -545,7 +546,7 @@ const isTypingTarget = (el) =>
 // saved designs are rebuilt on open (2: backing bands that merge, v1.7.2;
 // 3: One circuit margins and circuits on hex/triangle/Voronoi cells, v1.9;
 // 4: masks remove or invert, v1.13).
-const LINEWORK_ENGINE = 4;
+const LINEWORK_ENGINE = 5;
 // The settings a design is drawn from: plateFit only records what the
 // plates were last fitted to, so it's left out.
 const lineworkDesign = (s) => ({ ...s, plateFit: undefined });
@@ -787,67 +788,12 @@ export function DocumentEditor({ mode: appMode }) {
     setBgColors(extractedPalette.map((hex, i) => ({ id: `extract-bg-${i}`, hex, enabled: true })));
   }, [extractedPalette, setBgColors]);
 
-  // Animation
-  const [animSettings] = useDocField('animSettings');
-
   // Raster effects (Effects panel)
   const [effects] = useDocField('effects');
   const liveEffects = effectsActive(effects) && effects.preview;
 
-  // Audio Reactive Mode
-  const [audioSettings] = useDocField('audioSettings');
-  const [audioFileSrc, setAudioFileSrc] = useState(null);
-  const audioDataRef = useRef({ amplitude: 0, bands: [0, 0, 0, 0], beat: false });
-  const audioFileElRef = useRef(null);
-
-  // Manage the audio analyser lifecycle: start it (mic or file) when audio
-  // reactive mode is enabled, tear it down when disabled or the source changes.
-  useEffect(() => {
-    if (!audioSettings.enabled) return;
-
-    let analyserCtl = null;
-    let rafId = null;
-    let cancelled = false;
-
-    const loop = () => {
-      if (!analyserCtl) return;
-      const state = analyserCtl.update(audioSettings.beatSensitivity);
-      audioDataRef.current = { amplitude: state.amplitude, bands: state.bands, beat: state.beat };
-      rafId = requestAnimationFrame(loop);
-    };
-
-    if (audioSettings.inputSource === 'mic') {
-      navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
-        if (cancelled) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-        analyserCtl = createAudioAnalyser(stream);
-        analyserCtl._stream = stream;
-        loop();
-      }).catch(err => {
-        console.error('Microphone access denied:', err);
-      });
-    } else if (audioSettings.inputSource === 'file' && audioFileElRef.current) {
-      const el = audioFileElRef.current;
-      analyserCtl = createAudioAnalyser(el);
-      el.play().catch(() => {});
-      loop();
-    }
-
-    return () => {
-      cancelled = true;
-      if (rafId) cancelAnimationFrame(rafId);
-      if (analyserCtl) {
-        analyserCtl._stream?.getTracks().forEach(t => t.stop());
-        analyserCtl.stop();
-      }
-      audioDataRef.current = { amplitude: 0, bands: [0, 0, 0, 0], beat: false };
-    };
-  }, [audioSettings.enabled, audioSettings.inputSource, audioSettings.beatSensitivity, audioFileSrc]);
-
-  // shapeLibrary.json (~200KB) is only needed for image-mode colorization and
-  // shape-based animation, never for normal block placement/colouring — load
+  // shapeLibrary.json (~200KB) is only needed for image-mode colorization,
+  // never for normal block placement/colouring — load
   // it off the startup path and warm its render cache once it's ready.
   const [shapeLibrary, setShapeLibrary] = useState(null);
   useEffect(() => {
@@ -1676,9 +1622,13 @@ export function DocumentEditor({ mode: appMode }) {
   const maskCache = useRef(new Map());
   const lineworkMaskFor = useCallback((settings) => (li, cols, rows) => {
     const cfg = settings.layers[li];
-    if (!cfg?.mask || cfg.mask === 'none' || !gridComputed) return null;
-    const own = layerMaskSettings(cfg, cfg.mask === 'word' ? settings.word : fillSettingsById[cfg.mask]);
-    if (cfg.mask === 'silhouette') {
+    // A shape plate in Mask mode: its shape, as a silhouette (compose.js asShapeMask).
+    const shapeMask = li > 0 && isShapePlate(cfg) && cfg.shapeMode === 'mask';
+    if (!shapeMask && (!cfg?.mask || cfg.mask === 'none')) return null;
+    if (!gridComputed) return null;
+    const own = shapeMask ? shapeMaskSettings(cfg.shapeClip)
+      : layerMaskSettings(cfg, cfg.mask === 'word' ? settings.word : fillSettingsById[cfg.mask]);
+    if (shapeMask || cfg.mask === 'silhouette') {
       const s = own;
       if (!s?.src) return null;
       const key = `${JSON.stringify(s)}|${cols}x${rows}`;
@@ -1702,6 +1652,36 @@ export function DocumentEditor({ mode: appMode }) {
     maskCache.current.set(key, mask);
     return mask;
   }, [gridComputed, fillSettingsById, imagePixels]);
+
+  // Exact mask edges (maskEdge 'exact'): the Silhouette or Word mask drawn
+  // at high resolution over the layer's box and traced into its outline
+  // (utils/linework/traceMask.js). Traced asynchronously and cached by the
+  // mask's settings and the box's shape; until then the layer uses cells.
+  const exactCache = useRef(new Map());
+  const lineworkMaskShapeFor = useCallback((settings) => (li, lw, lh) => {
+    const cfg = settings.layers[li];
+    if (cfg?.maskEdge !== 'exact' || !['silhouette', 'word'].includes(cfg.mask)) return null;
+    const own = layerMaskSettings(cfg, cfg.mask === 'word' ? settings.word : fillSettingsById[cfg.mask]);
+    if (cfg.mask === 'word' && (!own?.text?.trim() || own.layout === 'scatter')) return null;
+    if (cfg.mask === 'silhouette' && !own?.src) return null;
+    const aspect = Math.round((lw / lh) * 100) / 100;
+    const key = `${cfg.mask}|${JSON.stringify(own)}|${aspect}`;
+    const hit = exactCache.current.get(key);
+    if (hit && hit !== 'pending') return hit;
+    if (!hit) {
+      exactCache.current.set(key, 'pending');
+      const [W, H] = rasterSize(aspect);
+      const raster = cfg.mask === 'word'
+        ? Promise.resolve(rasterWord(own.text, own.letterSize, W, H))
+        : silhouetteRaster(own, W, H);
+      raster.then(on => {
+        if (exactCache.current.size > 30) exactCache.current.clear();
+        exactCache.current.set(key, on ? traceRings(on, W, H) : []);
+        setSilhouetteTick(t => t + 1);
+      }).catch(() => exactCache.current.delete(key));
+    }
+    return null;
+  }, [fillSettingsById]);
 
   // Everything a Linework design is built from, hashed. LINEWORK_ENGINE is
   // part of it, so a design saved by an older generator rebuilds on open.
@@ -1752,7 +1732,7 @@ export function DocumentEditor({ mode: appMode }) {
     const { cols, rows, cellSize, gridOriginX, gridOriginY } = gridComputed;
     const areas = lineworkAreas;
     const { width, height, items } = composeLinework(settings, { cols, rows }, {
-      maskFor: lineworkMaskFor(settings), baseGround: !!settings.groundSwatch, areas,
+      maskFor: lineworkMaskFor(settings), maskShapeFor: lineworkMaskShapeFor(settings), baseGround: !!settings.groundSwatch, areas,
     });
     const fills = lineworkColours(items, {
       colorMode, palette: activePalette, ...lineworkRoles,
@@ -1771,7 +1751,7 @@ export function DocumentEditor({ mode: appMode }) {
       ...(it.opacity != null && it.opacity < 1 ? { opacity: it.opacity } : {}),
       ...(it.layer > 0 ? { groupId: `linework-plate-${it.layerId}` } : {}),
     }));
-  }, [gridComputed, lineworkAreas, lineworkMaskFor, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imagePixels, backdropPixels, backdropSettings.fit]);
+  }, [gridComputed, lineworkAreas, lineworkMaskFor, lineworkMaskShapeFor, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imagePixels, backdropPixels, backdropSettings.fit]);
 
   const lineworkLast = useRef(null);   // the settings the current blocks were built from
   const lineworkLabel = useRef(null);  // history label for the next settings change
@@ -1823,6 +1803,27 @@ export function DocumentEditor({ mode: appMode }) {
 
   // The layer the Linework panel is editing; picked there or in Layers.
   const [lineworkEditLayer, setLineworkEditLayer] = useState('base');
+  // More plates edited along with it (Ctrl/Shift+click in Layers). Plates only.
+  const [lineworkAlsoEdit, setLineworkAlsoEdit] = useState([]);
+  const lineworkEditLayers = useMemo(() => {
+    const ids = new Set(lineworkSettings.layers.map(l => l.id));
+    const primary = ids.has(lineworkEditLayer) ? lineworkEditLayer : 'base';
+    return [primary, ...lineworkAlsoEdit.filter(id => id !== primary && ids.has(id) && primary !== 'base')];
+  }, [lineworkSettings.layers, lineworkEditLayer, lineworkAlsoEdit]);
+  // Pick the layer to edit; add: toggle a plate in or out of the plates
+  // being edited together (the base is always edited on its own).
+  const editLineworkLayer = useCallback((id, { add = false } = {}) => {
+    const cur = lineworkEditLayers;
+    if (!add || id === 'base' || cur[0] === 'base') {
+      setLineworkEditLayer(id);
+      setLineworkAlsoEdit([]);
+      return;
+    }
+    const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id];
+    if (!next.length) return;
+    setLineworkEditLayer(next[0]);
+    setLineworkAlsoEdit(next.slice(1));
+  }, [lineworkEditLayers]);
 
   // Plates: added on top, removed, reordered (bottom → top) and renamed.
   const lineworkPlates = useMemo(() => ({
@@ -1830,10 +1831,12 @@ export function DocumentEditor({ mode: appMode }) {
       const plate = newPlate(lineworkSettings.layers);
       updateLinework(s => ({ ...s, layers: [...s.layers, plate] }), 'Add Plate');
       setLineworkEditLayer(plate.id);
+      setLineworkAlsoEdit([]);
     },
     remove: (id) => {
       updateLinework(s => ({ ...s, layers: s.layers.filter(l => l.id !== id) }), 'Delete Plate');
       setLineworkEditLayer(cur => (cur === id ? 'base' : cur));
+      setLineworkAlsoEdit(cur => cur.filter(x => x !== id));
     },
     move: (id, dir) => {
       const layers = lineworkSettings.layers;
@@ -1849,7 +1852,25 @@ export function DocumentEditor({ mode: appMode }) {
       if (!name || lineworkSettings.layers.find(l => l.id === id)?.name === name) return;
       updateLinework(s => ({ ...s, layers: s.layers.map(l => (l.id === id ? { ...l, name } : l)) }), 'Rename Plate');
     },
-  }), [lineworkSettings.layers, updateLinework]);
+    // Plates from SVG: a shape plate for each part picked (svgShapes.js),
+    // on top of the others or in place of them.
+    fromShapes: (shapes, { replace = false, padding = 0.05, file = null, by = 'group' } = {}) => {
+      if (!gridComputed || !shapes.parts.length) return;
+      const area = lineworkAreas?.[0] ?? { w: gridComputed.cols, h: gridComputed.rows };
+      updateLinework(s => {
+        const kept = replace ? s.layers.slice(0, 1) : s.layers;
+        const made = platesFromShapes(kept, shapes, area, { padding, file, by });
+        return { ...s, layers: [...kept, ...made] };
+      }, 'Plates from SVG');
+    },
+    // Refresh from SVG (settings.js planShapeRefresh / refreshShapePlates).
+    refreshShapes: (shapes, plan, opts) => {
+      if (!gridComputed) return;
+      const area = lineworkAreas?.[0] ?? { w: gridComputed.cols, h: gridComputed.rows };
+      updateLinework(s => refreshShapePlates(s, shapes, area, plan, opts), 'Refresh Plates from SVG');
+      if (opts?.remove?.length) setLineworkAlsoEdit(cur => cur.filter(x => !opts.remove.includes(x)));
+    },
+  }), [lineworkSettings.layers, updateLinework, gridComputed, lineworkAreas]);
 
   // Linework layers (ids) locked in the Layers panel: every one of their
   // shapes is locked. Generate and Surprise Me leave these as they are.
@@ -1870,7 +1891,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (!gridComputed) return null;
     const { cols, rows } = gridComputed;
     const { edits } = composeLinework(lineworkSettings, { cols, rows }, {
-      maskFor: lineworkMaskFor(lineworkSettings), baseGround: !!lineworkSettings.groundSwatch, areas: lineworkAreas,
+      maskFor: lineworkMaskFor(lineworkSettings), maskShapeFor: lineworkMaskShapeFor(lineworkSettings), baseGround: !!lineworkSettings.groundSwatch, areas: lineworkAreas,
       edit: { ...edit, rng: Math.random },
     });
     const locked = lockedLineworkLayers();
@@ -1888,7 +1909,7 @@ export function DocumentEditor({ mode: appMode }) {
       }),
     }), label ?? names[made[0].op]);
     return made;
-  }, [gridComputed, lineworkSettings, lineworkMaskFor, lineworkAreas, lockedLineworkLayers, updateLinework]);
+  }, [gridComputed, lineworkSettings, lineworkMaskFor, lineworkMaskShapeFor, lineworkAreas, lockedLineworkLayers, updateLinework]);
 
   // Build tool, Linework: what's under the pointer comes out -- a bundle
   // with its mirror images, or an angular tile -- or the empty space there
@@ -2531,6 +2552,81 @@ export function DocumentEditor({ mode: appMode }) {
     setSelectedIds(new Set(plan.movedIds));
   }, [gridComputed, hitTest, setSelectedIds, showToast, pushHistory, setPlacedBlocks, syncHistorySize]);
 
+  // ── Move tool on Linework plates ──────────────────────────────────────────
+  // Drag a plate to move it, or the edited plate's handles to resize it
+  // (utils/linework/plateDrag.js). The outline follows the pointer and the
+  // plate's settings change once, on release: one undo step.
+  const plateDrag = useRef(null);
+  const [plateGhost, setPlateGhost] = useState(null);
+  const lineworkPlateBoxes = useMemo(() => (isLinework && gridComputed
+    ? plateBoxes(lineworkSettings, gridComputed, { areas: lineworkAreas }) : []), [isLinework, gridComputed, lineworkSettings, lineworkAreas]);
+  const editPlateBox = lineworkPlateBoxes.find(b => b.id === lineworkEditLayers[0]) ?? null;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || !plateDrag.current) return;
+      plateDrag.current = null;
+      setPlateGhost(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const handlePlatePointer = useCallback((phase, pt) => {
+    if (!gridComputed) return;
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    const scale = useDocumentStore.getState().docs[docId]?.state.viewTransform?.scale ?? 1;
+    const px = 1 / (cellSize * scale); // one screen pixel, in cells
+    const cellsOf = (p) => [(p.x - gridOriginX) / cellSize, (p.y - gridOriginY) / cellSize];
+    const boxes = lineworkPlateBoxes;
+
+    if (phase === 'down') {
+      const p = cellsOf(pt);
+      const own = boxes.find(b => b.id === lineworkEditLayers[0]);
+      const handle = own && handlesOf(own).find(h => Math.hypot(h.x - p[0], h.y - p[1]) <= 8 * px);
+      const box = handle ? own : hitPlate(boxes, p);
+      if (!box) return;
+      if (lockedLineworkLayers().has(box.id)) { showToast('That plate is locked (Layers panel)'); return; }
+      if (!handle && box.id !== lineworkEditLayers[0]) editLineworkLayer(box.id);
+      plateDrag.current = { id: box.id, box, handle: handle?.key ?? null, start: p, result: null };
+      return;
+    }
+    const drag = plateDrag.current;
+    if (!drag) return;
+    const others = boxes.filter(b => b.id !== drag.id);
+    const opts = { others, threshold: 8 * px, free: !!pt?.altKey };
+    if (phase === 'move' && pt) {
+      const p = cellsOf(pt);
+      let box, result;
+      if (drag.handle) {
+        const cfg = lineworkSettings.layers.find(l => l.id === drag.id);
+        // Shape plates keep their proportions from a corner unless Shift is held; others the other way round.
+        const keepRatio = isShapePlate(cfg) ? !pt.shiftKey : !!pt.shiftKey;
+        result = resizeBox(drag.box, drag.handle, p, { ...opts, keepRatio });
+        box = { ...drag.box, ...result };
+      } else {
+        result = snapMove(drag.box, p[0] - drag.start[0], p[1] - drag.start[1], { ...opts, straight: !!pt.shiftKey });
+        box = { ...drag.box, cx: result.cx, cy: result.cy };
+      }
+      // A click that barely moves is just a click.
+      if (!drag.result && Math.hypot(p[0] - drag.start[0], p[1] - drag.start[1]) < 3 * px) return;
+      drag.result = result;
+      setPlateGhost({ box, from: drag.box, guides: result.guides });
+      return;
+    }
+    // Up: apply (or cancel, if the pointer left the canvas).
+    plateDrag.current = null;
+    setPlateGhost(null);
+    const r = drag.result;
+    if (!pt || !r) return;
+    if (drag.handle) {
+      const [ox, oy] = plateOffsetFor(drag.box, r.cx, r.cy).map(v => Math.round(v * 1000) / 1000);
+      updateLinework(prev => updateLayers(prev, [drag.id], { sizing: 'cells', w: r.w, h: r.h, ox, oy }), 'Resize Plate');
+    } else {
+      const [ox, oy] = snappedOffset(plateOffsetFor(drag.box, r.cx, r.cy), r.grid);
+      updateLinework(prev => updateLayers(prev, [drag.id], { ox, oy }), 'Move Plate');
+    }
+  }, [gridComputed, docId, lineworkPlateBoxes, lineworkEditLayers, lockedLineworkLayers, showToast, editLineworkLayer, lineworkSettings.layers, updateLinework]);
+
   // Pins the main colour of each block to `hex` (Object › Paint, Eyedropper Alt+click).
   const addRecentColour = useAppStore(s => s.addRecentColour);
   const paintIds = useCallback((ids, hex) => {
@@ -2554,7 +2650,7 @@ export function DocumentEditor({ mode: appMode }) {
     const tool = toolOverride ?? chosen;
     const blocks = placedBlocksRef.current;
 
-    if (tool === 'move') { handleMovePointer(phase, pt); return; }
+    if (tool === 'move') { if (isLinework) handlePlatePointer(phase, pt); else handleMovePointer(phase, pt); return; }
     if (tool === 'lasso') {
       if (phase === 'down') {
         toolDrag.current = { points: [pt], op: pt.altKey ? 'subtract' : pt.shiftKey ? 'add' : 'replace' };
@@ -2741,7 +2837,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (tool === 'reflect') {
       updateBlocks([block.id], b => (pt.altKey ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }), 'Reflect');
     }
-  }, [docId, appMode, lineworkBuildAt, knotworkBuildAt, hitTest, stampSymmetric, symmetricHits, handleMovePointer, handleLassoSelect, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
+  }, [docId, appMode, lineworkBuildAt, knotworkBuildAt, hitTest, stampSymmetric, symmetricHits, handleMovePointer, handlePlatePointer, isLinework, handleLassoSelect, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
 
   // Actions on the current selection, shared by the task bar, the right-click
   // menu and the Object / Select menus. Locked shapes are never edited.
@@ -3006,11 +3102,10 @@ export function DocumentEditor({ mode: appMode }) {
     knotworkThemeColors,
     linework: {
       settings: lineworkSettings, update: updateLinework, roles: lineworkRoles,
-      editLayer: lineworkEditLayer, setEditLayer: setLineworkEditLayer, plates: lineworkPlates,
+      editLayer: lineworkEditLayers[0], editLayers: lineworkEditLayers, setEditLayer: editLineworkLayer, plates: lineworkPlates,
       diamondCells: gridComputed && lineworkSettings.orientation === 'diamond'
         ? lineworkBaseFrame(lineworkSettings, gridComputed).cells : null,
     },
-    audioFileSrc, setAudioFileSrc,
     fillActions,
     colourCtx, layerActions, selectedIds, selectionActions,
     history: { ...historySize, jumpTo: jumpToHistory },
@@ -3049,7 +3144,7 @@ export function DocumentEditor({ mode: appMode }) {
       imageProgress: null,
       canKnotworkFill: gridComputed !== null,
     },
-  }), [appMode, savePreset, applyPreset, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, lineworkSettings, updateLinework, lineworkRoles, lineworkEditLayer, lineworkPlates, reseedLinework, recolourLinework, applyLineworkPreset, surpriseLinework, audioFileSrc, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
+  }), [appMode, savePreset, applyPreset, gridComputed, validCols, workArea, assetUsageCounts, knotworkThemeColors, lineworkSettings, updateLinework, lineworkRoles, lineworkEditLayers, editLineworkLayer, lineworkPlates, reseedLinework, recolourLinework, applyLineworkPreset, surpriseLinework, fillActions, colourCtx, layerActions, selectedIds, selectionActions, historySize, jumpToHistory, surpriseMe, handleFillGaps, handleFlipH, handleFlipV, openExport, handleRandomReverse, handleRandomRerun, handleApplyExtractedToShapes, handleApplyExtractedToBg, handleApplyLayout, handleClearLayout, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, handleKnotworkCanvasBgChange, extractedPalette, imagePixels, backdropPixels, placedBlocks.length, canShapeFill]);
 
   // The selection's colour for the control bar's Fill chip: one colour,
   // 'mixed', or null with nothing colourable selected.
@@ -3149,11 +3244,11 @@ export function DocumentEditor({ mode: appMode }) {
     savePreset,
     recolourArtwork: () => setShowRecolour(true),
     updateLinework,
-    setLineworkEditLayer,
+    setLineworkEditLayer: editLineworkLayer,
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, savePreset, setShowRecolour, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, deleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, guides, setGuides]);
+  }), [openExport, savePreset, setShowRecolour, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, deleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, editLineworkLayer, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -3167,10 +3262,11 @@ export function DocumentEditor({ mode: appMode }) {
     canRedo: historySize.redo > 0,
     canExport: placedBlocks.length > 0,
     lineworkEditLayer,
+    lineworkEditLayers,
     colorMode,
     selectionFrozen: selectedBlocks.length > 0 && selectedBlocks.every(b => b.colorLocked),
     selectionPinned: selectedBlocks.some(b => b.slotPins),
-  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer, colorMode, selectedBlocks]);
+  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer, lineworkEditLayers, colorMode, selectedBlocks]);
   useEffect(() => { setEditorBridge(editorCommands, editorStatus); }, [setEditorBridge, editorCommands, editorStatus]);
   useEffect(() => () => setEditorBridge(null, null), [setEditorBridge]);
 
@@ -3213,9 +3309,6 @@ export function DocumentEditor({ mode: appMode }) {
               imagePixels={imagePixels}
               colourRemap={imageColourRemap}
               blendMode={blendMode}
-              animSettings={animSettings}
-              audioSettings={audioSettings}
-              audioDataRef={audioDataRef}
               effects={effects}
             />
           }
@@ -3254,28 +3347,22 @@ export function DocumentEditor({ mode: appMode }) {
             highlightIds={layerHighlight}
             hideImages={liveEffects || !!backdropSettings.cutout}
           />
-          <AnimationLayer animSettings={animSettings} />
           <Overlays ids={overlayIds} width={workArea.width} height={workArea.height} scale={viewTransform.scale} />
           {(activeTool === 'stamp' || activeTool === 'eraser' || activeTool === 'bucket') && (
             <SymmetryAxes mode={toolOptions.symmetry} gridComputed={gridComputed} />
           )}
           {(activeTool === 'stamp' || activeTool === 'eraser') && <BrushOutline tool={activeTool} gridComputed={gridComputed} />}
           <MoveGhost plan={movePreview} gridComputed={gridComputed} />
+          {isLinework && activeTool === 'move' && (
+            <PlateGhost ghost={plateGhost} editBox={editPlateBox} handles={editPlateBox ? handlesOf(editPlateBox) : null}
+              gridComputed={gridComputed} workArea={workArea} scale={viewTransform.scale} />
+          )}
           <LassoPath points={lassoPath} />
           {(showGuides || guideDrag.drag) && (
             <GuideLines guides={guides} drag={guideDrag.drag} onStartDrag={startGuideDrag}
               interactive={activeTool === 'select'} scale={viewTransform.scale} />
           )}
         </Canvas>
-
-        {audioSettings.enabled && audioSettings.inputSource === 'file' && (
-          <audio
-            ref={audioFileElRef}
-            src={audioFileSrc || undefined}
-            loop
-            style={{ display: 'none' }}
-          />
-        )}
 
         {contextMenu && (
           <ContextMenu

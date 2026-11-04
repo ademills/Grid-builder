@@ -54,6 +54,21 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // the design over everything kept, 'each' gives each separate shape of it
   // a design of its own (compose.js layerRuns).
   mask: 'none', maskMode: 'remove', maskSettings: {}, maskShapes: 'one',
+  // maskEdge 'cells' fills or empties whole cells; 'exact' (Silhouette and
+  // Word masks) cuts the lines to the mask's traced outline, with an outline
+  // maskOutline cells wide along the cut (compose.js cutToMask).
+  maskEdge: 'cells', maskOutline: 0,
+  // Shape plates (made by Plates from SVG; utils/linework/shapeClip.js):
+  // shapeClip { rings } is the shape in the plate's box, or null for a
+  // plain plate. shapeMode 'cutout' cuts the plate to the shape exactly,
+  // with an Outline shapeOutline cells wide round its inside; 'mask' masks
+  // it to the cells the shape covers, as a Silhouette mask does. upright:
+  // placed on the canvas as drawn, not turned with a diamond base.
+  // shapeOutlinePos 'inside' | 'centre' | 'outside'; shapeOutlineDouble adds
+  // a second ring shapeOutlineGap cells away; shapeOutlineInk false draws it
+  // in the ground colour.
+  shapeClip: null, shapeMode: 'cutout', shapeOutline: 0.1, upright: false,
+  shapeOutlinePos: 'inside', shapeOutlineDouble: false, shapeOutlineGap: 0.1, shapeOutlineInk: true,
   ...over,
 });
 
@@ -135,6 +150,93 @@ export function newPlate(layers, over = {}) {
   return lineworkLayerDefaults({ ...design, id: newId(), name: `Plate ${n}`, size, ...over });
 }
 
+// Editing several plates at once (v1.14): ids are the layers being edited.
+// A change sets those fields to the same value on each of them.
+export const updateLayers = (settings, ids, changes) => ({
+  ...settings, layers: settings.layers.map(l => (ids.includes(l.id) ? { ...l, ...changes } : l)),
+});
+
+// The keys whose values differ between the given layers.
+export function differingKeys(layers, keys) {
+  if (layers.length < 2) return [];
+  return keys.filter(k => layers.some(l => JSON.stringify(l[k] ?? null) !== JSON.stringify(layers[0][k] ?? null)));
+}
+
+// Plates for the parts of an SVG (utils/linework/svgShapes.js), in its
+// drawing order, bottom to top. parts: [{ name, box: { x, y, w, h }, rings }]
+// in the SVG's units, over an svg of width × height. area: the canvas in
+// cells ({ w, h }); the SVG is fitted inside it, `padding` (a fraction)
+// clear all round, and each plate takes its part's box and place. over: any
+// settings for every plate.
+export function platesFromShapes(layers, { parts, width, height }, area, { padding = 0.05, over = {}, file = null, by = 'group' } = {}) {
+  const k = Math.min((area.w * (1 - 2 * padding)) / width, (area.h * (1 - 2 * padding)) / height);
+  const round = v => Math.round(v * 1000) / 1000;
+  const out = [];
+  for (const part of parts) {
+    const plate = newPlate([...layers, ...out], {
+      name: part.name, sizing: 'cells', w: round(Math.max(0.5, part.box.w * k)), h: round(Math.max(0.5, part.box.h * k)),
+      ox: round((part.box.x + part.box.w / 2 - width / 2) * k), oy: round((part.box.y + part.box.h / 2 - height / 2) * k),
+      shape: 'square', upright: true, backing: 'square', corner: 0, shadow: 'none', rim: 0,
+      mask: 'none', maskSettings: {},
+      shapeClip: { rings: part.rings }, shapeMode: 'cutout', shapeOutline: 0.1,
+      // Where the shape came from, for Refresh from SVG (refreshShapePlates).
+      shapeFrom: { file, by, name: part.name, key: part.key, padding },
+      ...over,
+    });
+    out.push(plate);
+  }
+  return out;
+}
+
+// Refresh from SVG: which shape plates (made from an SVG split `by`) the
+// new SVG's parts belong to, matched by name; parts without a name of their
+// own (Group 3, Shape 2) fall back to their place in the file, since a
+// named part that's gone is more likely deleted than renamed. → { matches:
+// [{ id, part }], added: [part], missing: [id] }.
+export function planShapeRefresh(layers, { parts }, by) {
+  const plates = layers.filter((l, i) => i > 0 && l.shapeFrom && (l.shapeFrom.by ?? 'group') === by);
+  const used = new Set();
+  const matches = [];
+  const take = (pred) => {
+    for (const p of plates) {
+      if (matches.some(m => m.id === p.id)) continue;
+      const part = parts.find(q => !used.has(q.key) && pred(p, q));
+      if (part) { used.add(part.key); matches.push({ id: p.id, part }); }
+    }
+  };
+  take((p, q) => q.name === p.shapeFrom.name);
+  const unnamed = name => /^(Group|Shape) \d+$/.test(name ?? '');
+  take((p, q) => q.key === p.shapeFrom.key && unnamed(q.name) && unnamed(p.shapeFrom.name));
+  return {
+    matches,
+    added: parts.filter(q => !used.has(q.key)),
+    missing: plates.filter(p => !matches.some(m => m.id === p.id)).map(p => p.id),
+  };
+}
+
+// Applies a refresh: matched plates take the new shape (and, with
+// geometry, its new place and size on the canvas); `add` parts become new
+// plates on top; `remove` plate ids are deleted. Every other setting stays.
+export function refreshShapePlates(settings, shapes, area, plan, { geometry = true, add = [], remove = [], file = null, by = 'group' } = {}) {
+  const fresh = new Map(plan.matches.map(m => {
+    const plate = settings.layers.find(l => l.id === m.id);
+    const padding = plate.shapeFrom?.padding ?? 0.05;
+    const [made] = platesFromShapes(settings.layers, { ...shapes, parts: [m.part] }, area, { padding, file, by });
+    return [m.id, made];
+  }));
+  const layers = settings.layers.filter(l => !remove.includes(l.id)).map(l => {
+    const made = fresh.get(l.id);
+    if (!made) return l;
+    return {
+      ...l, shapeClip: made.shapeClip, shapeFrom: { ...made.shapeFrom, padding: l.shapeFrom?.padding ?? made.shapeFrom.padding },
+      ...(geometry ? { sizing: 'cells', w: made.w, h: made.h, ox: made.ox, oy: made.oy } : {}),
+    };
+  });
+  const padding = settings.layers.find(l => l.shapeFrom)?.shapeFrom.padding ?? 0.05;
+  const added = add.length ? platesFromShapes(layers, { ...shapes, parts: add }, area, { padding, file, by }) : [];
+  return { ...settings, layers: [...layers, ...added] };
+}
+
 // The angular style's fills, in panel order: the main ones (all on for a
 // new layer), then the experimental ones, off until picked.
 export const ANGULAR_FILLS = [
@@ -158,7 +260,7 @@ export const EXPERIMENTAL_FILLS = [
 // scale, shadow, rim and padding by as much as the base has shrunk or grown
 // since settings.plateFit, and records the new size (or forgets it once
 // there are no plates). Returns the same settings when nothing changes.
-const PLATE_LENGTHS = ['size', 'w', 'h', 'ox', 'oy', 'depth', 'rim', 'pad', 'scale'];
+const PLATE_LENGTHS = ['size', 'w', 'h', 'ox', 'oy', 'depth', 'rim', 'pad', 'scale', 'shapeOutline', 'shapeOutlineGap'];
 export function fitPlates(settings, base) {
   const ref = settings.plateFit;
   if ((settings.layers?.length ?? 0) < 2) return ref ? { ...settings, plateFit: null } : settings;

@@ -47,11 +47,14 @@ export function PlateSize({ values: L, set, ctx }) {
   const equal = Math.abs(w - h) < 1e-6;
   return (
     <>
-      <Row label="Shape">
-        <Segmented value={L.shape} onChange={v => set({ shape: v })} options={[
-          { key: 'square', label: equal ? 'Square' : 'Upright' }, { key: 'diamond', label: 'Diamond' },
-        ]} />
-      </Row>
+      {/* A shape plate (Plates from SVG) keeps to its SVG shape. */}
+      {!L.shapeClip?.rings?.length && (
+        <Row label="Shape">
+          <Segmented value={L.shape} onChange={v => set({ shape: v })} options={[
+            { key: 'square', label: equal ? 'Square' : 'Upright' }, { key: 'diamond', label: 'Diamond' },
+          ]} />
+        </Row>
+      )}
       <Row label="Sides" title="Equal sides, a width and height in grid cells, or an aspect ratio">
         <Segmented value={sizing} onChange={setSizing} options={[
           { key: 'equal', label: 'Equal' }, { key: 'cells', label: 'Grid cells' }, { key: 'ratio', label: 'Ratio' },

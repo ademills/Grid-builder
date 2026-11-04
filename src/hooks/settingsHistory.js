@@ -22,7 +22,7 @@ const FIELD_LABELS = {
   paletteExtractSettings: 'Palette Extractor', knotworkSettings: 'Meander Settings',
   lineworkSettings: 'Linework Settings', enabledAssetIds: 'Shapes', groupNames: 'Group Names',
   backdropSrc: 'Backdrop', backdropSettings: 'Backdrop', effects: 'Effects',
-  animSettings: 'Animation', audioSettings: 'Audio', activeLayoutId: 'Layout',
+  activeLayoutId: 'Layout',
 };
 
 // "glitchSettings" → "Glitch Settings"

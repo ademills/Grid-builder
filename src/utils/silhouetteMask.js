@@ -121,3 +121,52 @@ export function silhouetteCells(coverage, cols, rows, { threshold = 0.5, invert 
     }
   return cells;
 }
+
+// The silhouette at W × H pixels, placed as silhouetteCoverage places it
+// (fit, padding, scale, offset), as on / off pixels: inside where at least
+// half covered by the chosen source (and flipped by invert). For exact mask
+// edges (utils/linework/traceMask.js).
+export async function silhouetteRaster(s, W, H) {
+  const img = await loadImage(s.src);
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const pad = Math.max(0, Math.min(0.45, s.padding ?? 0));
+  const boxW = W * (1 - pad * 2), boxH = H * (1 - pad * 2);
+  const iw = img.naturalWidth || 300, ih = img.naturalHeight || iw;
+  let dw, dh;
+  if (s.fit === 'stretch') { dw = boxW; dh = boxH; }
+  else {
+    const k = s.fit === 'cover' ? Math.max(boxW / iw, boxH / ih) : Math.min(boxW / iw, boxH / ih);
+    dw = iw * k; dh = ih * k;
+  }
+  const scale = s.scale ?? 1;
+  dw *= scale; dh *= scale;
+  const dx = (W - dw) / 2 + (s.offsetX ?? 0) * W;
+  const dy = (H - dh) / 2 + (s.offsetY ?? 0) * H;
+  ctx.drawImage(img, dx, dy, dw, dh);
+  const { data } = ctx.getImageData(0, 0, W, H);
+  let source = s.source ?? 'auto';
+  if (source === 'auto') {
+    let transparent = false;
+    const x0 = Math.max(0, Math.floor(dx)), x1 = Math.min(W, Math.ceil(dx + dw));
+    const y0 = Math.max(0, Math.floor(dy)), y1 = Math.min(H, Math.ceil(dy + dh));
+    outer: for (let y = y0; y < y1; y += 2)
+      for (let x = x0; x < x1; x += 2)
+        if (data[(y * W + x) * 4 + 3] < 128) { transparent = true; break outer; }
+    source = transparent ? 'alpha' : 'dark';
+  }
+  const on = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const a = data[i * 4 + 3] / 255;
+    let v;
+    if (source === 'alpha') v = a;
+    else {
+      const lum = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) / 255;
+      const onWhite = lum * a + (1 - a);
+      v = source === 'light' ? (a > 0 ? onWhite * a : 0) : 1 - onWhite;
+    }
+    on[i] = (v >= 0.5) !== !!s.invert ? 1 : 0;
+  }
+  return on;
+}

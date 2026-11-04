@@ -6,7 +6,7 @@ import { FILLS, FILLS_BY_ID } from '../modes/gridBuilder/fills';
 import { PanelMenu } from './PanelMenu';
 import {
   DiceIcon, CloseIcon, LayersIcon, HistoryIcon, InfoIcon, LayoutsIcon, SwatchesIcon, PaletteIcon,
-  ShapesIcon, EffectsIcon, ImageIcon, AnimationIcon, AudioIcon,
+  ShapesIcon, EffectsIcon, ImageIcon,
 } from './icons';
 import styles from './Inspector.module.css';
 
@@ -20,7 +20,7 @@ import styles from './Inspector.module.css';
 const RAIL_ICONS = {
   layers: LayersIcon, history: HistoryIcon, info: InfoIcon, layouts: LayoutsIcon,
   swatches: SwatchesIcon, colour: PaletteIcon, assets: ShapesIcon, effects: EffectsIcon,
-  image: ImageIcon, animation: AnimationIcon, audio: AudioIcon,
+  image: ImageIcon,
 };
 
 function splitPanels(groups) {

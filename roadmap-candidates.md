@@ -8,8 +8,8 @@ Nothing here is committed to.
 - **Ideas**: `ideas.md`, collected during the workspace refactor
 - **Perf**: `updates.md`
 - **VC**: VectorCraft (github.com/storytold/vectorcraft)
-- **EC**: EffectCraft, the ArtCraft motion graphics app
-- **AC**: the wider ArtCraft suite (getartcraft.com): AI compositing, shared CLI/MCP/command-registry architecture
+- **EC**: EffectCraft, another ArtCraft app
+- **AC**: the wider ArtCraft suite (getartcraft.com): shared CLI/command-registry architecture
 - **New**: new suggestions that fit the app
 
 **Complexity** (relative effort)
@@ -28,11 +28,9 @@ Each item ends with **Needs from you**: the decisions or inputs required before 
 |----|------|----|--------|
 | **0. Foundations & housekeeping** ||||
 | 0.1 | Verify refactor in a real Tauri build, then commit | S | Ideas |
-| 0.2 | Fix Animation › Intensity (NaN%) | S | Ideas |
 | 0.3 | Confirm file-write permissions in packaged app | S | Ideas |
 | 0.4 | Per-document error boundary | S | Ideas |
 | 0.5 | Persisted file scope for recent files | S | Ideas |
-| 0.6 | Throttle continuous colour animations | M | Perf |
 | 0.7 | Inline-SVG vs data-URI rendering spike | M | Perf |
 | 0.8 | Move heavy fills to a Web Worker | M | Perf/New |
 | 0.9 | Automated tests incl. project round-trip | M | VC |
@@ -94,7 +92,6 @@ Each item ends with **Needs from you**: the decisions or inputs required before 
 | 4.16 | Wave Function Collapse fill | L | New |
 | 4.17 | Reaction-diffusion / cellular-automata fill | M | New |
 | 4.18 | Hex, triangle and isometric grids | XL | New |
-| 4.19 | Depth-map–driven fills | L | AC |
 | 4.20 | Fill along a path / radial-polar grid | L | New |
 | **5. Shapes & assets** ||||
 | 5.1 | Custom SVG shape import | M | Backlog D2 |
@@ -112,7 +109,7 @@ Each item ends with **Needs from you**: the decisions or inputs required before 
 | 6.3 | Swatch library thumbnails on Home | S | Ideas |
 | 6.4 | Swatch groups + Colour Guide (harmonies) | M | Ideas |
 | 6.5 | Library sync with .ase on disk | M | Ideas |
-| 6.6 | Pins in Image + animation modes | M | Ideas |
+| 6.6 | Pins in Image mode | M | Ideas |
 | 6.7 | Recolour Artwork dialog | L | VC/New |
 | 6.8 | Gradient mesh colour mode | L | Backlog J9/VC |
 | 6.9 | Colour-blind and contrast preview | S | New |
@@ -131,9 +128,6 @@ Each item ends with **Needs from you**: the decisions or inputs required before 
 | 7.11 | Envelope / perspective warp | L | VC |
 | 7.12 | Product mockup preview | M | New |
 | **8. Export & output** ||||
-| 8.1 | Animated export: GIF / MP4 / WebM | L | Backlog B2/EC |
-| 8.2 | PNG image sequence export | M | EC |
-| 8.3 | Lottie export | L | EC |
 | 8.4 | Tiling preview & seamless tile export | M | Backlog B3 |
 | 8.5 | Batch export / export all tabs | M | Backlog J8/Ideas |
 | 8.6 | Export for Screens (1×/2×/3×) | S | Ideas/VC |
@@ -144,24 +138,10 @@ Each item ends with **Needs from you**: the decisions or inputs required before 
 | 8.11 | Cleaner SVG output (layers, reuse, optimise) | M | New |
 | 8.12 | Copy as SVG to clipboard | S | New |
 | 8.13 | Send to Figma | M | New |
-| **9. Animation & live performance** ||||
-| 9.1 | Live camera input | L | Backlog G3 |
-| 9.2 | Fill transition animation | M | Backlog J5 |
-| 9.3 | Loop length + easing control | M | EC |
-| 9.4 | Keyframe timeline | XL | EC |
-| 9.5 | MIDI controller input | M | New |
-| 9.6 | Performance / second-screen output | M | New |
-| 9.7 | Spout / NDI output for VJ software | L | New |
-| **10. Automation & AI** ||||
-| 10.1 | MCP server (Claude drives the app) | L | VC/AC |
+| **10. Automation** ||||
 | 10.2 | Headless CLI renderer | L | AC |
 | 10.3 | Actions / macro recording | L | AC/New |
 | 10.4 | Data-driven batch (CSV → designs) | M | VC (Variables) |
-| 10.5 | AI palette from a prompt | M | AC |
-| 10.6 | AI "describe a pattern" → settings | M | AC |
-| 10.7 | AI-generated source image | M | AC |
-| 10.8 | Background removal / subject mask | M | AC |
-| 10.9 | AI critique / suggestion pass | M | New |
 | **11. Platform & distribution** ||||
 | 11.1 | Web build | M | VC |
 | 11.2 | macOS / Linux builds | M | VC |
@@ -179,11 +159,6 @@ These are mostly prerequisites. Several later items depend on 0.10.
 All five refactor phases (doc store, shell, dock, layers, swatches, tools) are complete but uncommitted. They have only been tested in the browser through Playwright. Run `tauri dev` and a release build, then smoke-test open, save, export, swatch import and the tools. After that, commit in logical chunks so the work is protected before anything below starts.
 **Needs from you:** permission to commit, and whether you want one squash commit or one commit per phase. Also whether this lands on `main` or stays on `refactor/workspace-ui` for a while.
 
-### 0.2 Fix Animation › Intensity (NaN%)
-**Source:** Ideas · **Cx:** S
-The slider reads `animSettings.intensity`, which has no default, and no effect uses it. Either remove the slider or make it a global multiplier for every animation's amplitude.
-**Needs from you:** remove or wire up? Wiring it up is more useful, especially for audio-reactive mode.
-
 ### 0.3 Confirm file-write permissions in the packaged app
 **Source:** Ideas · **Cx:** S
 In earlier packaged builds, Save and Export may have failed silently. The capability is now scoped to `$HOME/**`. This needs confirming in an installed build, and errors should surface as a visible toast rather than a silent failure.
@@ -198,11 +173,6 @@ If one tab's editor crashes, show "This document hit an error — Reload / Close
 **Source:** Ideas · **Cx:** S
 Use `tauri-plugin-persisted-scope` so recent files on other drives still open after a restart.
 **Needs from you:** nothing.
-
-### 0.6 Throttle continuous colour animations
-**Source:** Perf · **Cx:** M
-Noise, gradient sweep and palette wave rewrite every slot's fill on every frame. Options: cap at 30 fps, pause when the window is unfocused or minimised, move colour maths to a worker, and use the seeded PRNG for flicker so it is reproducible. This matters for animated export (8.1), which needs deterministic frames.
-**Needs from you:** should animations keep running in the background (for example on a second-screen display, 9.6), or pause when the window is unfocused?
 
 ### 0.7 Inline-SVG vs data-URI rendering spike
 **Source:** Perf · **Cx:** M
@@ -232,7 +202,6 @@ Today the menu calls functions on the editor bridge (`cmds.*`), and the context 
 - custom shortcuts (1.14)
 - tool presets (3.7)
 - macros (10.3)
-- the MCP server (10.1)
 - the CLI (10.2)
 - the History panel's step names (2.2)
 
@@ -294,7 +263,7 @@ Each dock group gets a menu of panel-specific actions, for example Swatches › 
 
 ### 1.10 Workspace presets
 **Source:** Ideas · **Cx:** M
-Save and restore dock arrangements per mode, such as Essentials, Colour, Generate and Performance (big canvas, Audio panel open). Use Window › Workspace › Reset to get back to a sane layout.
+Save and restore dock arrangements per mode, such as Essentials, Colour, Generate and Big canvas. Use Window › Workspace › Reset to get back to a sane layout.
 **Needs from you:** which presets you would actually use.
 
 ### 1.11 Drag panels between groups / float them
@@ -315,7 +284,6 @@ One place for:
 - default export format and scale
 - UI scale
 - canvas background colour
-- animation FPS cap
 - undo depth
 - default swatch library
 
@@ -333,7 +301,7 @@ An editable shortcut table with conflict detection and export/import.
 
 ### 1.16 Localisation
 **Source:** VC (19 languages) · **Cx:** L
-Extract all UI strings into a translation layer. Translation itself is cheap with Claude; the extraction is the work.
+Extract all UI strings into a translation layer. The extraction is most of the work.
 **Needs from you:** is this app ever going beyond you and a few people? If not, cut it.
 
 ### 1.17 Onboarding tour / contextual help
@@ -528,18 +496,13 @@ The generalised form of 4.15: define adjacency rules ("shape A may sit to the ri
 
 ### 4.17 Reaction-diffusion / cellular-automata fill
 **Source:** New · **Cx:** M
-Organic Turing patterns or Game-of-Life generations decide which cells are filled (and at what scale). Can be animated.
+Organic Turing patterns or Game-of-Life generations decide which cells are filled (and at what scale).
 **Needs from you:** nothing.
 
 ### 4.18 Hex, triangle and isometric grids
 **Source:** New · **Cx:** XL
 New grid geometries. Every packer, the hit-testing and the export assume square cells, and the shapes need variants for the new geometry.
 **Needs from you:** do you have, or want, a hex/triangle shape library? Without one, cut this.
-
-### 4.19 Depth-map–driven fills
-**Source:** AC (depth-based 3D compositing) · **Cx:** L
-Estimate a depth map from the reference image (local ONNX model or API), then use it to drive scale (near = big), density or colour.
-**Needs from you:** local model (installer grows roughly 50–100 MB) or a cloud API?
 
 ### 4.20 Fill along a path / radial-polar grid
 **Source:** New · **Cx:** L
@@ -629,9 +592,9 @@ Groups within a document, plus harmony generation (complementary, triads, analog
 Watch an `.ase` file and refresh the library when Illustrator saves it.
 **Needs from you:** do you keep palettes in Illustrator as the master copy?
 
-### 6.6 Pins in Image + animation modes
+### 6.6 Pins in Image mode
 **Source:** Ideas · **Cx:** M
-Pinned colours currently do nothing in Image mode and in continuous animations. Layer the pins on top of both.
+Pinned colours currently do nothing in Image mode. Layer the pins on top of it.
 **Needs from you:** nothing. This is arguably a bug.
 
 ### 6.7 Recolour Artwork dialog
@@ -722,26 +685,6 @@ Preview the pattern on a T-shirt, tote, phone case, wallpaper or tiled wall, usi
 
 ## 8. Export & output
 
-### 8.1 Animated export: GIF / MP4 / WebM
-**Source:** Backlog B2 / EC · **Cx:** L
-Record N seconds of the animation as GIF, MP4 or WebM. Options:
-- WebCodecs in WebView2 (no install; H.264/VP9)
-- an ffmpeg sidecar (bigger installer)
-- gif.js for GIFs
-
-Needs deterministic frame stepping rather than real time, which ties to 0.6 and 9.3.
-**Needs from you:** target formats; max resolution and length; whether audio-reactive renders need the audio track muxed in.
-
-### 8.2 PNG image sequence export
-**Source:** EC · **Cx:** M
-Export frames as numbered PNGs for After Effects, Premiere or EffectCraft. Easier than 8.1 and a good first step.
-**Needs from you:** nothing.
-
-### 8.3 Lottie export
-**Source:** EC (Lottie import/export) · **Cx:** L
-Export animations as Lottie JSON for web and apps. Only some effects map cleanly; colour cycles do, filter warps don't.
-**Needs from you:** is web or app animation a target?
-
 ### 8.4 Tiling preview & seamless tile export
 **Source:** Backlog B3 · **Cx:** M
 Preview the pattern tiled 3×3 and export a seamless repeat (straight, half-drop or brick) for fabric and wallpaper. Meander already has motif tiling; this is the Grid-mode equivalent.
@@ -798,53 +741,9 @@ Push the artboard into a Figma file through the plugin API or import. Low value 
 
 ---
 
-## 9. Animation & live performance
+## 10. Automation
 
-### 9.1 Live camera input
-**Source:** Backlog G3 · **Cx:** L
-A webcam feed as a live colour source. The grid recolours in real time, which suits installations and VJ sets.
-**Needs from you:** frame-rate expectations; whether fills (not just colours) should react live.
-
-### 9.2 Fill transition animation
-**Source:** Backlog J5 · **Cx:** M
-Animate from one fill state or snapshot (2.3) to another: cross-fade, cell-by-cell wipe, or a scale pop.
-**Needs from you:** nothing.
-
-### 9.3 Loop length + easing control
-**Source:** EC (graph editor, easing) · **Cx:** M
-Set an exact loop duration so exports loop seamlessly, with easing curves per animation.
-**Needs from you:** nothing. It is a prerequisite for good 8.1 output.
-
-### 9.4 Keyframe timeline
-**Source:** EC · **Cx:** XL
-Keyframe any parameter (palette, gradient angle, density, seed morph) on a timeline. This makes the app a motion tool.
-**Needs from you:** is motion design a direction you want, or should the animation stay as ambient effects?
-
-### 9.5 MIDI controller input
-**Source:** New (extends audio-reactive mode) · **Cx:** M
-Map MIDI knobs and pads to parameters with Web MIDI, which WebView2 supports. A natural partner to audio-reactive mode for live sets.
-**Needs from you:** do you own a controller? A MIDI-learn UI would be the main work.
-
-### 9.6 Performance / second-screen output
-**Source:** New · **Cx:** M
-A chrome-free fullscreen output window on a second monitor or projector, with controls left on the main screen.
-**Needs from you:** is live use real?
-
-### 9.7 Spout / NDI output for VJ software
-**Source:** New · **Cx:** L
-Send frames to Resolume or TouchDesigner via Spout (Windows) or NDI. Needs Rust-side work in Tauri.
-**Needs from you:** only if 9.6 is real.
-
----
-
-## 10. Automation & AI
-
-The ArtCraft apps are built so that every menu item can be driven by a CLI, by scripts and by AI agents over MCP, all through one command registry. That design depends on 0.10.
-
-### 10.1 MCP server
-**Source:** VC / AC · **Cx:** L
-Expose the commands to Claude: "Make a 40×40 glitch fill using my Autumn swatches, export 3 seeds as PNG." In Tauri this would be a local MCP server (stdio or HTTP) bridged to the webview.
-**Needs from you:** do you want Claude driving the app? Also security scope: which folders it may read and write.
+The ArtCraft apps are built so that every menu item can be driven by a CLI and by scripts, all through one command registry. That design depends on 0.10.
 
 ### 10.2 Headless CLI renderer
 **Source:** AC · **Cx:** L
@@ -860,31 +759,6 @@ Record a sequence of commands, such as "Fill Strip → Symmetry → Recolour Aut
 **Source:** VC (Variables) · **Cx:** M
 A CSV of names or words → one Meander word-weave per row, auto-exported. Good for personalised products, event badges and wedding pieces.
 **Needs from you:** is personalisation a product use?
-
-### 10.5 AI palette from a prompt
-**Source:** AC · **Cx:** M
-"Moody Scandinavian winter" → five swatches via the Claude API, added as a swatch group.
-**Needs from you:** API key handling (your key in Preferences, stored in the OS keychain) and cost tolerance.
-
-### 10.6 AI "describe a pattern" → settings
-**Source:** AC · **Cx:** M
-A text box: "dense glitchy strips in warm colours" → Claude chooses fill method, settings and palette through the command registry. A lighter version of 10.1 inside the app.
-**Needs from you:** same as 10.5.
-
-### 10.7 AI-generated source image
-**Source:** AC (ArtCraft core: image generation) · **Cx:** M
-Generate the reference image from a prompt inside the app (any image API), then use it for Image colour mode and image-driven fills.
-**Needs from you:** which provider, and whether you are comfortable with a paid API dependency.
-
-### 10.8 Background removal / subject mask
-**Source:** AC (background removal) · **Cx:** M
-Cut out the subject of the reference image automatically, then fill only the subject or only the background. This strengthens Strip, Reveal (7.3) and Density fills. It could run locally with an ONNX model (adds size) or through an API.
-**Needs from you:** local or cloud.
-
-### 10.9 AI critique / suggestion pass
-**Source:** New · **Cx:** M
-Send a render to Claude for composition feedback and three suggested tweaks, applied with one click.
-**Needs from you:** gimmick or useful? Easy to cut.
 
 ---
 
@@ -914,9 +788,8 @@ Help › Export Diagnostics writes logs, version and recent errors to a zip for 
 
 ## Dependencies worth knowing when cutting
 
-- **0.10 Command registry** unlocks 1.8, 1.14, 2.2, 3.7, 10.1, 10.2, 10.3 and 10.6. Keep it if any of those survive.
-- **0.8 Workers** are needed for 4.13 and make 4.1, 4.2 and 4.19 pleasant to use.
-- **0.6 + 9.3** come before 8.1, 8.2 and 8.3. Export needs deterministic, loopable frames.
+- **0.10 Command registry** unlocks 1.8, 1.14, 2.2, 3.7, 10.2 and 10.3. Keep it if any of those survive.
+- **0.8 Workers** are needed for 4.13 and make 4.1 and 4.2 pleasant to use.
 - **7.5** comes before 3.12.
 - **5.7 (path merge)** makes 8.9 and 8.11 much better.
 - **7.7 (appearance stack)** changes how 4.4, 7.8, 7.9 and 6.7 would be built, so decide on it early or rule it out.

@@ -1,6 +1,5 @@
 import { PALETTES, PALETTE_KEYS } from '../utils/colorize';
 import { DEFAULT_ENABLED_IDS } from '../builtinAssets';
-import { ANIM_DEFAULTS } from '../components/AnimationLayer';
 import { createDefaultEffects } from '../effects/effectDefs';
 import { createLineworkSettings } from '../modes/linework/settings';
 import { regionDefaults } from '../utils/regionFill';
@@ -161,9 +160,6 @@ export function createDefaultDocState() {
     // Raster effects (Effects panel) — see effects/effectDefs.js.
     effects: createDefaultEffects(),
 
-    // Animation & audio
-    animSettings: ANIM_DEFAULTS,
-    audioSettings: { enabled: false, inputSource: 'mic', ampMapping: 'linear', beatSensitivity: 0.5 },
   };
 }
 

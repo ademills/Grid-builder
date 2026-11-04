@@ -211,10 +211,3 @@ export const ImageIcon = (p) => (
   <Icon {...p}><rect x="3" y="4" width="14" height="12" rx="1.5" /><circle cx="7.5" cy="8" r="1.3" /><path d="M3.5 14.5l4.2-4 3 2.8 2.3-2 3.5 3.2" /></Icon>
 );
 
-export const AnimationIcon = (p) => (
-  <Icon {...p}><circle cx="10" cy="10" r="7" /><path d="M8.3 7v6l5-3z" fill="currentColor" /></Icon>
-);
-
-export const AudioIcon = (p) => (
-  <Icon {...p}><path d="M3.5 8v4h3l4 3.5v-11l-4 3.5zM13.5 7.5a3.5 3.5 0 010 5M15.5 5.5a6.3 6.3 0 010 9" /></Icon>
-);

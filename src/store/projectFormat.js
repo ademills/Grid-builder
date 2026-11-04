@@ -24,7 +24,7 @@ const MERGED_FIELDS = new Set([
   'gradientSettings', 'meshSettings', 'glitchSettings', 'stripSettings', 'multiStripSettings',
   'edgeSettings', 'brightnessSettings', 'noiseSettings', 'geometricSettings', 'halftoneSettings',
   'voronoiSettings', 'spiralSettings', 'flowFieldSettings', 'fractalSettings', 'mondrianSettings',
-  'goldenSettings', 'knotworkSettings', 'backdropSettings', 'animSettings', 'audioSettings',
+  'goldenSettings', 'knotworkSettings', 'backdropSettings',
   'paletteExtractSettings', 'fillOpacity', 'guides', 'groupNames', 'organicSettings', 'silhouetteSettings',
   'shapeStroke', 'regionSettings',
 ]);
@@ -67,8 +67,6 @@ export function serializeProject(doc) {
         delete rest.svgContent;
         return rest;
       }),
-      // Audio never auto-starts when a file is opened.
-      audioSettings: { ...state.audioSettings, enabled: false },
     },
   });
 }
@@ -119,7 +117,6 @@ export function parseProject(text) {
   if (fields.userShapes) useShapeStore.getState().adoptShapes(fields.userShapes);
   state.placedBlocks = hydrateBlocks(state.placedBlocks, fields.userShapes);
   state.effects = mergeEffects(fields.effects);
-  state.audioSettings = { ...state.audioSettings, enabled: false };
   state.viewTransform = null;
   return { mode, name, state };
 }

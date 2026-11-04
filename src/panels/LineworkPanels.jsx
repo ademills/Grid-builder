@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useEditor } from '../editor/EditorContext';
 import { SettingsForm } from './schema';
-import { LINEWORK_PRESETS } from '../modes/linework/settings';
-import { LINEWORK_LAYER_SCHEMA } from '../modes/linework/schema';
+import { LINEWORK_PRESETS, updateLayers, differingKeys } from '../modes/linework/settings';
+import { LINEWORK_LAYER_SCHEMA, layerFieldLabels } from '../modes/linework/schema';
 import styles from './Panel.module.css';
 
 // The layer being edited — the base or a plate (picked in the Layers panel,
@@ -15,9 +15,12 @@ export function LineworkPanel() {
   const [preset, setPreset] = useState('');
   const s = linework.settings;
   const L = s.layers.find(l => l.id === linework.editLayer) ?? s.layers[0];
-  const setLayer = (changes) => linework.update(prev => ({
-    ...prev, layers: prev.layers.map(l => (l.id === L.id ? { ...l, ...changes } : l)),
-  }));
+  // Plates edited together (Ctrl+click in Layers): a change goes to all of them.
+  const ids = linework.editLayers?.length ? linework.editLayers : [L.id];
+  const setLayer = (changes) => linework.update(prev => updateLayers(prev, ids, changes));
+  const labels = layerFieldLabels();
+  const mixed = ids.length > 1
+    ? differingKeys(s.layers.filter(l => ids.includes(l.id)), Object.keys(labels)).map(k => labels[k]) : [];
   const ctx = {
     plate: L.id !== 'base',
     groundSplit: !!s.groundSwatch,
@@ -42,6 +45,12 @@ export function LineworkPanel() {
             {LINEWORK_PRESETS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
           </select>
         </div>
+        {ids.length > 1 && (
+          <div className={styles.gridNote}>
+            Editing {ids.length} plates: {s.layers.filter(l => ids.includes(l.id)).map(l => l.name).join(', ')}. A change sets it on all of them; the values shown are {L.name}’s.
+            {mixed.length > 0 && <> Different now: {mixed.slice(0, 8).join(', ')}{mixed.length > 8 ? ' and more' : ''}.</>}
+          </div>
+        )}
         <SettingsForm schema={LINEWORK_LAYER_SCHEMA} values={L} set={setLayer} ctx={ctx} />
       </div>
     </>

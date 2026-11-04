@@ -29,7 +29,10 @@ export function PropertiesPanel() {
   const isGrid = mode === 'gridBuilder';
   const isMeander = mode === 'knotwork';
   const lw = mode === 'linework' && linework
-    ? { values: linework.settings, set: changes => linework.update(changes), ctx: { diamondCells: linework.diamondCells } }
+    ? { values: linework.settings, set: changes => linework.update(changes), ctx: {
+      diamondCells: linework.diamondCells, platesFromSvg: linework.plates?.fromShapes, plateCount: linework.settings.layers.length - 1,
+      refreshShapes: linework.plates?.refreshShapes, layers: linework.settings.layers,
+    } }
     : null;
 
   // Typed-but-uncommitted width/height; reset whenever the stored size changes.

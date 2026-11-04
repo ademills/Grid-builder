@@ -15,6 +15,7 @@ import { angularLayer } from './angular';
 import { circuitLayer, replicateBundles } from './circuit';
 import { cellCircuitLayer, cellCircuitSize } from './cellCircuit';
 import { tilingCells } from './tilings';
+import { shapeCutter, shapeSubtracter, cellsForShape, shapeInPlate, intersectRings, insetRings, subtractRings, ringsContours, isShapePlate } from './shapeClip';
 import {
   add, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
   SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly, hash,
@@ -58,7 +59,10 @@ function baseFrames(settings, grid, areas) {
     const baseM = rotation(base.rot);
     const centre = [(a.x + a.w / 2) * CELL, (a.y + a.h / 2) * CELL];
     const basePlanes = halfPlanesOf(rectPoly(-base.w / 2, -base.h / 2, base.w, base.h).map(p => add(applyLinear(baseM, p), centre)));
-    return { base, baseM, centre, basePlanes };
+    // Plates are cut to the area (the canvas), not to the base layer: on a
+    // diamond they can reach past the base into the corners.
+    const areaRect = rectPoly(a.x * CELL, a.y * CELL, a.w * CELL, a.h * CELL);
+    return { base, baseM, centre, basePlanes, areaRect, areaPlanes: halfPlanesOf(areaRect) };
   });
 }
 
@@ -91,16 +95,52 @@ export function lineworkGridCells(settings, grid, { areas = null } = {}) {
 }
 
 // A layer's size and placement in one frame: lw × lh, turned by m about its
-// centre t (design units).
+// centre t (design units). An upright plate (one made from an SVG) sits on
+// the canvas as drawn: not turned with a diamond base, its offset in canvas
+// cells.
 function layerPlace(cfg, li, { base, baseM, centre }) {
   const plate = li > 0;
   const [pw, ph] = plate ? plateCells(cfg, { w: base.w, h: base.h }) : [0, 0];
-  const rotDeg = base.rot + (plate && cfg.shape === 'diamond' ? 45 : 0);
+  const upright = plate && !!cfg.upright;
+  const rotDeg = upright ? 0 : base.rot + (plate && cfg.shape === 'diamond' && !isShapePlate(cfg) ? 45 : 0);
+  const off = [(cfg.ox ?? 0) * CELL, (cfg.oy ?? 0) * CELL];
   return {
     lw: plate ? pw * CELL : base.w, lh: plate ? ph * CELL : base.h, m: rotation(rotDeg),
-    t: plate ? add(centre, applyLinear(baseM, [(cfg.ox ?? 0) * CELL, (cfg.oy ?? 0) * CELL])) : centre,
+    t: plate ? add(centre, upright ? off : applyLinear(baseM, off)) : centre,
   };
 }
+
+// A shape plate in Mask mode is a plate with a region mask of its shape,
+// inverted (the editor's maskFor rasterises it, as a silhouette).
+const asShapeMask = (cfg, li) => (li > 0 && isShapePlate(cfg) && cfg.shapeMode === 'mask'
+  ? { ...cfg, mask: 'shape', maskMode: 'invert', maskShapes: 'one' } : cfg);
+// A shape plate in Cutout mode (the default): cut to the shape itself.
+const cutsToShape = (cfg, li) => li > 0 && isShapePlate(cfg) && (cfg.shapeMode ?? 'cutout') === 'cutout';
+// Each shown plate's box on the canvas, in grid cells (for dragging plates
+// on the canvas): { id, cx, cy, w, h, rot (degrees), baseRot, area }, bottom
+// to top. area: the cells the plates sit on ({ x, y, w, h }).
+export function plateBoxes(settings, grid, { areas = null } = {}) {
+  const frames = baseFrames(settings, grid, areas);
+  const f = frames[0];
+  const area = areas?.[0] ?? { x: 0, y: 0, w: grid.cols, h: grid.rows };
+  return (settings.layers ?? []).flatMap((cfg, li) => {
+    if (li === 0 || !cfg.enabled) return [];
+    const { lw, lh, m, t } = layerPlace(cfg, li, f);
+    return [{ id: cfg.id, cx: t[0] / CELL, cy: t[1] / CELL, w: lw / CELL, h: lh / CELL,
+      rot: Math.round(Math.atan2(m[2], m[0]) * 180 / Math.PI), baseRot: f.base.rot, area, upright: !!cfg.upright }];
+  });
+}
+
+// A plate's Offset X / Y for its centre at (cx, cy) on the canvas, in cells
+// (the inverse of layerPlace): measured from the area's centre, turned back
+// into the base's frame unless the plate is upright.
+export function plateOffsetFor(box, cx, cy) {
+  const dx = cx - (box.area.x + box.area.w / 2), dy = cy - (box.area.y + box.area.h / 2);
+  if (box.upright || !box.baseRot) return [dx, dy];
+  const a = (-box.baseRot * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  return [c * dx - s * dy, s * dx + c * dy];
+}
+
 // A design point in a layer's own frame (m is a rotation: its inverse is its transpose).
 const toLocal = ({ m, t }, q) => applyLinear([m[0], m[2], m[1], m[3]], [q[0] - t[0], q[1] - t[1]]);
 
@@ -119,6 +159,8 @@ function handSig(cfg, settings, lw, lh, sym) {
   const tiling = settings.tiling ?? 'square';
   // Merged tiles move the tiles too (left out while off, so older layouts still match).
   const merge = style === 'angular' && cfg.merge > 0 ? [cfg.merge] : [];
+  // Exact mask edges change which cells are filled (left out while off, as merge is).
+  if (cfg.maskEdge === 'exact' && masked(cfg)) merge.push('exact');
   return JSON.stringify([style, ...HAND_KEYS[style].map(k => cfg[k] ?? null), ...merge, tiling,
     tiling === 'square' ? null : settings.regularity ?? 0.5, sym, Math.round(lw), Math.round(lh)]);
 }
@@ -170,7 +212,10 @@ export function maskShapes(mask, cols, rows) {
 // randomness for anything grown. The changed layers come back as `edits`:
 // [{ li, layerId, tag, op: 'remove' | 'grow', hand }], hand being the
 // layer's new cfg.hand[tag].
-export function composeLinework(settings, grid, { maskFor = () => null, baseGround = false, areas = null, edit = null } = {}) {
+// maskShapeFor(layerIndex, lw, lh): an exact mask's outline (rings in the
+// layer's box, -0.5…0.5) for a layer with maskEdge 'exact', or null (none,
+// or not traced yet: the cells are used meanwhile).
+export function composeLinework(settings, grid, { maskFor = () => null, maskShapeFor = () => null, baseGround = false, areas = null, edit = null } = {}) {
   const W = grid.cols * CELL, H = grid.rows * CELL;
   const frames = baseFrames(settings, grid, areas);
   const { n, ratio } = lineSize(settings);
@@ -182,7 +227,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     counts[k] = (counts[k] ?? 0) + 1;
     return `${label} ${counts[k]}`;
   };
-  const layers = settings.layers ?? [];
+  const layers = (settings.layers ?? []).map(asShapeMask);
   const framesOf = (cfg, li) => (li === 0 ? frames.map((f, ai) => [f, ai ? `L0a${ai}` : 'L0']) : [[frames[0], `P${cfg.id ?? li}`]]);
   const shown = (cfg, li) => cfg && (li === 0 || cfg.enabled);
 
@@ -236,10 +281,26 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
   // mirrored on it, with its own seed. A run: { cfg, tag, lw, lh, c (its
   // centre in the layer's frame), maskAt(cols, rows) (the cells it fills),
   // owns(point), sub }.
+  // An exact mask's outline in the layer's own frame, or null.
+  const exactFor = (cfg, li, lw, lh) => {
+    if (cfg.maskEdge !== 'exact' || !masked(cfg) || cfg.mask === 'shape') return null;
+    const rings = maskShapeFor(li, lw, lh);
+    return rings?.length ? rings.map(r => r.map(([x, y]) => [x * lw, y * lh])) : null;
+  };
+  // With an exact mask, the cells to lay out are those the outline touches
+  // (Invert) or doesn't wholly cover (Remove); the lines are then cut to it.
+  const exactCells = (cfg, shape, lw, lh) => (cols, rows) => {
+    const C = CELL * (cfg.scale ?? 1);
+    const g = cfg.style === 'circuit' ? Math.max(1, cfg.bundle ?? 1) * C : null;
+    const cw = g ?? lw / cols, ch = g ?? lh / rows;
+    return cellsForShape(shape, { cols, rows, cw, ch, ox: g ? -cols * g / 2 : -lw / 2, oy: g ? -rows * g / 2 : -lh / 2, invert: cfg.maskMode === 'invert' });
+  };
+
   const layerRuns = (cfg, li, lw, lh, tag) => {
-    const keep = keptFor(cfg, li);
-    const whole = { cfg, tag, lw, lh, c: [0, 0], maskAt: keep, owns: () => true };
-    if (!masked(cfg) || cfg.maskShapes !== 'each') return [whole];
+    const exact = exactFor(cfg, li, lw, lh);
+    const keep = exact ? exactCells(cfg, exact, lw, lh) : keptFor(cfg, li);
+    const whole = { cfg, tag, lw, lh, c: [0, 0], maskAt: keep, owns: () => true, exact };
+    if (!masked(cfg) || cfg.maskShapes !== 'each' || exact) return [whole];
     // The grid the layer reads its mask on (as in runLayer): bundles, or cells.
     const C = CELL * (cfg.scale ?? 1);
     const circuit = cfg.style === 'circuit';
@@ -268,10 +329,10 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
   // One run of a layer's engine (see layerRuns): its lines, placed at t.
   const runLayer = (run, li, frame, frameTag, { m, t, bands, bandOpts }) => {
     const { cfg, tag, lw, lh } = run;
-    const { centre, basePlanes } = frame;
+    const { centre, areaPlanes } = frame;
     const plate = li > 0;
     const toDesign = (P) => P.map(p => add(applyLinear(m, p), t));
-    const finish = (P) => (plate ? clipToPlanes(toDesign(P), basePlanes) : toDesign(P));
+    const finish = (P) => (plate ? clipToPlanes(toDesign(P), areaPlanes) : toDesign(P));
     const C = CELL * (cfg.scale ?? 1);
     const p = C / n;
     const L = { w: lw, h: lh, C, p, lineW: p * ratio, ratio };
@@ -403,7 +464,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
 
   // One layer in one frame; `tag` prefixes its items' keys.
   const buildLayer = (cfg, li, frame, tag) => {
-    const { basePlanes } = frame;
+    const { areaPlanes: basePlanes } = frame;
     const plate = li > 0;
     const { lw, lh, m, t } = layerPlace(cfg, li, frame);
     const toDesign = (P) => P.map(p => add(applyLinear(m, p), t));
@@ -446,9 +507,11 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     // cells an Outline encloses.
     const bands = [];
     const bandOpts = banded ? { band: backing === 'infill' ? 0 : (cfg.pad ?? 0.15) * CELL, holes: backing === 'outline' } : {};
-    for (const run of layerRuns(cfg, li, lw, lh, tag)) {
+    const runs = layerRuns(cfg, li, lw, lh, tag);
+    for (const run of runs) {
       runLayer(run, li, frame, tag, { m, t: add(t, applyLinear(m, run.c)), bands, bandOpts });
     }
+    const exact = runs[0]?.exact;
 
     if (banded && bands.length) {
       // Every piece is a solid wound the same way, so they merge where they meet.
@@ -472,6 +535,76 @@ export function composeLinework(settings, grid, { maskFor = () => null, baseGrou
     if (plate && backing === 'square' && (cfg.rim ?? 0) > 0) {
       const contours = ring(cfg.rim);
       if (contours) push({ key: `${tag}:rim`, name: NAMES.rim, kind: 'rim', contours, centre: t });
+    }
+
+    if (exact) cutToMask(cfg, exact, { toDesign, groundAt, lw, lh, tag, push, plate, frame });
+    if (cutsToShape(cfg, li)) cutToShape(cfg, li, frame, tag, { lw, lh, toDesign, groundAt, backing, shadow, push });
+  };
+
+  // Exact mask edges: the layer's lines and tile outlines cut to the mask's
+  // outline (kept inside it for Invert, outside it for Remove), with an
+  // optional Outline along the cut, maskOutline cells wide on the kept side.
+  // Grounds, shadows, rims, the Edge and the Frame stay as they are.
+  const cutToMask = (cfg, local, { toDesign, groundAt, lw, lh, tag, push, plate, frame }) => {
+    const shape = local.map(r => toDesign(r));
+    const invert = cfg.maskMode === 'invert';
+    const cut = invert ? shapeCutter(shape) : shapeSubtracter(shape);
+    const fixed = (it) => it.kind === 'ground' || it.kind === 'shadow' || it.kind === 'rim' || it.key.endsWith(':edge') || it.key.endsWith(':frame');
+    const mine = items.splice(groundAt);
+    for (const it of mine) {
+      if (fixed(it)) { items.push(it); continue; }
+      const contours = cut(it.contours);
+      if (contours) items.push({ ...it, contours });
+    }
+    const w = Math.max(0, cfg.maskOutline ?? 0) * CELL;
+    if (w > 0) {
+      const band = invert ? subtractRings(shape, insetRings(shape, w)) : subtractRings(insetRings(shape, -w), shape);
+      let clipped = intersectRings(band, [toDesign(rectPoly(-lw / 2, -lh / 2, lw, lh))]);
+      if (plate) clipped = intersectRings(clipped, [frame.areaRect]);
+      if (clipped.length) push({ key: `${tag}:maskOutline`, name: 'Mask outline', kind: 'outline', contours: ringsContours(clipped) });
+    }
+  };
+
+  // Cutout: everything the plate drew is cut to its shape (within the
+  // canvas). A square background becomes the shape itself, its shadow the
+  // shape's; the rim and the plate's Edge give way to the shape's Outline.
+  const cutToShape = (cfg, li, frame, tag, { lw, lh, toDesign, groundAt, backing, shadow, push }) => {
+    const shape = intersectRings(shapeInPlate(cfg.shapeClip, lw, lh, p => toDesign([p])[0]), [frame.areaRect]);
+    const mine = items.splice(groundAt);
+    if (!shape.length) return;
+    const cut = shapeCutter(shape);
+    const kept = [];
+    let ground = null;
+    for (const it of mine) {
+      if (it.kind === 'shadow' || it.key === `${tag}:rim` || it.key === `${tag}:edge`) continue;
+      if (it.kind === 'ground' && backing === 'square') { ground = { ...it, contours: ringsContours(shape) }; continue; }
+      const contours = cut(it.contours);
+      if (!contours) continue;
+      if (it.kind === 'ground') ground = { ...it, contours };
+      else kept.push({ ...it, contours });
+    }
+    if (ground && shadow) {
+      const o = shadow.d * Math.SQRT1_2;
+      const moved = shape.map(r => r.map(([x, y]) => [x + o, y + o]));
+      const S = backing === 'square' ? intersectRings(moved, [frame.areaRect]) : null;
+      const contours = S ? ringsContours(S) : ground.contours.map(c => mapContour(c, [1, 0, 0, 1], [o, o]));
+      if (contours.length) {
+        items.push({ layer: li, layerId: ground.layerId, key: `${tag}:shadow`, name: NAMES.shadow, kind: 'shadow', contours,
+          blur: shadow.soft ? shadow.d * 0.6 : 0, opacity: shadow.soft ? 0.55 : 1 });
+      }
+    }
+    if (ground) items.push(ground);
+    items.push(...kept);
+    const w = Math.max(0, cfg.shapeOutline ?? 0) * CELL;
+    if (w > 0) {
+      const bands = outlineBands(shape, w, cfg);
+      const onGround = cfg.shapeOutlineInk === false;
+      bands.forEach((band, i) => {
+        const clipped = intersectRings(band, [frame.areaRect]);
+        if (!clipped.length) return;
+        push({ key: `${tag}:shapeOutline${i ? i + 1 : ''}`, name: i ? 'Outline 2' : 'Outline', kind: 'outline',
+          contours: ringsContours(clipped), ...(onGround ? { onGround } : {}) });
+      });
     }
   };
 
@@ -510,6 +643,23 @@ function editTiles(tiles, own, edit, ops, scale) {
     return { op: 'grow', tiles: next };
   }
   return null;
+}
+
+// A shape plate's outline rings, w wide: inside the shape's edge, centred
+// on it or outside it (cfg.shapeOutlinePos), and for a double outline
+// (cfg.shapeOutlineDouble) a second ring cfg.shapeOutlineGap cells further
+// in (further out, for Outside). A ring from offset a to b (a < b, positive
+// inwards) is the shape inset by a, less the shape inset by b.
+function outlineBands(shape, w, cfg) {
+  const pos = cfg.shapeOutlinePos ?? 'inside';
+  const a = pos === 'outside' ? -w : pos === 'centre' ? -w / 2 : 0;
+  const ring = (from, to) => subtractRings(from === 0 ? shape : insetRings(shape, from), insetRings(shape, to));
+  const out = [ring(a, a + w)];
+  if (cfg.shapeOutlineDouble) {
+    const g = Math.max(0, cfg.shapeOutlineGap ?? 0.1) * CELL;
+    out.push(pos === 'outside' ? ring(a - w - g, a - g) : ring(a + w + g, a + 2 * w + g));
+  }
+  return out.filter(b => b.length);
 }
 
 // Plates as groups: the layer index each plate's items belong to.

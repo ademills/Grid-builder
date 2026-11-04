@@ -12,7 +12,7 @@ import { SwatchesPanel } from '../panels/SwatchesPanel';
 import { LayersPanel, MeanderLayersPanel, LineworkLayersPanel } from '../panels/LayersPanel';
 import { AssetsPanel } from '../panels/AssetsPanel';
 import { PresetsPanel } from '../panels/PresetsPanel';
-import { ImagePanel, AnimationPanel, AudioPanel } from '../panels/MediaPanels';
+import { ImagePanel } from '../panels/MediaPanels';
 import { MeanderPanel } from '../panels/MeanderPanels';
 import { LineworkPanel } from '../panels/LineworkPanels';
 
@@ -29,7 +29,8 @@ import { LineworkPanel } from '../panels/LineworkPanels';
 export const TOOLS = {
   select:     { id: 'select',     label: 'Selection',   key: 'V', icon: SelectIcon },
   lasso:      { id: 'lasso',      label: 'Lasso',       key: 'Q', icon: LassoIcon, hint: 'Drag around shapes to select them · Shift adds · Alt removes' },
-  move:       { id: 'move',       label: 'Move',        key: 'M', icon: MoveIcon, hint: 'Drag shapes to other cells · Alt+drag copies · Shift keeps it straight · Esc cancels' },
+  move:       { id: 'move',       label: 'Move',        key: 'M', icon: MoveIcon, hint: 'Drag shapes to other cells · Alt+drag copies · Shift keeps it straight · Esc cancels',
+    modeHints: { linework: 'Drag a plate to move it · drag the handles to resize · Shift keeps it straight (or the ratio) · Alt: no snapping · Esc cancels' } },
   wand:       { id: 'wand',       label: 'Magic Wand',  key: 'Y', icon: WandIcon, hint: 'Click a shape to select every shape with the same colour (or shape / size)' },
   stamp:      { id: 'stamp',      label: 'Shape Stamp', key: 'S', icon: StampIcon, hint: 'Click or drag to place shapes; Alt+click to replace; [ ] size' },
   eraser:     { id: 'eraser',     label: 'Eraser',      key: 'E', icon: EraserIcon, hint: 'Click or drag to remove shapes; [ ] size' },
@@ -71,8 +72,6 @@ export const MODE_REGISTRY = {
       { id: 'effects', panels: [{ id: 'effects', title: 'Effects', component: EffectsPanel, menu: ['view.effects', 'file.export'] }], defaultCollapsed: true, grow: 2 },
       { id: 'image', panels: [{ id: 'image', title: 'Image', component: ImagePanel }], defaultCollapsed: true },
       { id: 'motion', panels: [
-        { id: 'animation', title: 'Animation', component: AnimationPanel },
-        { id: 'audio', title: 'Audio', component: AudioPanel },
       ], defaultCollapsed: true },
     ],
   },
@@ -112,7 +111,7 @@ MODE_REGISTRY.linework = {
   description: 'Greek-key spirals, nested triangles, hatching and parallel circuit routing, with symmetry, diamond grids and stacked plates.',
   accent: '#2f8fe3',
   mark: LineworkModeMark,
-  tools: ['select', 'lasso', 'wand', '|', 'build', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
+  tools: ['select', 'lasso', 'move', 'wand', '|', 'build', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
   dock: [
     { id: 'properties', panels: [
       { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },
