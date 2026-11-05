@@ -28,7 +28,8 @@
 // 'corner' } } pins turn cells' rules; opts.edit { at } switches the turn
 // cell there between the two. The edit made comes back as `edited`.
 
-import { mulberry32, hash, polyContour, contoursBounds } from './geometry';
+import { mulberry32, hash, polyContour, contoursBounds, rectPoly } from './geometry';
+import { shapeCutter } from './shapeClip';
 
 const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // right, down, left, up
 const keyOf = p => `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
@@ -462,7 +463,14 @@ export function continuousLayer(L, cfg, seed, insideCell, opts = {}) {
     g.contours.push(...lineOutline(pts, hw, l.closed));
     groups.set(l.group, g);
   }
-  const out = [...groups.values()].filter(g => g.contours.length).map(g => {
+  // A line ending on the grid's edge at an angle would poke past it by its
+  // half width: anything reaching past the grid is cut back to it.
+  const cut = shapeCutter([rectPoly(ox, oy, W, H)]);
+  const out = [...groups.values()].map(g => {
+    const b = contoursBounds(g.contours);
+    if (b && (b.x < ox - 1e-6 || b.y < oy - 1e-6 || b.x + b.w > ox + W + 1e-6 || b.y + b.h > oy + H + 1e-6)) g.contours = cut(g.contours) ?? [];
+    return g;
+  }).filter(g => g.contours.length).map(g => {
     const b = contoursBounds(g.contours);
     return { ...g, centre: b ? [b.x + b.w / 2, b.y + b.h / 2] : [0, 0] };
   });

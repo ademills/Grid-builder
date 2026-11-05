@@ -107,6 +107,22 @@ describe('continuous lines', () => {
     expect(items.some(it => it.key.endsWith(':frame'))).toBe(true);
   });
 
+  it('nothing reaches past the grid (lines, or a base Sticker background and its shadow)', () => {
+    const W = 6 * CELL, H = 5 * CELL;
+    for (const [style, over] of [['continuous', {}], ['continuous', { scale: 0.75 }], ['circuit', { backing: 'sticker', shadow: 'hard', depth: 0.3 }], ['circuit', { backing: 'outline' }]]) {
+      for (const seed of [1, 2, 3]) {
+        const s = { ...createLineworkSettings(), linesPerCell: 3, lineRatio: 0.6 };
+        s.layers = [lineworkLayerDefaults({ style, sym: 'none', seed, ...over })];
+        const { items } = composeLinework(s, { cols: 6, rows: 5 });
+        for (const it of items) for (const c of it.contours) for (const cmd of c) {
+          if (cmd[0] === 'Z') continue;
+          const [x, y] = cmd[cmd.length - 1];
+          expect(Math.max(-x, -y, x - W, y - H)).toBeLessThan(1e-6);
+        }
+      }
+    }
+  });
+
   it('a hand edit through compose comes back as the layer\'s rules', () => {
     const s = createLineworkSettings();
     s.layers = [{ ...s.layers[0], ...cfgOf({ seed: 4, cornerShare: 0.5 }) }];

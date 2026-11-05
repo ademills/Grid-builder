@@ -538,9 +538,14 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
 
     if (banded && bands.length) {
       // Every piece is a solid wound the same way, so they merge where they meet.
-      const contours = bands.flat();
+      let contours = bands.flat();
+      // The base layer's padded background and its shadow stop at its edge
+      // rather than spilling past the grid (a plate's float free, as it does).
+      const toEdge = plate ? c => c : (c => shapeCutter([toDesign(rectPoly(-lw / 2, -lh / 2, lw, lh))])(c) ?? []);
+      contours = toEdge(contours);
+      const shadowed = shadow ? shadowItem(contours) : null;
       items.splice(groundAt, 0, ...[
-        ...(shadow ? [shadowItem(contours)] : []),
+        ...(shadowed ? [{ ...shadowed, contours: toEdge(shadowed.contours) }] : []),
         { key: `${tag}:ground`, name: BANDED[backing], kind: 'ground', contours },
       ].map(it => ({ layer: li, layerId: cfg.id ?? `p${li}`, ...it })));
     }
