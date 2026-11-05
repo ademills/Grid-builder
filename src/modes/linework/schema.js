@@ -28,8 +28,10 @@ export const TILING_OPTIONS = [
 ];
 
 const usesFill = (L, keys) => keys.some(k => L.fills?.includes(k));
-const angular = L => L.style !== 'circuit';
-const single = L => L.style === 'circuit' && L.route === 'single';
+const angular = L => (L.style ?? 'angular') === 'angular';
+const circuit = L => L.style === 'circuit';
+const continuous = L => L.style === 'continuous';
+const single = L => circuit(L) && L.route === 'single';
 const filled = L => single(L) && L.fill;
 // Square cells (Properties › Grid › Cells), where angular subdivision works.
 const square = (_, ctx) => (ctx.tiling ?? 'square') === 'square';
@@ -44,7 +46,7 @@ const shaped = (L, ctx) => !!ctx?.plate && !!L.shapeClip?.rings?.length;
 const cutout = (L, ctx) => shaped(L, ctx) && (L.shapeMode ?? 'cutout') === 'cutout';
 
 // Plate backgrounds (settings.js); the band-built ones are circuit-only, and
-// an angular plate set to one draws Square.
+// an angular or continuous plate set to one draws Square.
 const BACKINGS = [
   { key: 'square', label: 'Square' }, { key: 'outline', label: 'Outline', circuit: true },
   { key: 'sticker', label: 'Sticker', circuit: true }, { key: 'infill', label: 'In-fill', circuit: true },
@@ -53,7 +55,7 @@ const BACKINGS = [
 const BANDED_KEYS = Object.fromEntries(BACKINGS.filter(o => o.circuit).map(o => [o.key, true]));
 const backing = L => {
   const b = L.backing ?? 'square';
-  return angular(L) && BACKINGS.find(o => o.key === b)?.circuit ? 'square' : b;
+  return !circuit(L) && BACKINGS.find(o => o.key === b)?.circuit ? 'square' : b;
 };
 
 export const LINEWORK_GRID_SCHEMA = [
@@ -93,9 +95,14 @@ export const LINEWORK_LAYER_SCHEMA = [
       { key: 'editLayer', type: 'custom', render: EditLayer, bar: true, showIf: (_, ctx) => ctx.layerCount > 1 },
       // Style decides the sections below, so it heads the layer, in the panel.
       { key: 'style', label: 'Style', type: 'segmented',
-        options: [{ key: 'angular', label: 'Angular' }, { key: 'circuit', label: 'Circuit' }],
-        surprise: (r, _, ctx) => ctx.style ?? (r() < 0.6 ? 'angular' : 'circuit') },
-      { key: 'sym', label: 'Symmetry', type: 'symmetry', keys: LINEWORK_SYMMETRY, bar: true,
+        options: [{ key: 'angular', label: 'Angular' }, { key: 'circuit', label: 'Circuit' }, { key: 'continuous', label: 'Continuous' }],
+        // Continuous paths read best short: a circuit's long max length is
+        // brought down on the way in.
+        onChange: (v, L) => ({ style: v, ...(v === 'continuous' && (L.maxLen ?? 40) > 12 ? { maxLen: 4 } : {}) }),
+        surprise: (r, _, ctx) => ctx.style ?? (r() < 0.5 ? 'angular' : r() < 0.6 ? 'circuit' : 'continuous') },
+      // A continuous layer's lines run on from cell to cell, so a mirrored
+      // copy can't join them: no symmetry there.
+      { key: 'sym', label: 'Symmetry', type: 'symmetry', keys: LINEWORK_SYMMETRY, bar: true, showIf: L => !continuous(L),
         surprise: (r, L) => oneOf(L.style === 'circuit' ? ['mirror-both', 'mirror-x', 'none'] : ['mirror-both', 'mirror-diag', 'mirror-diag', 'rotate4'])(r) },
       { key: 'scale', label: 'Line scale', type: 'slider', min: 0.2, max: 2, step: 0.05, format: v => `${v}×`,
         help: "Scales this layer's cells and lines" },
@@ -109,7 +116,7 @@ export const LINEWORK_LAYER_SCHEMA = [
     // The base layer's background, for circuits: Square is its ground (the
     // whole canvas, when Ground has its own colour); the banded ones and
     // their shadow follow the bundles.
-    id: 'linework.base', title: 'Background', showIf: (L, ctx) => !ctx.plate && !angular(L), fields: [
+    id: 'linework.base', title: 'Background', showIf: (L, ctx) => !ctx.plate && circuit(L), fields: [
       { key: 'backing', label: 'Background', type: 'select', value: backing, options: BACKINGS,
         info: 'Square: the whole canvas in the Ground colour. Outline: one shape round all the lines, filling what they enclose. Sticker: a shape round each bundle. In-fill: just between each bundle\'s lines. Transparent: no ground.' },
       { key: 'groundNote', type: 'note', showIf: (L, ctx) => backing(L) !== 'none' && !ctx.groundSplit,
@@ -147,7 +154,7 @@ export const LINEWORK_LAYER_SCHEMA = [
       { key: 'ox', label: 'Offset X', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
       { key: 'oy', label: 'Offset Y', type: 'slider', min: (_, c) => -c.maxCells / 2, max: (_, c) => c.maxCells / 2, step: 0.5, format: cells },
       { key: 'backing', label: 'Background', type: 'select', value: backing,
-        options: L => (angular(L) ? BACKINGS.filter(o => !o.circuit) : BACKINGS),
+        options: L => (circuit(L) ? BACKINGS : BACKINGS.filter(o => !o.circuit)),
         info: 'Square: the plate itself. Outline: one shape round all its lines, filling what they enclose. Sticker: a shape round each bundle. In-fill: just between each bundle\'s lines. Transparent: no background or shadow.' },
       { key: 'corner', label: 'Corner radius', type: 'slider', min: 0, max: 1, step: 0.05, format: pct,
         showIf: (L, ctx) => backing(L) === 'square' && !cutout(L, ctx), help: "Rounds the plate's corners (and its shadow and rim)" },
@@ -215,7 +222,7 @@ export const LINEWORK_LAYER_SCHEMA = [
     ],
   },
   {
-    id: 'linework.circuit', title: 'B · Circuit', showIf: L => !angular(L), fields: [
+    id: 'linework.circuit', title: 'B · Circuit', showIf: circuit, fields: [
       { key: 'route', label: 'Route', type: 'segmented', value: L => (single(L) ? 'single' : 'bundles'),
         help: 'Many separate bundles, or one circuit that follows the same rules and runs as far as it can',
         options: [{ key: 'bundles', label: 'Bundles' }, { key: 'single', label: 'One circuit' }],
@@ -238,6 +245,38 @@ export const LINEWORK_LAYER_SCHEMA = [
         options: [{ key: 'off', label: 'Off' }, { key: 'alternate', label: 'Alternate' }, { key: 'random', label: 'Random' }],
         surprise: oneOf(['off', 'alternate']) },
       { key: 'eyes', label: 'Single-cell eyes', type: 'toggle', showIf: L => !single(L) },
+    ],
+  },
+  {
+    // Continuous lines: one route through the cells, cut into paths, each
+    // cell's lines running Straight, Diagonal or as a 90° Corner. Shares the
+    // circuit's route, bundle, straightness and max length, and the angular
+    // placement; the frame is the layer's Frame, and holes are region masks.
+    id: 'linework.continuous', title: 'C · Continuous', showIf: continuous, fields: [
+      { key: 'squareNote', type: 'note', showIf: (_, ctx) => (ctx.tiling ?? 'square') !== 'square',
+        text: 'Continuous lines are laid out on square cells, whatever Properties › Grid › Cells is set to.' },
+      { key: 'route', label: 'Route', type: 'segmented', value: L => (L.route === 'single' ? 'single' : 'bundles'),
+        help: 'One path through every cell, or that path cut into shorter ones. Lines carry on wherever two cells line up, and run on to meet the next line where they don’t',
+        options: [{ key: 'bundles', label: 'Many paths' }, { key: 'single', label: 'One path' }],
+        surprise: r => (r() < 0.25 ? 'single' : 'bundles') },
+      { key: 'bundle', label: 'Cell size', type: 'number', min: 1, max: 8,
+        help: 'Grid cells per continuous cell; each carries Lines per cell × this many lines', surprise: oneOf([1, 1, 2, 2, 3]) },
+      { key: 'maxLen', label: 'Max length', type: 'slider', min: 1, max: 200, step: 1, format: v => (v >= 200 ? 'No limit' : v),
+        help: 'Longest path, in cells', showIf: L => L.route !== 'single', surprise: oneOf([2, 3, 4, 4, 6]) },
+      { key: 'straight', label: 'Straightness', type: 'slider', min: 0, max: 1, step: 0.05, format: pct, surprise: range(0.3, 0.7, 0.05) },
+      { key: 'cornerShare', label: 'Corners', type: 'slider', min: 0, max: 1, step: 0.05, format: pct,
+        help: 'Share of turns drawn as a 90° corner; the rest cut across as a diagonal. With the Build tool, click a turn to switch it',
+        surprise: range(0.2, 0.7, 0.05) },
+      { key: 'placement', label: 'Placement', type: 'select', value: L => (['checker', 'alternate'].includes(L.placement) ? L.placement : 'random'),
+        showIf: L => (L.cornerShare ?? 0.4) > 0 && (L.cornerShare ?? 0.4) < 1,
+        help: 'Where the corners go: at random (by Corners), on a checkerboard, or every other turn along a line',
+        options: [{ key: 'random', label: 'Random' }, { key: 'checker', label: 'Checkerboard' }, { key: 'alternate', label: 'Alternate' }],
+        surprise: r => (r() < 0.7 ? 'random' : oneOf(['checker', 'alternate'])(r)) },
+      { key: 'gapLines', label: 'Gap lines', type: 'select',
+        help: 'Lines across the empty half of each diagonal cell, stopping where they meet the diagonal',
+        options: [{ key: 'off', label: 'Off' }, { key: 'random', label: 'Random' }, { key: 'vertical', label: 'Vertical' },
+          { key: 'horizontal', label: 'Horizontal' }, { key: 'diagonal', label: '45° (square to the diagonal)' }],
+        surprise: oneOf(['random', 'random', 'vertical', 'horizontal', 'diagonal']) },
     ],
   },
   {
@@ -272,7 +311,8 @@ export const LINEWORK_LAYER_SCHEMA = [
 export function layerFieldLabels() {
   const out = { shape: 'Shape', size: 'Size', w: 'Width', h: 'Height', sizing: 'Sides', aspect: 'Ratio' };
   for (const sec of LINEWORK_LAYER_SCHEMA) {
-    for (const f of sec.fields) if (f.label && typeof f.label === 'string') out[f.key] = f.label;
+    // A key shared by two styles' sections keeps its first label.
+    for (const f of sec.fields) if (f.label && typeof f.label === 'string' && !(f.key in out)) out[f.key] = f.label;
   }
   // These two edit the one fills list.
   delete out.fillsExperimental;

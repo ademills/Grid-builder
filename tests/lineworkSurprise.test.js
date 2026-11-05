@@ -13,9 +13,15 @@ describe('Linework Surprise Me from the schema', () => {
   it('re-rolls a layer within the old ranges', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const L = { ...lineworkLayerDefaults(), ...surpriseValues(LINEWORK_LAYER_SCHEMA, lineworkLayerDefaults(), rng(seed), { plate: false, tiling: 'square' }) };
-      expect(['angular', 'circuit']).toContain(L.style);
+      expect(['angular', 'circuit', 'continuous']).toContain(L.style);
       expect(L.mask).toBe('none');
-      if (L.style === 'circuit') {
+      if (L.style === 'continuous') {
+        expect(['single', 'bundles']).toContain(L.route);
+        expect(L.cornerShare).toBeGreaterThanOrEqual(0.2 - 1e-9);
+        expect(L.cornerShare).toBeLessThanOrEqual(0.7 + 1e-9);
+        expect(['off', 'random', 'vertical', 'horizontal', 'diagonal']).toContain(L.gapLines);
+        expect(L.maxLen).toBeLessThanOrEqual(12);
+      } else if (L.style === 'circuit') {
         expect(['mirror-both', 'mirror-x', 'none']).toContain(L.sym);
         expect(['single', 'bundles']).toContain(L.route);
         if (L.route === 'single') expect(L.maxLen).toBeGreaterThanOrEqual(200);

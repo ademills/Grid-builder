@@ -1897,7 +1897,7 @@ export function DocumentEditor({ mode: appMode }) {
     const locked = lockedLineworkLayers();
     const made = edits.filter(e => !locked.has(e.layerId));
     if (!made.length) return edits.length ? 'locked' : null;
-    const names = { remove: made.some(e => e.hand.tiles) ? 'Remove Tile' : 'Remove Line', grow: made.some(e => e.hand.tiles) ? 'Fill Tile' : 'Grow Line' };
+    const names = { remove: made.some(e => e.hand.tiles) ? 'Remove Tile' : 'Remove Line', grow: made.some(e => e.hand.tiles) ? 'Fill Tile' : 'Grow Line', turn: 'Switch Turn' };
     updateLinework(s => ({
       ...s,
       layers: s.layers.map((l, li) => {
@@ -1913,7 +1913,8 @@ export function DocumentEditor({ mode: appMode }) {
 
   // Build tool, Linework: what's under the pointer comes out -- a bundle
   // with its mirror images, or an angular tile -- or the empty space there
-  // grows a new bundle, or fills the tile.
+  // grows a new bundle, or fills the tile. On a continuous layer, a turn
+  // cell switches between Diagonal and Corner.
   const lineworkBuildAt = useCallback((pt) => {
     if (!gridComputed) return;
     const { cellSize, gridOriginX, gridOriginY } = gridComputed;

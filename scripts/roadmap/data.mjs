@@ -267,12 +267,14 @@ export const SHIPPED = [
     also: 'Masks just Remove or Invert. Twelve new angular fills, all on for a new layer, and an Experimental group behind a toggle. Merge tiles, tile gap and outline weight. Plates scale with the grid, so a smaller artboard no longer pushes them off the page.' },
   { ver: '1.14.0', date: '4 Nov', title: 'Shape plates', items: ['13.1','13.2','13.3','13.4','13.5','13.6'],
     also: 'Plates from SVG cut to exact outlines (Cutout or Mask), word plates in any font, exact mask edges, plates dragged on the canvas. Plates on a diamond base now reach past it. The Animation and Audio panels are gone.' },
+  { ver: '1.15.0', date: '5 Nov', title: 'Continuous lines', items: [],
+    also: 'Linework style C: lines run edge to edge through every cell (Straight, Diagonal or a 90° Corner), sharing points with the next cell, carrying on where cells line up and running on to meet the next line where they don’t. Gap lines fill the diagonals’ empty halves; the Build tool switches a turn. Uses the existing route, frame, masks and plates.' },
 ];
 
 // Proposed releases. Order is the suggestion. (Output was 1.11 in the 1 Nov
-// plan; the Linework releases took that number.)
+// plan, then 1.15; the Linework releases took those numbers.)
 export const PLAN = [
-  { ver: '1.15', name: 'Output', theme: 'Get designs out in more forms',
+  { ver: '1.16', name: 'Output', theme: 'Get designs out in more forms',
     items: ['8.12','8.5','8.6','8.4','8.8','5.7'],
     why: 'Copy as SVG, batch export, seamless repeats and print PDF.' },
 ];

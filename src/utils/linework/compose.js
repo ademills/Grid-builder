@@ -1,5 +1,5 @@
 // Composes a Linework design: the base layer plus up to three stacked plates,
-// each generated with the angular (A) or circuit (B) engine, into a flat list
+// each generated with the angular (A), circuit (B) or continuous (C) engine, into a flat list
 // of vector items in design units (CELL per grid cell, origin at the grid's
 // top-left). DocumentEditor colours them and turns each into a vector block.
 //
@@ -14,6 +14,7 @@ import { plateCells } from '../../modes/linework/settings';
 import { angularLayer } from './angular';
 import { circuitLayer, replicateBundles } from './circuit';
 import { cellCircuitLayer, cellCircuitSize } from './cellCircuit';
+import { continuousLayer } from './continuous';
 import { tilingCells } from './tilings';
 import { shapeCutter, shapeSubtracter, cellsForShape, shapeInPlate, intersectRings, insetRings, subtractRings, ringsContours, isShapePlate } from './shapeClip';
 import {
@@ -22,6 +23,11 @@ import {
 } from './geometry';
 
 export const CELL = 100;
+
+// A layer's engine: 'angular' (the default), 'circuit' or 'continuous'.
+const styleOf = cfg => (cfg.style === 'circuit' || cfg.style === 'continuous' ? cfg.style : 'angular');
+// Circuits and continuous lines run on a grid of Bundle-sized cells.
+const gridded = cfg => styleOf(cfg) !== 'angular';
 
 const rotation = (deg) => {
   const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
@@ -77,7 +83,7 @@ const lineSize = (settings) => ({
 export function lineworkGridCells(settings, grid, { areas = null } = {}) {
   const tiling = settings.tiling ?? 'square';
   const cfg = settings.layers?.[0];
-  if (tiling === 'square' || !cfg) return null;
+  if (tiling === 'square' || !cfg || styleOf(cfg) === 'continuous') return null;
   const { n, ratio } = lineSize(settings);
   return baseFrames(settings, grid, areas).flatMap(({ base, baseM, centre }) => {
     const C = CELL * (cfg.scale ?? 1);
@@ -153,10 +159,14 @@ const toLocal = ({ m, t }, q) => applyLinear([m[0], m[2], m[1], m[3]], [q[0] - t
 const HAND_KEYS = {
   circuit: ['seed', 'bundle', 'scale', 'route', 'fill', 'loop', 'straight', 'density', 'maxLen', 'edgeExit', 'weave', 'eyes', 'mask', 'maskMode'],
   angular: ['seed', 'tile', 'scale', 'subdiv', 'minTile'],
+  // A continuous layer keeps its turn cells' rules, by cell: its route comes
+  // from these, and the cells from the size.
+  continuous: ['seed', 'bundle', 'scale', 'route', 'maxLen', 'straight', 'mask', 'maskMode'],
 };
 function handSig(cfg, settings, lw, lh, sym) {
-  const style = cfg.style === 'circuit' ? 'circuit' : 'angular';
-  const tiling = settings.tiling ?? 'square';
+  const style = styleOf(cfg);
+  // Continuous lines are always laid out on square cells.
+  const tiling = style === 'continuous' ? 'square' : settings.tiling ?? 'square';
   // Merged tiles move the tiles too (left out while off, so older layouts still match).
   const merge = style === 'angular' && cfg.merge > 0 ? [cfg.merge] : [];
   // Exact mask edges change which cells are filled (left out while off, as merge is).
@@ -291,7 +301,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
   // (Invert) or doesn't wholly cover (Remove); the lines are then cut to it.
   const exactCells = (cfg, shape, lw, lh) => (cols, rows) => {
     const C = CELL * (cfg.scale ?? 1);
-    const g = cfg.style === 'circuit' ? Math.max(1, cfg.bundle ?? 1) * C : null;
+    const g = gridded(cfg) ? Math.max(1, cfg.bundle ?? 1) * C : null;
     const cw = g ?? lw / cols, ch = g ?? lh / rows;
     return cellsForShape(shape, { cols, rows, cw, ch, ox: g ? -cols * g / 2 : -lw / 2, oy: g ? -rows * g / 2 : -lh / 2, invert: cfg.maskMode === 'invert' });
   };
@@ -303,7 +313,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     if (!masked(cfg) || cfg.maskShapes !== 'each' || exact) return [whole];
     // The grid the layer reads its mask on (as in runLayer): bundles, or cells.
     const C = CELL * (cfg.scale ?? 1);
-    const circuit = cfg.style === 'circuit';
+    const circuit = gridded(cfg);
     const g = circuit ? Math.max(1, cfg.bundle ?? 1) * C : C;
     const cols = circuit ? Math.max(1, Math.floor(lw / g + 1e-6)) : Math.max(1, Math.round(lw / C));
     const rows = circuit ? Math.max(1, Math.floor(lh / g + 1e-6)) : Math.max(1, Math.round(lh / C));
@@ -347,14 +357,27 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     // Circuit symmetry: mirrors only; rotations become their mirror equivalent.
     const csym = sym === 'mirror-x' || sym === 'mirror-y' || sym === 'none' ? sym : 'mirror-both';
     // A hand-built layout, while it's current; and any edit to make to it.
-    const style = cfg.style === 'circuit' ? 'circuit' : 'angular';
+    const style = styleOf(cfg);
     // A shape's run (layerRuns) is laid out for that shape where it is.
     const sig = handSig(cfg, settings, lw, lh, style === 'circuit' ? csym : sym) + (run.sub ? `@${run.sub}` : '');
     const stored = cfg.hand?.[tag];
     const hand = stored && stored.sig === sig ? stored : null;
     const editHere = editFor(li, frameTag, run, style);
     const record = (op, data) => edits.push({ li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), tag, op, hand: { sig, ...data } });
-    if (cfg.style === 'circuit' && tiling !== 'square') {
+    if (style === 'continuous') {
+      // Continuous lines (square cells only). The mask is read on the cell grid.
+      const S = Math.max(1, cfg.bundle ?? 1) * C;
+      const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
+      const mask = masked(cfg) ? run.maskAt(bc, br) : null;
+      const R = continuousLayer(L, cfg, seed, mask ? (i, j) => mask.has(`${i},${j}`) : null, { hand, edit: editHere });
+      if (R.edited) record(R.edited.op, { rules: R.edited.rules });
+      for (const g of R.groups) {
+        push({
+          key: `${tag}:l:${g.key}`, name: nameFor(li, g.name), kind: 'ink',
+          contours: g.contours.map(c => mapContour(c, m, t)), centre: add(applyLinear(m, g.centre), t),
+        });
+      }
+    } else if (cfg.style === 'circuit' && tiling !== 'square') {
       // Circuits through hexagons, triangles or Voronoi cells. The mask is
       // read on a bundle-sized grid, each cell by its centre.
       const S = Math.max(1, cfg.bundle ?? 1) * C;

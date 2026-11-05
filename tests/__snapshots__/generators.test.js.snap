@@ -14,6 +14,20 @@ exports[`Linework presets draw the same designs > Circuit weave 1`] = `
 }
 `;
 
+exports[`Linework presets draw the same designs > Continuous lines 1`] = `
+{
+  "geometry": "dd89d63a",
+  "items": 19,
+  "kinds": {
+    "ink": 19,
+  },
+  "size": [
+    800,
+    1100,
+  ],
+}
+`;
+
 exports[`Linework presets draw the same designs > Greek-key tiles 1`] = `
 {
   "geometry": "43b14434",
