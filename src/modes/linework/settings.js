@@ -47,12 +47,13 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // optionally as a closed `loop`. maxLen 200 means no limit.
   route: 'bundles', fill: false, loop: false, bundle: 1, straight: 0.6, maxLen: 40, density: 1, edgeExit: 0.5, weave: 'off', eyes: true,
   // C · continuous (utils/linework/continuous.js) shares the circuit's route,
-  // bundle (its cell size), straightness and max length, and the angular
-  // placement ('random' | 'checker' | 'alternate'). cornerShare: the share
-  // of turns drawn as a 90° corner rather than a diagonal; gapLines: lines in
-  // a diagonal's empty half, 'off' | 'random' | 'vertical' | 'horizontal' |
-  // 'diagonal'.
-  cornerShare: 0.4, gapLines: 'random',
+  // straightness and max length, and the angular placement ('random' |
+  // 'checker' | 'alternate') and merge (here the chance a cell starts a
+  // merged group). cornerShare: the share of turns drawn as a 90° corner
+  // rather than a diagonal; gapLines: lines in a diagonal's empty half,
+  // 'off' | 'random' | 'vertical' | 'horizontal' | 'diagonal'; mergeCells:
+  // join some squares of cells into one, up to mergeMax × mergeMax.
+  cornerShare: 0.4, gapLines: 'random', mergeCells: false, mergeMax: 3,
   // Region mask: a Generate-panel fill or 'word'. maskMode 'remove' empties
   // the masked area, 'invert' keeps only the masked area; what's kept takes
   // the layer's own fills. maskSettings holds this layer's own settings for
@@ -142,7 +143,7 @@ const DESIGN_KEYS = [
   'tile', 'subdiv', 'minTile', 'fills', 'triFill', 'angles', 'orient', 'outline', 'core',
   'placement', 'fillWeights', 'spiralTurn', 'merge', 'gap', 'outlineWeight',
   'route', 'fill', 'loop', 'bundle', 'straight', 'maxLen', 'density', 'edgeExit', 'weave', 'eyes',
-  'cornerShare', 'gapLines',
+  'cornerShare', 'gapLines', 'mergeCells', 'mergeMax',
   'backing', 'corner', 'pad',
 ];
 
@@ -366,9 +367,9 @@ export const LINEWORK_PRESETS = [
     ] },
   },
   {
-    name: 'Continuous lines', cols: 8, colours: ['#111111', '#ffffff', '#000000'],
-    settings: { orientation: 'square', linesPerCell: 10, lineRatio: 0.4, layers: [
-      L({ style: 'continuous', sym: 'none', bundle: 2, route: 'bundles', maxLen: 4, straight: 0.45, cornerShare: 0.4, gapLines: 'random', frame: 0.12, seed: 1234 }),
+    name: 'Continuous lines', cols: 11, colours: ['#111111', '#ffffff', '#000000'],
+    settings: { orientation: 'square', linesPerCell: 7, lineRatio: 0.4, layers: [
+      L({ style: 'continuous', sym: 'none', route: 'bundles', maxLen: 4, straight: 0.45, cornerShare: 0.4, gapLines: 'random', mergeCells: true, mergeMax: 3, merge: 0.35, frame: 0.12, seed: 1234 }),
     ] },
   },
   {

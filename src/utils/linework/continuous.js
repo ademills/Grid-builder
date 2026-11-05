@@ -1,13 +1,16 @@
 // Linework style C — continuous lines.
 //
-// The layer is a grid of square cells S across (Bundle size × the cell),
-// each carrying k = S / pitch lines from one edge to another. A route
-// visits every kept cell once; where it goes straight across a cell the
-// lines run Straight, where it turns they take a Diagonal (straight across
-// the corner) or a Corner (a 90° L), both nested about the corner the two
-// edges share, so nothing crosses. Every line meets a cell edge at one of k
-// points (s + ½)·S/k along it, worked out from grid coordinates, so the
-// next cell picks it up at exactly the same point.
+// The layer is a grid of square cells S across, each carrying k = S / pitch
+// lines from one edge to another. With Merge cells (cfg.mergeCells), some
+// n × n squares of cells (n up to cfg.mergeMax, chance cfg.merge) join into
+// one bigger cell carrying n·k lines; its edge points are the same points as
+// the single cells' beside it, so lines run on across either. A route
+// visits every kept cell (or merged cell) once; where it goes straight
+// across one the lines run Straight, where it turns they take a Diagonal
+// (straight across the corner) or a Corner (a 90° L), both nested about the
+// corner the two edges share, so nothing crosses. Every line meets a cell
+// edge at one of its points (s + ½)·pitch along it, worked out from grid
+// coordinates, so the next cell picks it up at exactly the same point.
 //
 // With cfg.route 'bundles' the route is cut into paths of up to cfg.maxLen
 // cells; 'single' keeps it whole. A path's end cells carry their lines out
@@ -25,73 +28,122 @@
 // Everything is in the layer's local frame (origin at its centre, y down).
 //
 // Hand edits (the Build tool): opts.hand { rules: { [cell]: 'diag' |
-// 'corner' } } pins turn cells' rules; opts.edit { at } switches the turn
-// cell there between the two. The edit made comes back as `edited`.
+// 'corner' } } pins turn cells' rules (a merged cell by its top-left cell);
+// opts.edit { at } switches the turn cell there between the two. The edit
+// made comes back as `edited`.
 
-import { mulberry32, hash, polyContour, contoursBounds, rectPoly } from './geometry';
+import { mulberry32, hash, shuffle, polyContour, contoursBounds, rectPoly } from './geometry';
 import { shapeCutter } from './shapeClip';
 
-const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // right, down, left, up
 const keyOf = p => `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
 const rand01 = (seed, n) => mulberry32(hash(seed, n, 977))();
 
-// ── Route ────────────────────────────────────────────────────────────────────
-// One path through the kept cells: grown from a random cell by backbite
-// moves (step onto a free neighbour, or onto one already on the path and
-// reverse the part after it), then mixed the same way. Turns are weighted
-// by straightness; with edgeEnds, so is each end not facing the border
-// straight on. If growth stalls on a full grid the path starts from a snake
-// instead; with holes, a few seeds are tried and the longest path kept.
-export function routeCells(cols, rows, kept, seed, straight, edgeEnds) {
+// ── Cells and merged cells ──────────────────────────────────────────────────
+// The kept cells as blocks: single cells, and with Merge cells some n × n
+// squares of them. Each block: { id (its top-left cell), x, y, n }, in
+// reading order of their top-left cells. owner[cell] is the block it's in
+// (-1 for a masked cell).
+function makeBlocks(cols, rows, kept, cfg, seed) {
   const N = cols * rows;
-  let K = 0;
-  for (let id = 0; id < N; id++) if (kept[id]) K++;
+  const merged = new Int32Array(N).fill(-1); // index into `big`, while merging
+  const big = [];
+  const share = cfg.mergeCells ? Math.max(0, Math.min(1, cfg.merge ?? 0.3)) : 0;
+  const maxN = Math.max(2, Math.min(8, Math.round(cfg.mergeMax ?? 3)));
+  if (share > 0) {
+    const r = mulberry32(hash(seed, 913));
+    const free = (x, y, n) => {
+      if (x + n > cols || y + n > rows) return false;
+      for (let j = y; j < y + n; j++) for (let i = x; i < x + n; i++) if (!kept[j * cols + i] || merged[j * cols + i] >= 0) return false;
+      return true;
+    };
+    for (const id of shuffle(Array.from({ length: N }, (_, i) => i), r)) {
+      if (merged[id] >= 0 || !kept[id] || r() >= share) continue;
+      const x = id % cols, y = Math.floor(id / cols);
+      let n = 2 + Math.floor(r() * (maxN - 1));
+      while (n >= 2 && !free(x, y, n)) n--;
+      if (n < 2) continue;
+      for (let j = y; j < y + n; j++) for (let i = x; i < x + n; i++) merged[j * cols + i] = big.length;
+      big.push({ x, y, n });
+    }
+  }
+  const owner = new Int32Array(N).fill(-1);
+  const blocks = [];
+  for (let id = 0; id < N; id++) {
+    if (!kept[id] || owner[id] >= 0) continue;
+    const m = merged[id] >= 0 ? big[merged[id]] : { x: id % cols, y: Math.floor(id / cols), n: 1 };
+    for (let j = m.y; j < m.y + m.n; j++) for (let i = m.x; i < m.x + m.n; i++) owner[j * cols + i] = blocks.length;
+    blocks.push({ id, ...m });
+  }
+  return { blocks, owner };
+}
+
+// The blocks as a graph: each one's neighbours (by side, in side order) and
+// which side of a block another lies on.
+function blockGraph(blocks, owner, cols, rows) {
+  const NB = blocks.map((b, bi) => {
+    const out = [];
+    const add = (i, j) => {
+      if (i < 0 || j < 0 || i >= cols || j >= rows) return;
+      const o = owner[j * cols + i];
+      if (o >= 0 && o !== bi && !out.includes(o)) out.push(o);
+    };
+    for (let t = 0; t < b.n; t++) add(b.x + b.n, b.y + t);
+    for (let t = 0; t < b.n; t++) add(b.x + t, b.y + b.n);
+    for (let t = 0; t < b.n; t++) add(b.x - 1, b.y + t);
+    for (let t = 0; t < b.n; t++) add(b.x + t, b.y - 1);
+    return out;
+  });
+  const sideOf = (a, b) => {
+    const A = blocks[a], B = blocks[b];
+    if (B.x >= A.x + A.n) return 0;
+    if (B.y >= A.y + A.n) return 1;
+    if (B.x + B.n <= A.x) return 2;
+    return 3;
+  };
+  const atBorder = (a, s) => {
+    const A = blocks[a];
+    return s === 0 ? A.x + A.n === cols : s === 1 ? A.y + A.n === rows : s === 2 ? A.x === 0 : A.y === 0;
+  };
+  return { n: blocks.length, NB, sideOf, atBorder };
+}
+
+// ── Route ────────────────────────────────────────────────────────────────────
+// One path through the blocks: grown from a random one by backbite moves
+// (step onto a free neighbour, or onto one already on the path and reverse
+// the part after it), then mixed the same way. Turns are weighted by
+// straightness; with edgeEnds, so is each end not facing the border straight
+// on. If growth stalls the path can start from a snake through the cells
+// instead (snake: that order, when every cell is its own block); otherwise
+// a few seeds are tried and the longest path kept.
+export function routeGraph(G, seed, straight, edgeEnds, snake = null) {
+  const K = G.n;
   if (!K) return [];
   let best = [];
   for (let a = 0; a < 6; a++) {
-    const p = routeAttempt(cols, rows, kept, K, seed + a * 7919, straight, edgeEnds, false);
+    const p = routeAttempt(G, seed + a * 7919, straight, edgeEnds, null);
     if (p.length > best.length) best = p;
     if (best.length === K) return best;
   }
-  return K === N ? routeAttempt(cols, rows, kept, K, seed, straight, edgeEnds, true) : best;
+  return snake ? routeAttempt(G, seed, straight, edgeEnds, snake) : best;
 }
 
-function routeAttempt(cols, rows, kept, K, seed, straight, edgeEnds, snake) {
-  const N = cols * rows;
-  const NB = Array.from({ length: N }, (_, id) => {
-    if (!kept[id]) return [];
-    const x = id % cols, y = (id / cols) | 0, out = [];
-    for (const [dx, dy] of DIRS) {
-      const a = x + dx, b = y + dy;
-      if (a >= 0 && b >= 0 && a < cols && b < rows && kept[b * cols + a]) out.push(b * cols + a);
-    }
-    return out;
-  });
+function routeAttempt(G, seed, straight, edgeEnds, snake) {
+  const K = G.n, NB = G.NB;
   const r = mulberry32(hash(seed, 31));
-  const idx = new Int32Array(N).fill(-1);
-  let path;
-  if (snake) {
-    path = [];
-    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) path.push(y * cols + (y % 2 ? cols - 1 - x : x));
-  } else {
-    let start;
-    do start = Math.floor(r() * N); while (!kept[start]);
-    path = [start];
-  }
+  const idx = new Int32Array(K).fill(-1);
+  const path = snake ? snake.slice() : [Math.floor(r() * K)];
   path.forEach((id, t) => { idx[id] = t; });
   const beta = (straight - 0.5) * 8, gamma = edgeEnds ? 4 : 0;
-  const turn = t => (t <= 0 || t >= path.length - 1 ? 0 : (path[t - 1] + path[t + 1] !== 2 * path[t] ? 1 : 0));
+  const turn = t => (t <= 0 || t >= path.length - 1 ? 0
+    : ((G.sideOf(path[t], path[t - 1]) + 2) % 4 !== G.sideOf(path[t], path[t + 1]) ? 1 : 0));
   const reverse = (i, j) => {
     for (; i < j; i++, j--) {
       const a = path[i]; path[i] = path[j]; path[j] = a;
       idx[path[i]] = i; idx[path[j]] = j;
     }
   };
-  // 1 when the end cell e (reached from p) doesn't face the border straight on.
-  const offEdge = (e, p) => {
-    const nx = 2 * (e % cols) - (p % cols), ny = 2 * ((e / cols) | 0) - ((p / cols) | 0);
-    return nx < 0 || ny < 0 || nx >= cols || ny >= rows ? 0 : 1;
-  };
+  // 1 when the end e (reached from p) doesn't face the border straight on.
+  const offEdge = (e, p) => (G.atBorder(e, (G.sideOf(e, p) + 2) % 4) ? 0 : 1);
   const endPen = () => (path.length < 2 ? 0 : offEdge(path[path.length - 1], path[path.length - 2]) + offEdge(path[0], path[1]));
   const accept = (dT, dE) => { const e = -beta * dT - gamma * dE; return e >= 0 || r() < Math.exp(e); };
   // Mixing is capped by work (each move reverses up to the whole path).
@@ -110,6 +162,7 @@ function routeAttempt(cols, rows, kept, K, seed, straight, edgeEnds, snake) {
     }
     const atEnd = r() < 0.5;
     const ns = NB[atEnd ? path[L - 1] : path[0]];
+    if (!ns.length) continue;
     const nb = ns[Math.floor(r() * ns.length)];
     if (idx[nb] < 0) {
       if (atEnd) { path.push(nb); idx[nb] = L; } else { path.unshift(nb); for (let t = 0; t < path.length; t++) idx[path[t]] = t; }
@@ -131,10 +184,10 @@ function routeAttempt(cols, rows, kept, K, seed, straight, edgeEnds, snake) {
   return path;
 }
 
-// Multiple paths: the route cut into paths of 1…max cells, then any kept
-// cells it missed (holes can make a single route impossible) picked up by
-// short walks of their own.
-function splitRoute(route, cols, rows, kept, max, straight, r) {
+// Multiple paths: the route cut into paths of 1…max blocks, then any blocks
+// it missed (a mask can make a single route impossible) picked up by short
+// walks of their own.
+function splitRoute(route, G, max, straight, r, skip = null) {
   const paths = [];
   for (let i = 0; i < route.length;) {
     let n = 1 + Math.floor(r() * max);
@@ -142,22 +195,18 @@ function splitRoute(route, cols, rows, kept, max, straight, r) {
     paths.push(route.slice(i, i + n));
     i += n;
   }
-  const used = new Set(route);
-  const free = id => kept[id] && !used.has(id);
-  const nbs = id => {
-    const x = id % cols, y = Math.floor(id / cols);
-    return DIRS.map(([dx, dy]) => [x + dx, y + dy]).filter(([a, b]) => a >= 0 && b >= 0 && a < cols && b < rows).map(([a, b]) => b * cols + a);
-  };
-  for (let id = 0; id < cols * rows; id++) {
+  const used = new Set([...route, ...(skip ?? [])]);
+  const free = id => !used.has(id);
+  for (let id = 0; id < G.n; id++) {
     if (!free(id)) continue;
     const walk = [id];
     used.add(id);
     for (let grow = 0; grow < 2; grow++) {
       while (walk.length < max) {
         const end = walk[walk.length - 1], prev = walk[walk.length - 2];
-        const opts = nbs(end).filter(free);
+        const opts = G.NB[end].filter(free);
         if (!opts.length) break;
-        const ahead = prev != null ? opts.find(o => o - end === end - prev) : undefined;
+        const ahead = prev != null ? opts.find(o => G.sideOf(end, o) === (G.sideOf(end, prev) + 2) % 4) : undefined;
         const next = ahead !== undefined && r() < straight ? ahead : opts[Math.floor(r() * opts.length)];
         walk.push(next); used.add(next);
       }
@@ -169,7 +218,7 @@ function splitRoute(route, cols, rows, kept, max, straight, r) {
 }
 
 // ── Cells ────────────────────────────────────────────────────────────────────
-// A canonical cell [0,S]², the lines entering through the top edge, line s
+// A canonical cell [0,S]², the k lines entering through the top edge, line s
 // at x = d_s. A turn leaves by the left edge (mirrored for the right), line
 // s at y = d_s.
 function cellLines(kind, k, S) {
@@ -179,15 +228,12 @@ function cellLines(kind, k, S) {
   return ds.map(d => [[d, 0], [d, d], [0, d]]); // corner: a 90° L
 }
 
-const sideTo = (cols, a, b) => {
-  const dx = (b % cols) - (a % cols), dy = Math.floor(b / cols) - Math.floor(a / cols);
-  return DIRS.findIndex(([x, y]) => x === dx && y === dy);
-};
-// Canonical → grid: mirror x, then q clockwise quarter turns (top → side q - 1).
-function placer(cols, S, id, q, mirror) {
-  const cx = (id % cols) * S + S / 2, cy = Math.floor(id / cols) * S + S / 2;
+// Canonical → grid for a block of size n: mirror x, then q clockwise
+// quarter turns (top → side q - 1).
+function placer(b, S, q, mirror) {
+  const size = b.n * S, cx = b.x * S + size / 2, cy = b.y * S + size / 2;
   return ([x, y]) => {
-    let u = (mirror ? S - x : x) - S / 2, v = y - S / 2;
+    let u = (mirror ? size - x : x) - size / 2, v = y - size / 2;
     for (let i = 0; i < q; i++) [u, v] = [-v, u];
     return [cx + u, cy + v];
   };
@@ -195,31 +241,27 @@ function placer(cols, S, id, q, mirror) {
 
 // A free side for an open path end: a border side if there is one, else
 // straight on (by straightness) or a turn. `not`: the side taken, or -1.
-function freeSide(cols, rows, id, not, straight, seed) {
-  const x = id % cols, y = Math.floor(id / cols);
+function freeSide(G, bi, id, not, straight, seed) {
   const r = mulberry32(hash(seed, id, not + 11, 7919));
   const opp = not >= 0 ? (not + 2) % 4 : -1;
   const sides = [0, 1, 2, 3].filter(s => s !== not);
-  const border = sides.filter(s => {
-    const nx = x + DIRS[s][0], ny = y + DIRS[s][1];
-    return nx < 0 || ny < 0 || nx >= cols || ny >= rows;
-  });
+  const border = sides.filter(s => G.atBorder(bi, s));
   if (border.length) return border.includes(opp) && r() < straight ? opp : border[Math.floor(r() * border.length)];
   if (opp >= 0 && r() < straight) return opp;
   const turns = sides.filter(s => s !== opp);
   return turns[Math.floor(r() * turns.length)];
 }
 
-// A turn cell's rule: pinned by hand, else from Corners (cfg.cornerShare)
-// and Placement ('random' | 'checker' | 'alternate' along the line).
-function turnRule(cfg, rules, seed, cols, id, nTurn) {
-  if (rules?.[id]) return rules[id];
+// A turn's rule: pinned by hand, else from Corners (cfg.cornerShare) and
+// Placement ('random' | 'checker' | 'alternate' along the line).
+function turnRule(cfg, rules, seed, b, nTurn) {
+  if (rules?.[b.id]) return rules[b.id];
   const share = cfg.cornerShare ?? 0.4;
   if (share <= 0) return 'diag';
   if (share >= 1) return 'corner';
-  if (cfg.placement === 'checker') return ((id % cols) + Math.floor(id / cols)) % 2 ? 'corner' : 'diag';
+  if (cfg.placement === 'checker') return (b.x + b.y) % 2 ? 'corner' : 'diag';
   if (cfg.placement === 'alternate') return nTurn % 2 ? 'corner' : 'diag';
-  return rand01(seed, id) < share ? 'corner' : 'diag';
+  return rand01(seed, b.id) < share ? 'corner' : 'diag';
 }
 
 // ── Gap lines ────────────────────────────────────────────────────────────────
@@ -227,28 +269,30 @@ function turnRule(cfg, rules, seed, cols, id, nTurn) {
 // beyond the outermost diagonal x + y = D), lines from the edge points
 // running one way until they meet the diagonal. The outermost ones end on
 // its last point, so the lines stay evenly spaced up to the cell edge.
-function gapLines(cfg, seed, cells, k, S, cols) {
+function gapLines(cfg, seed, blocks, kinds, k, S) {
   const mode = cfg.gapLines ?? 'random';
   if (mode === 'off') return [];
-  const p = S / k, ds = Array.from({ length: k }, (_, s) => (s + 0.5) * p), D = ds[k - 1];
   const r2 = Math.SQRT1_2, DIRN = ['vertical', 'horizontal', 'diagonal'];
   const out = [];
-  for (const [id, c] of cells) {
-    if (c.kind !== 'diag') continue;
-    let dir = mode === 'random' ? DIRN[Math.floor(rand01(seed + 77, id) * 3)] : mode;
+  blocks.forEach((b, bi) => {
+    const c = kinds[bi];
+    if (!c || c.kind !== 'diag') return;
+    const kk = k * b.n, size = S * b.n, p = size / kk;
+    const ds = Array.from({ length: kk }, (_, s) => (s + 0.5) * p), D = ds[kk - 1];
+    let dir = mode === 'random' ? DIRN[Math.floor(rand01(seed + 77, b.id) * 3)] : mode;
     // Grid vertical is canonical vertical in an upright cell, horizontal in a turned one.
     if (dir !== 'diagonal' && c.q % 2) dir = dir === 'vertical' ? 'horizontal' : 'vertical';
-    const place = placer(cols, S, id, c.q, c.mirror);
+    const place = placer(b, S, c.q, c.mirror);
     const starts = [];
-    if (dir !== 'horizontal') for (const d of ds) starts.push([[d, S], dir === 'vertical' ? [0, -1] : [-r2, -r2]]);
-    if (dir !== 'vertical') for (const d of ds) starts.push([[S, d], dir === 'horizontal' ? [-1, 0] : [-r2, -r2]]);
+    if (dir !== 'horizontal') for (const d of ds) starts.push([[d, size], dir === 'vertical' ? [0, -1] : [-r2, -r2]]);
+    if (dir !== 'vertical') for (const d of ds) starts.push([[size, d], dir === 'horizontal' ? [-1, 0] : [-r2, -r2]]);
     for (const [P, u] of starts) {
       const t = (D - P[0] - P[1]) / (u[0] + u[1]);
       const E = [P[0] + t * u[0], P[1] + t * u[1]];
       if (t < p * 0.3 || E[0] < -1e-6 || E[1] < -1e-6) continue;
-      out.push({ cell: id, pts: [place(P), place(E)] });
+      out.push({ cell: b.id, pts: [place(P), place(E)] });
     }
-  }
+  });
   return out;
 }
 
@@ -413,40 +457,49 @@ export function lineOutline(pts, hw, closed = false) {
 
 // ── The layer ────────────────────────────────────────────────────────────────
 // L: { w, h, C, p, lineW }. insideCell(i, j): the region mask over the cell
-// grid, or null. Returns { groups: [{ key, name, contours, centre }],
-// cols, rows, S, lines (centrelines, for tests), cells, edited }.
+// grid, or null. Returns { groups: [{ key, name, contours, centre, lines }],
+// cols, rows, S, k, cells (by cell: { kind, q, mirror, path, block }),
+// blocks, edited }.
 export function continuousLayer(L, cfg, seed, insideCell, opts = {}) {
-  const S = Math.max(1, cfg.bundle ?? 1) * L.C;
+  const S = L.C;
   const k = Math.max(1, Math.round(S / L.p));
   const p = S / k;
   const cols = Math.max(1, Math.floor(L.w / S + 1e-6)), rows = Math.max(1, Math.floor(L.h / S + 1e-6));
   const W = cols * S, H = rows * S, ox = -W / 2, oy = -H / 2;
   const N = cols * rows;
   const kept = Array.from({ length: N }, (_, id) => (insideCell ? insideCell(id % cols, Math.floor(id / cols)) : true));
+  const { blocks, owner } = makeBlocks(cols, rows, kept, cfg, seed);
+  const G = blockGraph(blocks, owner, cols, rows);
   const single = cfg.route === 'single';
   const straight = cfg.straight ?? 0.6;
-  const route = routeCells(cols, rows, kept, seed, straight, single);
+  // A snake through the cells to fall back on, when every cell is its own block.
+  let snake = null;
+  if (blocks.length === N) {
+    snake = [];
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) snake.push(y * cols + (y % 2 ? cols - 1 - x : x));
+  }
+  const route = routeGraph(G, seed, straight, single, snake);
 
   // A hand edit: switch the turn cell under the point (worked out from the
   // layout as drawn, so it's the cell the person sees).
   let rules = opts.hand?.rules ?? null;
   let edited = null;
-  const build = (rulesNow) => layout(cfg, seed, route, rulesNow, { cols, rows, kept, k, S, single, straight });
+  const build = (rulesNow) => layout(cfg, seed, route, rulesNow, { G, blocks, cols, k, S, single, straight });
   let lay = build(rules);
   if (opts.edit?.at) {
     const gx = opts.edit.at[0] - ox, gy = opts.edit.at[1] - oy;
     const i = Math.floor(gx / S), j = Math.floor(gy / S);
     const c = i >= 0 && j >= 0 && i < cols && j < rows ? lay.cells.get(j * cols + i) : null;
     if (c && (c.kind === 'diag' || c.kind === 'corner')) {
-      rules = { ...(rules ?? {}), [j * cols + i]: c.kind === 'diag' ? 'corner' : 'diag' };
+      rules = { ...(rules ?? {}), [c.block]: c.kind === 'diag' ? 'corner' : 'diag' };
       edited = { op: 'turn', rules };
       lay = build(rules);
     }
   }
 
-  const { pieces, cells } = lay;
+  const { pieces, cells, kinds } = lay;
   const main = stitch(pieces);
-  const gaps = stitch(gapLines(cfg, seed, cells, k, S, cols).map(g => ({ ...g, group: `g${g.cell}` })));
+  const gaps = stitch(gapLines(cfg, seed, blocks, kinds, k, S).map(g => ({ ...g, group: `g${g.cell}` })));
   meetLines([...main, ...gaps], main.length, W, H, S, p);
   // Gap lines that carry a path's lines on (and lines run on end to end) are
   // one line now: outlined in one piece, so their bends join cleanly rather
@@ -474,38 +527,35 @@ export function continuousLayer(L, cfg, seed, insideCell, opts = {}) {
     const b = contoursBounds(g.contours);
     return { ...g, centre: b ? [b.x + b.w / 2, b.y + b.h / 2] : [0, 0] };
   });
-  return { groups: out, cols, rows, S, k, cells, edited };
+  return { groups: out, cols, rows, S, k, cells, blocks, edited };
 }
 
-// Every path's pieces, cell by cell, and what each cell is.
-function layout(cfg, seed, route, rules, { cols, rows, kept, k, S, single, straight }) {
+// Every path's pieces, block by block, and what each block is.
+function layout(cfg, seed, route, rules, { G, blocks, cols, k, S, single, straight }) {
   const maxLen = (cfg.maxLen ?? 40) >= 200 ? Infinity : Math.max(1, cfg.maxLen ?? 40);
-  const paths = single || !Number.isFinite(maxLen)
-    ? (route.length ? [route] : [])
-    : splitRoute(route, cols, rows, kept, maxLen, straight, mulberry32(hash(seed, 5)));
-  // Cells a single route couldn't reach (holes) get paths of their own.
-  if (single || !Number.isFinite(maxLen)) {
-    const onRoute = new Set(route);
-    const extra = splitRoute([], cols, rows, kept.map((v, id) => v && !onRoute.has(id)), Number.isFinite(maxLen) ? maxLen : 8, straight, mulberry32(hash(seed, 6)));
-    paths.push(...extra);
-  }
-  const pieces = [], cells = new Map();
+  const whole = single || !Number.isFinite(maxLen);
+  const paths = whole ? (route.length ? [route] : []) : splitRoute(route, G, maxLen, straight, mulberry32(hash(seed, 5)));
+  // Blocks a single route couldn't reach get paths of their own.
+  if (whole) paths.push(...splitRoute([], G, Number.isFinite(maxLen) ? maxLen : 8, straight, mulberry32(hash(seed, 6)), route));
+  const pieces = [], kinds = [], cells = new Map();
   let nTurn = 0;
   paths.forEach((path, pi) => {
     const L = path.length;
-    path.forEach((id, n) => {
-      let entry = n > 0 ? sideTo(cols, id, path[n - 1]) : null;
-      let exit = n < L - 1 ? sideTo(cols, id, path[n + 1]) : null;
-      if (entry == null && exit == null) { entry = freeSide(cols, rows, id, -1, straight, seed); exit = freeSide(cols, rows, id, entry, straight, seed); }
-      else if (entry == null) entry = freeSide(cols, rows, id, exit, straight, seed);
-      else if (exit == null) exit = freeSide(cols, rows, id, entry, straight, seed);
-      const kind = (entry + 2) % 4 === exit ? 'straight' : turnRule(cfg, rules, seed, cols, id, nTurn++);
+    path.forEach((bi, n) => {
+      const b = blocks[bi];
+      let entry = n > 0 ? G.sideOf(bi, path[n - 1]) : null;
+      let exit = n < L - 1 ? G.sideOf(bi, path[n + 1]) : null;
+      if (entry == null && exit == null) { entry = freeSide(G, bi, b.id, -1, straight, seed); exit = freeSide(G, bi, b.id, entry, straight, seed); }
+      else if (entry == null) entry = freeSide(G, bi, b.id, exit, straight, seed);
+      else if (exit == null) exit = freeSide(G, bi, b.id, entry, straight, seed);
+      const kind = (entry + 2) % 4 === exit ? 'straight' : turnRule(cfg, rules, seed, b, nTurn++);
       const q = (entry + 1) % 4; // quarter turns taking top (3) to `entry`
       const mirror = kind !== 'straight' && (2 + q) % 4 !== exit;
-      const place = placer(cols, S, id, q, mirror);
-      cells.set(id, { kind, q, mirror, path: pi });
-      for (const P of cellLines(kind, k, S)) pieces.push({ cell: id, group: pi, pts: P.map(place) });
+      const place = placer(b, S, q, mirror);
+      kinds[bi] = { kind, q, mirror, path: pi };
+      for (let j = b.y; j < b.y + b.n; j++) for (let i = b.x; i < b.x + b.n; i++) cells.set(j * cols + i, { kind, q, mirror, path: pi, block: b.id });
+      for (const P of cellLines(kind, k * b.n, S * b.n)) pieces.push({ cell: b.id, group: pi, pts: P.map(place) });
     });
   });
-  return { pieces, cells };
+  return { pieces, cells, kinds };
 }

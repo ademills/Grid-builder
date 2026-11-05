@@ -26,8 +26,11 @@ export const CELL = 100;
 
 // A layer's engine: 'angular' (the default), 'circuit' or 'continuous'.
 const styleOf = cfg => (cfg.style === 'circuit' || cfg.style === 'continuous' ? cfg.style : 'angular');
-// Circuits and continuous lines run on a grid of Bundle-sized cells.
+// Circuits and continuous lines are laid out on whole cells, centred: a
+// circuit's are Bundle size across, continuous lines' one grid cell (they
+// merge cells their own way).
 const gridded = cfg => styleOf(cfg) !== 'angular';
+const cellOf = (cfg, C) => (styleOf(cfg) === 'circuit' ? Math.max(1, cfg.bundle ?? 1) * C : C);
 
 const rotation = (deg) => {
   const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
@@ -161,7 +164,7 @@ const HAND_KEYS = {
   angular: ['seed', 'tile', 'scale', 'subdiv', 'minTile'],
   // A continuous layer keeps its turn cells' rules, by cell: its route comes
   // from these, and the cells from the size.
-  continuous: ['seed', 'bundle', 'scale', 'route', 'maxLen', 'straight', 'mask', 'maskMode'],
+  continuous: ['seed', 'scale', 'route', 'maxLen', 'straight', 'mergeCells', 'mergeMax', 'merge', 'mask', 'maskMode'],
 };
 function handSig(cfg, settings, lw, lh, sym) {
   const style = styleOf(cfg);
@@ -301,7 +304,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
   // (Invert) or doesn't wholly cover (Remove); the lines are then cut to it.
   const exactCells = (cfg, shape, lw, lh) => (cols, rows) => {
     const C = CELL * (cfg.scale ?? 1);
-    const g = gridded(cfg) ? Math.max(1, cfg.bundle ?? 1) * C : null;
+    const g = gridded(cfg) ? cellOf(cfg, C) : null;
     const cw = g ?? lw / cols, ch = g ?? lh / rows;
     return cellsForShape(shape, { cols, rows, cw, ch, ox: g ? -cols * g / 2 : -lw / 2, oy: g ? -rows * g / 2 : -lh / 2, invert: cfg.maskMode === 'invert' });
   };
@@ -314,7 +317,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     // The grid the layer reads its mask on (as in runLayer): bundles, or cells.
     const C = CELL * (cfg.scale ?? 1);
     const circuit = gridded(cfg);
-    const g = circuit ? Math.max(1, cfg.bundle ?? 1) * C : C;
+    const g = cellOf(cfg, C);
     const cols = circuit ? Math.max(1, Math.floor(lw / g + 1e-6)) : Math.max(1, Math.round(lw / C));
     const rows = circuit ? Math.max(1, Math.floor(lh / g + 1e-6)) : Math.max(1, Math.round(lh / C));
     const mask = keep(cols, rows);
@@ -366,7 +369,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     const record = (op, data) => edits.push({ li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), tag, op, hand: { sig, ...data } });
     if (style === 'continuous') {
       // Continuous lines (square cells only). The mask is read on the cell grid.
-      const S = Math.max(1, cfg.bundle ?? 1) * C;
+      const S = C;
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
       const mask = masked(cfg) ? run.maskAt(bc, br) : null;
       const R = continuousLayer(L, cfg, seed, mask ? (i, j) => mask.has(`${i},${j}`) : null, { hand, edit: editHere });

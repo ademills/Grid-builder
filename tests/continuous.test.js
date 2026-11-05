@@ -22,7 +22,9 @@ describe('continuous lines', () => {
     ['one path, no gap lines', { route: 'single', gapLines: 'off' }],
     ['all corners', { cornerShare: 1, gapLines: 'vertical' }],
     ['all diagonals, 45° gap lines', { cornerShare: 0, gapLines: 'diagonal' }],
-    ['checker placement, bigger cells', { placement: 'checker', bundle: 2, gapLines: 'horizontal' }],
+    ['checker placement', { placement: 'checker', gapLines: 'horizontal' }],
+    ['merged cells up to 3 × 3', { mergeCells: true, mergeMax: 3, merge: 0.5 }],
+    ['merged cells up to 5 × 5, one path', { mergeCells: true, mergeMax: 5, merge: 0.8, route: 'single' }],
   ];
 
   it.each(settings)('%s: every cell is drawn, nothing crosses', (_, over) => {
@@ -41,9 +43,19 @@ describe('continuous lines', () => {
     }
   });
 
-  it('lines meet cell edges only at the shared points', () => {
+  it('merged cells are squares that cover every cell once', () => {
+    const R = continuousLayer(layerOf(8, 6), cfgOf({ mergeCells: true, mergeMax: 3, merge: 0.6 }), 11, null);
+    expect(R.blocks.some(b => b.n > 1)).toBe(true);
+    expect(Math.max(...R.blocks.map(b => b.n))).toBeLessThanOrEqual(3);
+    expect(R.blocks.reduce((n, b) => n + b.n * b.n, 0)).toBe(R.cols * R.rows);
+    expect(R.cells.size).toBe(R.cols * R.rows);
+    // Merging off: every cell is its own block.
+    expect(continuousLayer(layerOf(8, 6), cfgOf({ mergeCells: false, merge: 0.6 }), 11, null).blocks.every(b => b.n === 1)).toBe(true);
+  });
+
+  it.each([false, true])('lines meet cell edges only at the shared points (merged: %s)', (merge) => {
     const L = layerOf(5, 4, 5);
-    const R = continuousLayer(L, cfgOf({ gapLines: 'off' }), 3, null);
+    const R = continuousLayer(L, cfgOf({ gapLines: 'off', mergeCells: merge, mergeMax: 3, merge: 0.6 }), 3, null);
     const S = R.S, k = R.k, ox = -R.cols * S / 2, oy = -R.rows * S / 2;
     const lattice = v => { const m = ((v % S) + S) % S; return Array.from({ length: k }, (_, s) => (s + 0.5) * S / k).some(d => Math.abs(m - d) < 1e-6); };
     // Every bend of a line that sits on a cell edge is one of its k points.
@@ -57,7 +69,7 @@ describe('continuous lines', () => {
 
   it('lines that meet end to end are one line (so bends join cleanly)', () => {
     for (const seed of [1, 2, 1234]) for (const gapLines of ['random', 'diagonal', 'off']) {
-      const R = continuousLayer(layerOf(8, 6, 5), cfgOf({ bundle: 2, maxLen: 4, gapLines }), seed, null);
+      const R = continuousLayer(layerOf(8, 6, 5), cfgOf({ maxLen: 4, gapLines, mergeCells: seed !== 1, mergeMax: 3, merge: 0.4 }), seed, null);
       const ends = new Map();
       const key = p => `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
       for (const g of R.groups) for (const l of g.lines) if (!l.closed) for (const p of [l.pts[0], l.pts[l.pts.length - 1]]) ends.set(key(p), (ends.get(key(p)) ?? 0) + 1);
@@ -109,7 +121,7 @@ describe('continuous lines', () => {
 
   it('nothing reaches past the grid (lines, or a base Sticker background and its shadow)', () => {
     const W = 6 * CELL, H = 5 * CELL;
-    for (const [style, over] of [['continuous', {}], ['continuous', { scale: 0.75 }], ['circuit', { backing: 'sticker', shadow: 'hard', depth: 0.3 }], ['circuit', { backing: 'outline' }]]) {
+    for (const [style, over] of [['continuous', {}], ['continuous', { scale: 0.75 }], ['continuous', { mergeCells: true, mergeMax: 4, merge: 0.5 }], ['circuit', { backing: 'sticker', shadow: 'hard', depth: 0.3 }], ['circuit', { backing: 'outline' }]]) {
       for (const seed of [1, 2, 3]) {
         const s = { ...createLineworkSettings(), linesPerCell: 3, lineRatio: 0.6 };
         s.layers = [lineworkLayerDefaults({ style, sym: 'none', seed, ...over })];

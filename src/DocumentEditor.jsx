@@ -1978,12 +1978,13 @@ export function DocumentEditor({ mode: appMode }) {
     useDocumentStore.getState().setField(docId, 'paletteKey', preset.name);
     setShapeColors(swatches);
     setCanvasBg(ground);
-    if (preset.cols) setGridSettings(g => ({ ...g, cols: preset.cols }));
+    // The preset's column count, or the nearest one that fits this artboard.
+    if (preset.cols) setGridSettings(g => ({ ...g, cols: snapCols(validCols, preset.cols) }));
     updateLinework(s => mergeLineworkSettings({
       ...s, ...preset.settings, inkSwatch: null, groundSwatch: null, shadowSwatch: swatches[1].id,
       layers: preset.settings.layers.map(l => ({ ...l })),
     }), `Preset — ${preset.name}`);
-  }, [docId, setShapeColors, setCanvasBg, setGridSettings, updateLinework]);
+  }, [docId, setShapeColors, setCanvasBg, setGridSettings, updateLinework, validCols]);
 
   // Surprise Me: a random preset's colours with a random design and seeds.
   const surpriseLinework = useCallback(() => {
