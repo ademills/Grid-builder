@@ -1,22 +1,26 @@
 // Linework style C — continuous lines.
 //
-// The layer is a grid of square cells S across, each carrying k = S / pitch
-// lines from one edge to another. With Merge cells (cfg.mergeCells), some
-// n × n squares of cells (n up to cfg.mergeMax, chance cfg.merge) join into
-// one bigger cell carrying n·k lines; its edge points are the same points as
-// the single cells' beside it, so lines run on across either. A route
+// The layer is a grid of square cells S across, each crossed by lines one
+// pitch apart (k = S / pitch gaps) from one edge to another, edge to edge:
+// a line on each of its two sides and k - 1 between, so the cells read as
+// squares and neighbours share their boundary lines. With Merge cells
+// (cfg.mergeCells), some n × n squares of cells (n up to cfg.mergeMax,
+// chance cfg.merge) join into one bigger cell, n·k gaps across; its edge
+// points are the same points as the single cells' beside it. A route
 // visits every kept cell (or merged cell) once; where it goes straight
 // across one the lines run Straight, where it turns they take a Diagonal
 // (straight across the corner) or a Corner (a 90° L), both nested about the
 // corner the two edges share, so nothing crosses. Every line meets a cell
-// edge at one of its points (s + ½)·pitch along it, worked out from grid
-// coordinates, so the next cell picks it up at exactly the same point.
+// edge at one of its points s·pitch along it (both corners included),
+// worked out from grid coordinates, so the next cell picks it up at exactly
+// the same point. A boundary two cells would both draw is drawn once.
 //
 // With cfg.route 'bundles' the route is cut into paths of up to cfg.maxLen
 // cells; 'single' keeps it whole. A path's end cells carry their lines out
-// through a free side, preferring the artboard border. Wherever a line stops
-// on a cell edge with nothing to join, it runs on straight until it meets
-// the first line beyond (a T junction), or the border.
+// through a free side, preferring the artboard border. Wherever lines stop
+// on a cell edge with nothing to join and no line along it, that edge is
+// drawn, so they end on it (T junctions); never past it into the next cell.
+// The artboard's own edge is left to the Frame.
 //
 // A Diagonal cell leaves half of itself empty; cfg.gapLines fills it with
 // lines from that half's edge points ('vertical' | 'horizontal' |
@@ -218,14 +222,16 @@ function splitRoute(route, G, max, straight, r, skip = null) {
 }
 
 // ── Cells ────────────────────────────────────────────────────────────────────
-// A canonical cell [0,S]², the k lines entering through the top edge, line s
-// at x = d_s. A turn leaves by the left edge (mirrored for the right), line
-// s at y = d_s.
+// A canonical cell [0,S]², k gaps across: lines at d_s = s·S/k for s = 0…k,
+// entering through the top edge, line s at x = d_s. A turn leaves by the left
+// edge (mirrored for the right), line s at y = d_s, nested about the
+// top-left corner: line 0 is that corner itself (nothing to draw; the lines
+// on the two edges meet there), and line k runs along the far edges.
 function cellLines(kind, k, S) {
-  const ds = Array.from({ length: k }, (_, s) => (s + 0.5) * S / k);
+  const ds = Array.from({ length: k + 1 }, (_, s) => (s * S) / k);
   if (kind === 'straight') return ds.map(d => [[d, 0], [d, S]]);
-  if (kind === 'diag') return ds.map(d => [[d, 0], [0, d]]);
-  return ds.map(d => [[d, 0], [d, d], [0, d]]); // corner: a 90° L
+  if (kind === 'diag') return ds.filter(d => d > 0).map(d => [[d, 0], [0, d]]);
+  return ds.filter(d => d > 0).map(d => [[d, 0], [d, d], [0, d]]); // corner: a 90° L
 }
 
 // Canonical → grid for a block of size n: mirror x, then q clockwise
@@ -266,9 +272,9 @@ function turnRule(cfg, rules, seed, b, nTurn) {
 
 // ── Gap lines ────────────────────────────────────────────────────────────────
 // In each Diagonal cell's empty half (canonical: the bottom and right edges,
-// beyond the outermost diagonal x + y = D), lines from the edge points
-// running one way until they meet the diagonal. The outermost ones end on
-// its last point, so the lines stay evenly spaced up to the cell edge.
+// beyond the outermost diagonal x + y = S), lines from the edge points
+// running one way until they meet the diagonal. The ones on the cell's own
+// edges run its full length, so the lines stay evenly spaced to the edge.
 function gapLines(cfg, seed, blocks, kinds, k, S) {
   const mode = cfg.gapLines ?? 'random';
   if (mode === 'off') return [];
@@ -278,14 +284,15 @@ function gapLines(cfg, seed, blocks, kinds, k, S) {
     const c = kinds[bi];
     if (!c || c.kind !== 'diag') return;
     const kk = k * b.n, size = S * b.n, p = size / kk;
-    const ds = Array.from({ length: kk }, (_, s) => (s + 0.5) * p), D = ds[kk - 1];
+    const ds = Array.from({ length: kk + 1 }, (_, s) => s * p), D = size;
     let dir = mode === 'random' ? DIRN[Math.floor(rand01(seed + 77, b.id) * 3)] : mode;
     // Grid vertical is canonical vertical in an upright cell, horizontal in a turned one.
     if (dir !== 'diagonal' && c.q % 2) dir = dir === 'vertical' ? 'horizontal' : 'vertical';
     const place = placer(b, S, c.q, c.mirror);
     const starts = [];
     if (dir !== 'horizontal') for (const d of ds) starts.push([[d, size], dir === 'vertical' ? [0, -1] : [-r2, -r2]]);
-    if (dir !== 'vertical') for (const d of ds) starts.push([[size, d], dir === 'horizontal' ? [-1, 0] : [-r2, -r2]]);
+    // (At 45° the far corner starts from both edges: once is enough.)
+    if (dir !== 'vertical') for (const d of ds) if (!(dir === 'diagonal' && d === size)) starts.push([[size, d], dir === 'horizontal' ? [-1, 0] : [-r2, -r2]]);
     for (const [P, u] of starts) {
       const t = (D - P[0] - P[1]) / (u[0] + u[1]);
       const E = [P[0] + t * u[0], P[1] + t * u[1]];
@@ -297,7 +304,9 @@ function gapLines(cfg, seed, blocks, kinds, k, S) {
 }
 
 // ── Joining up ───────────────────────────────────────────────────────────────
-// Pieces that share an end point are one line.
+// Pieces that share an end point are one line. Where more than two meet,
+// ends running straight through join first, then the most nearly opposite
+// of the rest, two by two; an odd one out stops there (a T).
 function stitch(pieces) {
   const ends = new Map();
   pieces.forEach((pc, i) => {
@@ -307,6 +316,35 @@ function stitch(pieces) {
       ends.get(kk).push([i, e]);
     }
   });
+  const out = ([i, e]) => {
+    const P = pieces[i].pts, a = e === 0 ? P[0] : P[P.length - 1], b = e === 0 ? P[1] : P[P.length - 2];
+    const d = [b[0] - a[0], b[1] - a[1]], l = Math.hypot(d[0], d[1]) || 1;
+    return [d[0] / l, d[1] / l];
+  };
+  const mate = new Map();
+  const id = ([i, e]) => i * 2 + e;
+  const pair = (x, y) => { mate.set(id(x), y); mate.set(id(y), x); };
+  for (const list of ends.values()) {
+    if (list.length === 2) { pair(list[0], list[1]); continue; }
+    if (list.length < 2) continue;
+    const left = list.slice();
+    for (let a = 0; a < left.length; a++) {
+      for (let b = a + 1; b < left.length; b++) {
+        const da = out(left[a]), db = out(left[b]);
+        if (da[0] * db[0] + da[1] * db[1] < -0.999) { pair(left[a], left[b]); left.splice(b, 1); left.splice(a, 1); a = -1; break; }
+      }
+    }
+    // Then the most nearly opposite of those left, until one at most is left.
+    while (left.length >= 2) {
+      let best = null;
+      for (let x = 0; x < left.length; x++) for (let y = x + 1; y < left.length; y++) {
+        const dx = out(left[x]), dy = out(left[y]), dot = dx[0] * dy[0] + dx[1] * dy[1];
+        if (!best || dot < best[2]) best = [x, y, dot];
+      }
+      pair(left[best[0]], left[best[1]]);
+      left.splice(best[1], 1); left.splice(best[0], 1);
+    }
+  }
   const used = new Uint8Array(pieces.length);
   const lines = [];
   const walk = (i, fe) => {
@@ -315,19 +353,20 @@ function stitch(pieces) {
     const first = pieces[i];
     // A line made of a path's lines and gap lines belongs to the path.
     let group = first.group;
-    while (true) {
+    while (!used[cur]) {
       used[cur] = 1;
       if (String(group).startsWith('g') && !String(pieces[cur].group).startsWith('g')) group = pieces[cur].group;
       const seg = from === 0 ? pieces[cur].pts : pieces[cur].pts.slice().reverse();
       pts.push(...(pts.length ? seg.slice(1) : seg));
-      const nxt = (ends.get(keyOf(seg[seg.length - 1])) || []).find(([j]) => !used[j]);
-      if (!nxt) break;
-      [cur, from] = nxt;
+      const next = mate.get(cur * 2 + (1 - from));
+      if (!next) break;
+      [cur, from] = next;
     }
     const closed = pts.length > 2 && keyOf(pts[0]) === keyOf(pts[pts.length - 1]);
     lines.push({ pts: closed ? pts.slice(0, -1) : pts, closed, group, cell: first.cell });
   };
-  for (const v of ends.values()) if (v.length === 1 && !used[v[0][0]]) walk(v[0][0], v[0][1]);
+  // Lines with an end first, then closed loops.
+  for (let i = 0; i < pieces.length; i++) for (const e of [0, 1]) if (!used[i] && !mate.has(i * 2 + e)) walk(i, e);
   for (let i = 0; i < pieces.length; i++) if (!used[i]) walk(i, 0);
   return lines;
 }
@@ -338,77 +377,92 @@ const segTouch = (P, a, b) => {
   return Math.hypot(P[0] - a[0] - t * vx, P[1] - a[1] - t * vy) < 1e-6;
 };
 
-// A line that stops on a cell edge carries straight on into the next cell
-// until it meets the first line there (a T junction), an earlier run-on or
-// the border, at most two gaps on. A main line whose only company at its end
-// is a gap line folding back from it still runs on (so the diagonal isn't
-// left a step short); gap lines never run on past a main line.
-function meetLines(lines, mainCount, W, H, S, p) {
-  const maxT = p * 2;
-  const onGrid = v => Math.abs(v / S - Math.round(v / S)) < 1e-6;
-  const border = ([x, y]) => Math.abs(x) < 1e-6 || Math.abs(y) < 1e-6 || Math.abs(x - W) < 1e-6 || Math.abs(y - H) < 1e-6;
-  const segs = [];
-  lines.forEach((l, li) => { for (let i = 0; i + 1 < l.pts.length; i++) segs.push({ a: l.pts[i], b: l.pts[i + 1], li, i }); });
-  const B = new Map(), bk = (i, j) => `${i},${j}`;
-  for (const sg of segs) {
-    const x0 = Math.min(sg.a[0], sg.b[0]), x1 = Math.max(sg.a[0], sg.b[0]), y0 = Math.min(sg.a[1], sg.b[1]), y1 = Math.max(sg.a[1], sg.b[1]);
-    for (let i = Math.floor(x0 / S - 1e-9); i <= Math.floor(x1 / S + 1e-9); i++) {
-      for (let j = Math.floor(y0 / S - 1e-9); j <= Math.floor(y1 / S + 1e-9); j++) {
-        if (!B.has(bk(i, j))) B.set(bk(i, j), []);
-        B.get(bk(i, j)).push(sg);
+// Unit cell edges a segment lies along (it runs on a grid line), keyed
+// 'v<i>,<j>' (x = i·S, y from j·S) or 'h<i>,<j>', in order from a to b; null
+// for a segment off the grid lines.
+function edgeUnits(a, b, S) {
+  const on = v => Math.abs(v / S - Math.round(v / S)) < 1e-6;
+  const vertical = Math.abs(a[0] - b[0]) < 1e-6 && on(a[0]);
+  const horizontal = Math.abs(a[1] - b[1]) < 1e-6 && on(a[1]);
+  if (!vertical && !horizontal) return null;
+  const ax = vertical ? 1 : 0, at = vertical ? a[0] : a[1];
+  const from = a[ax], to = b[ax], dir = Math.sign(to - from);
+  const cuts = [from];
+  for (let g = Math.floor(Math.min(from, to) / S + 1e-6) + 1; g * S < Math.max(from, to) - 1e-6; g++) cuts.push(g * S);
+  cuts.push(to);
+  if (dir < 0) cuts.splice(1, cuts.length - 2, ...cuts.slice(1, -1).reverse());
+  const pt = v => (vertical ? [at, v] : [v, at]);
+  const units = [];
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const lo = Math.min(cuts[i], cuts[i + 1]);
+    units.push({ key: `${vertical ? 'v' : 'h'}${Math.round(at / S)},${Math.floor(lo / S + 1e-6)}`, to: pt(cuts[i + 1]) });
+  }
+  return units;
+}
+
+// A boundary two cells would both draw is drawn once (by the first): its
+// later copies are cut out of their lines. So is any other segment drawn
+// twice.
+function dedupeEdges(pieces, S, claimed) {
+  const out = [];
+  for (const pc of pieces) {
+    let cur = [pc.pts[0]];
+    const flush = () => { if (cur.length > 1) out.push({ ...pc, pts: cur }); };
+    for (let i = 0; i + 1 < pc.pts.length; i++) {
+      const units = edgeUnits(pc.pts[i], pc.pts[i + 1], S);
+      if (!units) {
+        const key = [keyOf(pc.pts[i]), keyOf(pc.pts[i + 1])].sort().join('|');
+        if (claimed.has(key)) { flush(); cur = [pc.pts[i + 1]]; } else { claimed.add(key); cur.push(pc.pts[i + 1]); }
+        continue;
+      }
+      for (const u of units) {
+        if (claimed.has(u.key)) { flush(); cur = [u.to]; } else { claimed.add(u.key); cur.push(u.to); }
       }
     }
+    flush();
   }
-  const near = ([x, y]) => {
-    const out = new Set();
-    for (let i = Math.floor(x / S) - 1; i <= Math.floor(x / S) + 1; i++) for (let j = Math.floor(y / S) - 1; j <= Math.floor(y / S) + 1; j++) for (const sg of B.get(bk(i, j)) || []) out.add(sg);
-    return out;
-  };
-  const edges = [[[0, 0], [W, 0]], [[W, 0], [W, H]], [[W, H], [0, H]], [[0, H], [0, 0]]].map(([a, b]) => ({ a, b, li: -2, i: -1 }));
-  const ext = [];
-  lines.forEach((l, li) => {
-    if (l.closed || l.pts.length < 2) return;
-    for (const end of [0, 1]) {
-      const n = l.pts.length;
-      const P = end ? l.pts[n - 1] : l.pts[0], Q = end ? l.pts[n - 2] : l.pts[1];
-      if (border(P) || !(onGrid(P[0]) || onGrid(P[1]))) continue;
-      const own = end ? n - 2 : 0;
-      const cand = near(P);
-      const isMain = li < mainCount;
-      const v0 = [P[0] - Q[0], P[1] - Q[1]];
-      const endOf = sg => (sg.i === 0 && Math.hypot(sg.a[0] - P[0], sg.a[1] - P[1]) < 1e-6)
-        || (sg.i === lines[sg.li].pts.length - 2 && Math.hypot(sg.b[0] - P[0], sg.b[1] - P[1]) < 1e-6);
-      const foldsBack = sg => {
-        const far = Math.hypot(sg.a[0] - P[0], sg.a[1] - P[1]) < 1e-6 ? sg.b : sg.a;
-        return v0[0] * (far[0] - P[0]) + v0[1] * (far[1] - P[1]) < -1e-9;
-      };
-      let touching = false;
-      for (const sg of cand) {
-        if ((sg.li === li && sg.i === own) || !segTouch(P, sg.a, sg.b)) continue;
-        if (isMain && sg.li >= mainCount && endOf(sg) && foldsBack(sg)) continue;
-        touching = true;
-        break;
-      }
-      if (touching) continue;
-      const lv = Math.hypot(v0[0], v0[1]), dir = [v0[0] / lv, v0[1] / lv];
-      let best = Infinity;
-      for (const sg of [...cand, ...ext.map(([a, b]) => ({ a, b, li: -1, i: -1 })), ...edges]) {
-        if (sg.li === li && sg.i === own) continue;
-        const e = [sg.b[0] - sg.a[0], sg.b[1] - sg.a[1]];
-        const den = dir[0] * e[1] - dir[1] * e[0];
-        if (Math.abs(den) < 1e-9) continue;
-        const w = [sg.a[0] - P[0], sg.a[1] - P[1]];
-        const t = (w[0] * e[1] - w[1] * e[0]) / den, u = (w[0] * dir[1] - w[1] * dir[0]) / den;
-        if (t > 1e-6 && t <= maxT && u >= -1e-9 && u <= 1 + 1e-9) best = Math.min(best, t);
-      }
-      if (best < Infinity) {
-        const to = [P[0] + dir[0] * best, P[1] + dir[1] * best];
-        if (end) l.pts[n - 1] = to; else l.pts[0] = to;
-        ext.push([P, to]);
+  return out;
+}
+
+// Lines that stop on a cell edge with nothing to join and no line along it:
+// that edge (the unit cell edge each one ends on) is drawn, in the line's
+// group, so they end on it. Not the artboard's own edge.
+function capEdges(pieces, S, W, H, claimed) {
+  const on = v => Math.abs(v / S - Math.round(v / S)) < 1e-6;
+  const B = new Map(), bk = (i, j) => `${i},${j}`;
+  pieces.forEach((pc, pi) => {
+    for (let i = 0; i + 1 < pc.pts.length; i++) {
+      const a = pc.pts[i], b = pc.pts[i + 1];
+      for (let x = Math.floor(Math.min(a[0], b[0]) / S - 1e-6); x <= Math.floor(Math.max(a[0], b[0]) / S + 1e-6); x++) {
+        for (let y = Math.floor(Math.min(a[1], b[1]) / S - 1e-6); y <= Math.floor(Math.max(a[1], b[1]) / S + 1e-6); y++) {
+          if (!B.has(bk(x, y))) B.set(bk(x, y), []);
+          B.get(bk(x, y)).push({ a, b, pi, i });
+        }
       }
     }
   });
-  return ext;
+  const ends = new Map();
+  pieces.forEach(pc => { for (const P of [pc.pts[0], pc.pts[pc.pts.length - 1]]) ends.set(keyOf(P), (ends.get(keyOf(P)) ?? 0) + 1); });
+  const caps = [];
+  pieces.forEach((pc, pi) => {
+    for (const end of [0, 1]) {
+      const n = pc.pts.length, P = end ? pc.pts[n - 1] : pc.pts[0], own = end ? n - 2 : 0;
+      if (ends.get(keyOf(P)) > 1) continue; // joined, or meeting another end
+      const onV = on(P[0]), onH = on(P[1]);
+      if (onV === onH) continue; // off the grid lines, or on a grid corner
+      if ((onV && (Math.abs(P[0]) < 1e-6 || Math.abs(P[0] - W) < 1e-6)) || (onH && (Math.abs(P[1]) < 1e-6 || Math.abs(P[1] - H) < 1e-6))) continue;
+      const near = B.get(bk(Math.floor(P[0] / S), Math.floor(P[1] / S))) ?? [];
+      const nearL = B.get(bk(Math.floor(P[0] / S - 1e-6), Math.floor(P[1] / S - 1e-6))) ?? [];
+      if ([...near, ...nearL].some(sg => !(sg.pi === pi && sg.i === own) && segTouch(P, sg.a, sg.b))) continue;
+      const i = Math.round((onV ? P[0] : P[1]) / S), j = Math.floor((onV ? P[1] : P[0]) / S);
+      const key = `${onV ? 'v' : 'h'}${i},${j}`;
+      if (claimed.has(key)) continue;
+      claimed.add(key);
+      const a = onV ? [i * S, j * S] : [j * S, i * S], b = onV ? [i * S, (j + 1) * S] : [(j + 1) * S, i * S];
+      caps.push({ cell: pc.cell, group: pc.group, pts: [a, b] });
+    }
+  });
+  return caps;
 }
 
 // ── Outlines ─────────────────────────────────────────────────────────────────
@@ -462,6 +516,7 @@ export function lineOutline(pts, hw, closed = false) {
 // blocks, edited }.
 export function continuousLayer(L, cfg, seed, insideCell, opts = {}) {
   const S = L.C;
+  // k gaps a cell, one pitch each: k + 1 lines, edge to edge.
   const k = Math.max(1, Math.round(S / L.p));
   const p = S / k;
   const cols = Math.max(1, Math.floor(L.w / S + 1e-6)), rows = Math.max(1, Math.floor(L.h / S + 1e-6));
@@ -498,13 +553,16 @@ export function continuousLayer(L, cfg, seed, insideCell, opts = {}) {
   }
 
   const { pieces, cells, kinds } = lay;
-  const main = stitch(pieces);
-  const gaps = stitch(gapLines(cfg, seed, blocks, kinds, k, S).map(g => ({ ...g, group: `g${g.cell}` })));
-  meetLines([...main, ...gaps], main.length, W, H, S, p);
-  // Gap lines that carry a path's lines on (and lines run on end to end) are
-  // one line now: outlined in one piece, so their bends join cleanly rather
-  // than as two flat ends meeting.
-  const joined = [...stitch([...main, ...gaps].filter(l => !l.closed)), ...[...main, ...gaps].filter(l => l.closed)];
+  // Paths' lines first, so a shared boundary belongs to a path; then gap
+  // lines; then the edges lines end on. All joined end to end into lines
+  // and outlined one by one, so every bend joins cleanly.
+  const claimed = new Set();
+  const drawn = [
+    ...dedupeEdges(pieces, S, claimed),
+    ...dedupeEdges(gapLines(cfg, seed, blocks, kinds, k, S).map(g => ({ ...g, group: `g${g.cell}` })), S, claimed),
+  ];
+  drawn.push(...capEdges(drawn, S, W, H, claimed));
+  const joined = stitch(drawn);
 
   // Group into items: each path, and each cell's gap lines.
   const hw = (L.lineW ?? p * (L.ratio ?? 0.5)) / 2;

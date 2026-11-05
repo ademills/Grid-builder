@@ -16,10 +16,10 @@ exports[`Linework presets draw the same designs > Circuit weave 1`] = `
 
 exports[`Linework presets draw the same designs > Continuous lines 1`] = `
 {
-  "geometry": "325d99fa",
-  "items": 62,
+  "geometry": "37cfb4d9",
+  "items": 66,
   "kinds": {
-    "ink": 62,
+    "ink": 66,
   },
   "size": [
     1100,

@@ -57,7 +57,8 @@ describe('continuous lines', () => {
     const L = layerOf(5, 4, 5);
     const R = continuousLayer(L, cfgOf({ gapLines: 'off', mergeCells: merge, mergeMax: 3, merge: 0.6 }), 3, null);
     const S = R.S, k = R.k, ox = -R.cols * S / 2, oy = -R.rows * S / 2;
-    const lattice = v => { const m = ((v % S) + S) % S; return Array.from({ length: k }, (_, s) => (s + 0.5) * S / k).some(d => Math.abs(m - d) < 1e-6); };
+    // k gaps a cell: points s·S/k along each edge, corners included.
+    const lattice = v => { const m = ((v % S) + S) % S; return Array.from({ length: k + 1 }, (_, s) => (s * S) / k).some(d => Math.abs(m - d) < 1e-6 || Math.abs(m - d + S) < 1e-6); };
     // Every bend of a line that sits on a cell edge is one of its k points.
     for (const g of R.groups) for (const l of g.lines) for (const [x, y] of l.pts.slice(1, -1)) {
       const gx = x - ox, gy = y - oy;
@@ -74,6 +75,31 @@ describe('continuous lines', () => {
       const key = p => `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
       for (const g of R.groups) for (const l of g.lines) if (!l.closed) for (const p of [l.pts[0], l.pts[l.pts.length - 1]]) ends.set(key(p), (ends.get(key(p)) ?? 0) + 1);
       expect([...ends.values()].filter(n => n > 1).length).toBe(0);
+    }
+  });
+
+  it('lines run edge to edge: a straight cell has a line on each side (k gaps, k + 1 lines)', () => {
+    for (const n of [1, 2, 5]) {
+      const L = layerOf(1, 1, n);
+      const R = continuousLayer(L, cfgOf({ gapLines: 'off', route: 'single' }), 1, null);
+      const xs = R.groups.flatMap(g => g.lines).flatMap(l => l.pts.map(([x]) => x));
+      // One cell, straight across: lines at -50, …, 50 (the cell's two sides and between).
+      for (let s = 0; s <= n; s++) expect(xs.some(x => Math.abs(x - (-50 + (s * 100) / n)) < 1e-6) || R.groups.flatMap(g => g.lines).some(l => l.pts.some(([, y]) => Math.abs(y - (-50 + (s * 100) / n)) < 1e-6))).toBe(true);
+    }
+  });
+
+  it('a boundary two cells share is drawn once', () => {
+    for (const seed of [1, 2, 3]) {
+      const R = continuousLayer(layerOf(6, 5, 4), cfgOf({ gapLines: 'random', mergeCells: seed > 1, mergeMax: 3, merge: 0.4 }), seed, null);
+      const seen = new Map();
+      for (const g of R.groups) for (const l of g.lines) {
+        const P = l.closed ? [...l.pts, l.pts[0]] : l.pts;
+        for (let i = 0; i + 1 < P.length; i++) {
+          const k = [P[i], P[i + 1]].map(p => p.map(v => Math.round(v * 1000)).join(',')).sort().join('|');
+          seen.set(k, (seen.get(k) ?? 0) + 1);
+        }
+      }
+      expect([...seen.values()].every(n => n === 1)).toBe(true);
     }
   });
 
