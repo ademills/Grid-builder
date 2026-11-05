@@ -47,12 +47,12 @@ exports[`Linework presets draw the same designs > Greek-key tiles 1`] = `
 
 exports[`Linework presets draw the same designs > Labyrinth mandala 1`] = `
 {
-  "geometry": "86699df9",
+  "geometry": "b68ceafb",
   "items": 102,
   "kinds": {
     "ground": 1,
     "ink": 100,
-    "rim": 1,
+    "outline": 1,
   },
   "size": [
     2400,
@@ -95,13 +95,12 @@ exports[`Linework presets draw the same designs > Op chevron 1`] = `
 
 exports[`Linework presets draw the same designs > Stacked planes 1`] = `
 {
-  "geometry": "4235fb05",
+  "geometry": "e7e1bd90",
   "items": 193,
   "kinds": {
     "ground": 3,
     "ink": 176,
-    "outline": 8,
-    "rim": 3,
+    "outline": 11,
     "shadow": 3,
   },
   "size": [
@@ -113,13 +112,12 @@ exports[`Linework presets draw the same designs > Stacked planes 1`] = `
 
 exports[`Linework presets draw the same designs > Triangle keys 1`] = `
 {
-  "geometry": "623edcc8",
+  "geometry": "f4777492",
   "items": 338,
   "kinds": {
     "ground": 2,
     "ink": 328,
-    "outline": 6,
-    "rim": 2,
+    "outline": 8,
   },
   "size": [
     1700,

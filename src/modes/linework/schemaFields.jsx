@@ -47,12 +47,16 @@ export function PlateSize({ values: L, set, ctx }) {
   const equal = Math.abs(w - h) < 1e-6;
   return (
     <>
-      {/* A shape plate (Plates from SVG) keeps to its SVG shape. */}
+      {/* A shape plate (Plates from SVG) keeps to its SVG shape. Circle,
+          hexagon, octagon and triangle fill the plate's box, cut out exactly. */}
       {!L.shapeClip?.rings?.length && (
         <Row label="Shape">
-          <Segmented value={L.shape} onChange={v => set({ shape: v })} options={[
-            { key: 'square', label: equal ? 'Square' : 'Upright' }, { key: 'diamond', label: 'Diamond' },
-          ]} />
+          <select className={styles.select} value={L.shape ?? 'square'} onChange={e => set({ shape: e.target.value })}>
+            {[
+              ['square', equal ? 'Square' : 'Upright'], ['diamond', 'Diamond'], ['circle', equal ? 'Circle' : 'Ellipse'],
+              ['hexagon', 'Hexagon'], ['octagon', 'Octagon'], ['triangle', 'Triangle'],
+            ].map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select>
         </Row>
       )}
       <Row label="Sides" title="Equal sides, a width and height in grid cells, or an aspect ratio">

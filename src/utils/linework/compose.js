@@ -6,7 +6,8 @@
 // Items: { key, name, kind, layer, contours, centre, blur? }
 //   kind — 'ink' (lines), 'outline' (tile borders), 'ground' (a plate's
 //          background, or the base's when split from the canvas colour),
-//          'shadow' (a plate's drop shadow) or 'rim' (a plate's edge).
+//          'shadow' (a plate's drop shadow); a plate's outlines are kind
+//          'outline' with a `paint` ('ink', 'ground', 'swatch:<id>' or a hex).
 //   key  — stable for the same seed and settings, so regenerating carries
 //          each layer's edits across.
 
@@ -16,7 +17,7 @@ import { circuitLayer, replicateBundles } from './circuit';
 import { cellCircuitLayer, cellCircuitSize } from './cellCircuit';
 import { continuousLayer } from './continuous';
 import { tilingCells } from './tilings';
-import { shapeCutter, shapeSubtracter, cellsForShape, shapeInPlate, intersectRings, insetRings, subtractRings, ringsContours, isShapePlate } from './shapeClip';
+import { shapeCutter, shapeSubtracter, cellsForShape, shapeInPlate, intersectRings, insetRings, subtractRings, ringsContours, isShapePlate, builtinShapeRings } from './shapeClip';
 import {
   add, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
   SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly, hash,
@@ -36,7 +37,7 @@ const rotation = (deg) => {
   const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
   return [c, -s, s, c];
 };
-const NAMES = { ink: 'Lines', outline: 'Outlines', ground: 'Ground', shadow: 'Shadow', rim: 'Rim' };
+const NAMES = { ink: 'Lines', outline: 'Outlines', ground: 'Ground', shadow: 'Shadow' };
 
 // A plate's background (cfg.backing): 'square' (its rectangle, corners
 // rounded by cfg.corner), 'none', or — circuit plates only — one built from
@@ -67,11 +68,12 @@ function baseFrames(settings, grid, areas) {
     const base = baseFrame(settings, { cols: a.w, rows: a.h });
     const baseM = rotation(base.rot);
     const centre = [(a.x + a.w / 2) * CELL, (a.y + a.h / 2) * CELL];
-    const basePlanes = halfPlanesOf(rectPoly(-base.w / 2, -base.h / 2, base.w, base.h).map(p => add(applyLinear(baseM, p), centre)));
+    const baseRect = rectPoly(-base.w / 2, -base.h / 2, base.w, base.h).map(p => add(applyLinear(baseM, p), centre));
+    const basePlanes = halfPlanesOf(baseRect);
     // Plates are cut to the area (the canvas), not to the base layer: on a
     // diamond they can reach past the base into the corners.
     const areaRect = rectPoly(a.x * CELL, a.y * CELL, a.w * CELL, a.h * CELL);
-    return { base, baseM, centre, basePlanes, areaRect, areaPlanes: halfPlanesOf(areaRect) };
+    return { base, baseM, centre, basePlanes, baseRect, areaRect, areaPlanes: halfPlanesOf(areaRect) };
   });
 }
 
@@ -119,6 +121,12 @@ function layerPlace(cfg, li, { base, baseM, centre }) {
   };
 }
 
+// A plate with a built-in shape (circle, hexagon, octagon, triangle) is a
+// shape plate cut out to it.
+const withBuiltinShape = (cfg, li) => {
+  const rings = li > 0 && !isShapePlate(cfg) ? builtinShapeRings(cfg.shape) : null;
+  return rings ? { ...cfg, shapeClip: { rings }, shapeMode: 'cutout' } : cfg;
+};
 // A shape plate in Mask mode is a plate with a region mask of its shape,
 // inverted (the editor's maskFor rasterises it, as a silhouette).
 const asShapeMask = (cfg, li) => (li > 0 && isShapePlate(cfg) && cfg.shapeMode === 'mask'
@@ -240,7 +248,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     counts[k] = (counts[k] ?? 0) + 1;
     return `${label} ${counts[k]}`;
   };
-  const layers = (settings.layers ?? []).map(asShapeMask);
+  const layers = (settings.layers ?? []).map((cfg, li) => asShapeMask(withBuiltinShape(cfg, li), li));
   const framesOf = (cfg, li) => (li === 0 ? frames.map((f, ai) => [f, ai ? `L0a${ai}` : 'L0']) : [[frames[0], `P${cfg.id ?? li}`]]);
   const shown = (cfg, li) => cfg && (li === 0 || cfg.enabled);
 
@@ -510,6 +518,37 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     // The base casts a shadow only from a banded ground (a square one fills the canvas).
     const shadow = (plate ? backing !== 'none' : banded) && cfg.shadow && cfg.shadow !== 'none' && (cfg.depth ?? 0) > 0
       ? { d: cfg.depth * CELL, soft: cfg.shadow === 'soft' } : null;
+    // A plate's outlines (not round a banded background): a stack, each
+    // `weight` line widths wide, from the plate's edge outwards, inwards or
+    // centred on it (cfg.outlinePos). The shadow falls from the outer edge.
+    const lineW = (CELL * (cfg.scale ?? 1) / n) * ratio;
+    const outlines = plate && !banded ? (cfg.outlines ?? []).filter(o => o && o.weight > 0) : [];
+    const outlinesW = outlines.reduce((a, o) => a + o.weight * lineW, 0);
+    const outlinePos = cfg.outlinePos ?? 'outside';
+    const grow = outlinePos === 'outside' ? outlinesW : outlinePos === 'centre' ? outlinesW / 2 : 0;
+    const cutout = cutsToShape(cfg, li);
+    // The plate's edge as rings in design units (its shape, or its rectangle).
+    const edgeRings = () => (cutout ? shapeInPlate(cfg.shapeClip, lw, lh, p => toDesign([p])[0]) : plateShape() ? [toDesign(plateShape())] : []);
+    // Each outline as the band from offset a to b (positive inwards): the
+    // edge inset by a less the edge inset by b.
+    let acc = 0;
+    const outlineBands = outlines.map((o, i) => {
+      const w = o.weight * lineW;
+      const [a, b] = outlinePos === 'outside' ? [-(acc + w), -acc]
+        : outlinePos === 'inside' ? [acc, acc + w]
+          : [-outlinesW / 2 + acc, -outlinesW / 2 + acc + w];
+      acc += w;
+      return { ...o, i, a, b };
+    });
+    const bandRings = (edge, { a, b }) => subtractRings(Math.abs(a) < 1e-9 ? edge : insetRings(edge, a), insetRings(edge, b));
+    // What casts the shadow: the plate out to its outer outline, less any
+    // gaps (they're holes through it).
+    const shadowShape = () => {
+      const edge = edgeRings();
+      const R = grow > 0 ? insetRings(edge, -grow) : edge;
+      const gaps = outlineBands.filter(o => o.colour === 'none').flatMap(o => bandRings(edge, o));
+      return gaps.length ? subtractRings(R, gaps) : R;
+    };
     const shadowItem = (contours) => {
       const off = [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2];
       return { key: `${tag}:shadow`, name: NAMES.shadow, kind: 'shadow', contours: contours.map(c => mapContour(c, [1, 0, 0, 1], off)),
@@ -522,7 +561,12 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     if (plate ? backing === 'square' : baseGround && backing === 'square') {
       const P = finish(plateShape());
       if (P) {
-        if (shadow) {
+        if (shadow && grow > 0) {
+          // Outlines outside the plate: the shadow falls from their edge.
+          const o = shadow.d * Math.SQRT1_2;
+          const S = intersectRings(shadowShape().map(r => r.map(([x, y]) => [x + o, y + o])), [frame.baseRect]);
+          if (S.length) push({ ...shadowItem([]), contours: ringsContours(S) });
+        } else if (shadow) {
           const S = clipToPlanes(P.map(q => add(q, [shadow.d * Math.SQRT1_2, shadow.d * Math.SQRT1_2])), basePlanes);
           if (S) push({ ...shadowItem([]), contours: [polyContour(S)] });
         }
@@ -553,7 +597,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
       ].map(it => ({ layer: li, layerId: cfg.id ?? `p${li}`, ...it })));
     }
 
-    // A frame around the base, a rim around a plate (square backing only).
+    // A frame around the base.
     const ring = (width) => {
       const outer = plateShape(), inner = plateShape(width * CELL);
       const so = finish(outer), si = inner ? finish(inner) : null;
@@ -563,24 +607,33 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
       const contours = ring(cfg.frame);
       if (contours) push({ key: `${tag}:frame`, name: 'Frame', kind: 'ink', contours, centre: t });
     }
-    if (plate && backing === 'square' && (cfg.rim ?? 0) > 0) {
-      const contours = ring(cfg.rim);
-      if (contours) push({ key: `${tag}:rim`, name: NAMES.rim, kind: 'rim', contours, centre: t });
-    }
 
     if (exact) cutToMask(cfg, exact, { toDesign, groundAt, lw, lh, tag, push, plate, frame });
-    if (cutsToShape(cfg, li)) cutToShape(cfg, li, frame, tag, { lw, lh, toDesign, groundAt, backing, shadow, push });
+    if (cutout) cutToShape(cfg, li, frame, tag, { lw, lh, toDesign, groundAt, backing, shadow, push, shadowRings: shadowShape() });
+
+    // Outlines last, over the plate. A Gap paints nothing but still takes
+    // its room.
+    const edge = outlines.length ? edgeRings() : [];
+    if (edge.length) {
+      for (const o of outlineBands) {
+        if (o.colour === 'none') continue;
+        const band = intersectRings(bandRings(edge, o), [frame.baseRect]);
+        if (!band.length) continue;
+        push({ key: `${tag}:outline${o.i + 1}`, name: `Outline ${o.i + 1}`, kind: 'outline', paint: o.colour ?? 'ink',
+          contours: ringsContours(band), centre: t });
+      }
+    }
   };
 
   // Exact mask edges: the layer's lines and tile outlines cut to the mask's
   // outline (kept inside it for Invert, outside it for Remove), with an
   // optional Outline along the cut, maskOutline cells wide on the kept side.
-  // Grounds, shadows, rims, the Edge and the Frame stay as they are.
+  // Grounds, shadows, the Edge and the Frame stay as they are.
   const cutToMask = (cfg, local, { toDesign, groundAt, lw, lh, tag, push, plate, frame }) => {
     const shape = local.map(r => toDesign(r));
     const invert = cfg.maskMode === 'invert';
     const cut = invert ? shapeCutter(shape) : shapeSubtracter(shape);
-    const fixed = (it) => it.kind === 'ground' || it.kind === 'shadow' || it.kind === 'rim' || it.key.endsWith(':edge') || it.key.endsWith(':frame');
+    const fixed = (it) => it.kind === 'ground' || it.kind === 'shadow' || it.key.endsWith(':edge') || it.key.endsWith(':frame');
     const mine = items.splice(groundAt);
     for (const it of mine) {
       if (fixed(it)) { items.push(it); continue; }
@@ -598,8 +651,9 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
 
   // Cutout: everything the plate drew is cut to its shape (within the
   // canvas). A square background becomes the shape itself, its shadow the
-  // shape's; the rim and the plate's Edge give way to the shape's Outline.
-  const cutToShape = (cfg, li, frame, tag, { lw, lh, toDesign, groundAt, backing, shadow, push }) => {
+  // shape's (grown by any outlines outside it); the plate's Edge gives way to
+  // its outlines.
+  const cutToShape = (cfg, li, frame, tag, { lw, lh, toDesign, groundAt, backing, shadow, shadowRings }) => {
     const shape = intersectRings(shapeInPlate(cfg.shapeClip, lw, lh, p => toDesign([p])[0]), [frame.areaRect]);
     const mine = items.splice(groundAt);
     if (!shape.length) return;
@@ -607,7 +661,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     const kept = [];
     let ground = null;
     for (const it of mine) {
-      if (it.kind === 'shadow' || it.key === `${tag}:rim` || it.key === `${tag}:edge`) continue;
+      if (it.kind === 'shadow' || it.key === `${tag}:edge`) continue;
       if (it.kind === 'ground' && backing === 'square') { ground = { ...it, contours: ringsContours(shape) }; continue; }
       const contours = cut(it.contours);
       if (!contours) continue;
@@ -616,7 +670,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     }
     if (ground && shadow) {
       const o = shadow.d * Math.SQRT1_2;
-      const moved = shape.map(r => r.map(([x, y]) => [x + o, y + o]));
+      const moved = shadowRings.map(r => r.map(([x, y]) => [x + o, y + o]));
       const S = backing === 'square' ? intersectRings(moved, [frame.areaRect]) : null;
       const contours = S ? ringsContours(S) : ground.contours.map(c => mapContour(c, [1, 0, 0, 1], [o, o]));
       if (contours.length) {
@@ -626,17 +680,6 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     }
     if (ground) items.push(ground);
     items.push(...kept);
-    const w = Math.max(0, cfg.shapeOutline ?? 0) * CELL;
-    if (w > 0) {
-      const bands = outlineBands(shape, w, cfg);
-      const onGround = cfg.shapeOutlineInk === false;
-      bands.forEach((band, i) => {
-        const clipped = intersectRings(band, [frame.areaRect]);
-        if (!clipped.length) return;
-        push({ key: `${tag}:shapeOutline${i ? i + 1 : ''}`, name: i ? 'Outline 2' : 'Outline', kind: 'outline',
-          contours: ringsContours(clipped), ...(onGround ? { onGround } : {}) });
-      });
-    }
   };
 
   layers.forEach((cfg, li) => {
@@ -674,23 +717,6 @@ function editTiles(tiles, own, edit, ops, scale) {
     return { op: 'grow', tiles: next };
   }
   return null;
-}
-
-// A shape plate's outline rings, w wide: inside the shape's edge, centred
-// on it or outside it (cfg.shapeOutlinePos), and for a double outline
-// (cfg.shapeOutlineDouble) a second ring cfg.shapeOutlineGap cells further
-// in (further out, for Outside). A ring from offset a to b (a < b, positive
-// inwards) is the shape inset by a, less the shape inset by b.
-function outlineBands(shape, w, cfg) {
-  const pos = cfg.shapeOutlinePos ?? 'inside';
-  const a = pos === 'outside' ? -w : pos === 'centre' ? -w / 2 : 0;
-  const ring = (from, to) => subtractRings(from === 0 ? shape : insetRings(shape, from), insetRings(shape, to));
-  const out = [ring(a, a + w)];
-  if (cfg.shapeOutlineDouble) {
-    const g = Math.max(0, cfg.shapeOutlineGap ?? 0.1) * CELL;
-    out.push(pos === 'outside' ? ring(a - w - g, a - g) : ring(a + w + g, a + 2 * w + g));
-  }
-  return out.filter(b => b.length);
 }
 
 // Plates as groups: the layer index each plate's items belong to.

@@ -546,7 +546,7 @@ const isTypingTarget = (el) =>
 // saved designs are rebuilt on open (2: backing bands that merge, v1.7.2;
 // 3: One circuit margins and circuits on hex/triangle/Voronoi cells, v1.9;
 // 4: masks remove or invert, v1.13).
-const LINEWORK_ENGINE = 5;
+const LINEWORK_ENGINE = 6;
 // The settings a design is drawn from: plateFit only records what the
 // plates were last fitted to, so it's left out.
 const lineworkDesign = (s) => ({ ...s, plateFit: undefined });
@@ -1702,11 +1702,13 @@ export function DocumentEditor({ mode: appMode }) {
       modes.has('image') ? imageSrc : null,
       lineworkSettings.inkFromImage ? [backdropSrc, backdropSettings.fit, !!backdropPixels] : null,
       masks, silhouetteTick, !!imagePixels, activeLayoutId,
+      // The swatches plate outlines are painted with.
+      lineworkSettings.layers.flatMap(l => (l.outlines ?? []).map(o => (o.colour?.startsWith('swatch:') ? swatchMap[o.colour.slice(7)] ?? null : null))),
     ]);
     let h = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619) >>> 0;
     return `${h.toString(36)}-${str.length.toString(36)}`;
-  }, [isLinework, gridComputed, lineworkSettings, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imageSrc, backdropSrc, backdropSettings.fit, backdropPixels, fillSettingsById, silhouetteTick, imagePixels, activeLayoutId]);
+  }, [isLinework, gridComputed, lineworkSettings, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imageSrc, backdropSrc, backdropSettings.fit, backdropPixels, fillSettingsById, silhouetteTick, imagePixels, activeLayoutId, swatchMap]);
 
   // With a page layout active, a Linework design fills the layout's grid areas.
   const lineworkAreas = useMemo(() => (activeLayout && gridComputed
@@ -1744,7 +1746,7 @@ export function DocumentEditor({ mode: appMode }) {
       gradient: activeGradientSettings, mesh: meshSettings, imagePixels,
       toArtboard: (x, y) => [gridOriginX + (x / LINEWORK_CELL) * cellSize, gridOriginY + (y / LINEWORK_CELL) * cellSize],
       backdropPixels, backdropFit: backdropSettings.fit, inkFromImage: settings.inkFromImage,
-      colourSeed: settings.colourSeed, width, height, layers: settings.layers,
+      colourSeed: settings.colourSeed, width, height, layers: settings.layers, swatchHex: id => swatchMap[id],
     });
     const footprint = { gridCol: 0, gridRow: 0, cols, rows };
     return items.map((it, i) => ({
@@ -1756,7 +1758,7 @@ export function DocumentEditor({ mode: appMode }) {
       ...(it.opacity != null && it.opacity < 1 ? { opacity: it.opacity } : {}),
       ...(it.layer > 0 ? { groupId: `linework-plate-${it.layerId}` } : {}),
     }));
-  }, [gridComputed, lineworkAreas, lineworkMaskFor, lineworkMaskShapeFor, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imagePixels, backdropPixels, backdropSettings.fit]);
+  }, [gridComputed, lineworkAreas, lineworkMaskFor, lineworkMaskShapeFor, colorMode, activePalette, lineworkRoles, activeGradientSettings, meshSettings, imagePixels, backdropPixels, backdropSettings.fit, swatchMap]);
 
   const lineworkLast = useRef(null);   // the settings the current blocks were built from
   const lineworkLabel = useRef(null);  // history label for the next settings change
@@ -2011,7 +2013,7 @@ export function DocumentEditor({ mode: appMode }) {
       let size = (gridComputed?.cols ?? 12) * pick([0.55, 0.65, 0.7]);
       for (let i = 0, n = pick([0, 1, 1, 2, 2, 3]); i < n; i++) {
         layers.push(roll({
-          ...newPlate(layers), size: Math.round(size * 2) / 2, shape: pick(['square', 'diamond']), ox: 0, oy: 0,
+          ...newPlate(layers), size: Math.round(size * 2) / 2, shape: pick(['square', 'square', 'diamond', 'circle', 'hexagon', 'octagon', 'triangle']), ox: 0, oy: 0,
           scale: pick([1, 1, 0.75, 0.5]), edgeExit: 0,
         }, true));
         size *= pick([0.5, 0.6]);

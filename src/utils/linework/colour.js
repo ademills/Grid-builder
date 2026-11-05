@@ -9,8 +9,10 @@
 // A layer can have a colour mode and shuffle seed of its own (cfg.colorMode,
 // cfg.colourSeed; null follows the document's). Uniform counts each such
 // layer's groups on their own.
-// Grounds, shadows and rims take their colour roles; a plate set to swap
-// ink and ground swaps them for its own items.
+// Grounds and shadows take their colour roles; a plate set to swap ink and
+// ground swaps them for its own items. A plate's outlines carry a `paint`:
+// 'ink' or 'ground' (the roles, swapped likewise), 'swatch:<id>' (the
+// document swatch, through ctx.swatchHex) or a hex colour.
 
 import { gradientT, meshColourAt } from '../colorize';
 import { sampleStrandColours } from '../knotworkImageSample';
@@ -18,7 +20,7 @@ import { hash } from './geometry';
 
 // ctx: { colorMode, palette, ink, ground, shadow, gradient, mesh,
 //        imagePixels, toArtboard(x, y), backdropPixels, backdropFit,
-//        inkFromImage, colourSeed, width, height, layers }
+//        inkFromImage, colourSeed, width, height, layers, swatchHex(id) }
 export function colourItems(items, ctx) {
   const { colorMode, palette, width, height } = ctx;
   const pal = palette?.length ? palette : [ctx.ink];
@@ -34,7 +36,7 @@ export function colourItems(items, ctx) {
     const ground = swap ? ctx.ink : ctx.ground;
     if (it.kind === 'ground') return ground;
     if (it.kind === 'shadow') return ctx.shadow;
-    if (it.kind === 'rim') return ctx.layers?.[it.layer]?.rimInk ? ink : ground;
+    if (it.paint) return paintOf(it.paint, ink, ground, ctx);
     if (it.kind === 'outline') return it.onGround ? ground : ink;
     const cfg = ctx.layers?.[it.layer];
     const mode = cfg?.colorMode ?? colorMode;
@@ -52,6 +54,13 @@ export function colourItems(items, ctx) {
       default: return ink;
     }
   });
+}
+
+function paintOf(paint, ink, ground, ctx) {
+  if (paint === 'ground') return ground;
+  if (paint.startsWith('swatch:')) return ctx.swatchHex?.(paint.slice(7)) ?? ink;
+  if (paint.startsWith('#')) return paint;
+  return ink;
 }
 
 // The Image colour mode's buffer is the artboard downsampled by scaleX/Y.

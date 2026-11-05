@@ -2,7 +2,7 @@
 //
 // Sizes are grid-relative so a design keeps its look when the artboard or
 // column count changes: lines per cell and the line : pitch ratio set the
-// line weight; plate sizes, offsets, depths and rims are in cells, scaled
+// line weight; plate sizes, offsets and depths are in cells, scaled
 // with the base layer when its cell count changes (fitPlates).
 
 const randomSeed = () => Math.floor(Math.random() * 0x80000000);
@@ -10,12 +10,18 @@ const randomSeed = () => Math.floor(Math.random() * 0x80000000);
 // One generated layer: the base (index 0) or a plate (1 and up, bottom to
 // top). Plates have a stable id, so reordering keeps each one's edits.
 export const lineworkLayerDefaults = (over = {}) => ({
-  // Plates only
+  // Plates only. shape: 'square' | 'diamond', or a built-in shape cut out
+  // exactly ('circle' | 'hexagon' | 'octagon' | 'triangle'; shapeClip.js).
   id: 'base', name: 'Base', enabled: true, shape: 'square', size: 6, ox: 0, oy: 0,
   // Plate sides: 'equal' (size × size), 'cells' (w × h cells) or 'ratio'
   // (`aspect` with `size` as the long side, turned upright by `portrait`).
   sizing: 'equal', w: 6, h: 4, aspect: '3:2', portrait: false,
-  shadow: 'none', depth: 0.25, rim: 0, rimInk: false,
+  shadow: 'none', depth: 0.25,
+  // Plate outlines, from the plate's edge on: each `weight` line widths
+  // wide (the layer's lines), colour 'ink' | 'ground' | 'none' (a gap) |
+  // 'swatch:<id>' | '#rrggbb'. outlinePos 'outside' | 'centre' | 'inside':
+  // where the stack sits on the edge. Not round a banded background.
+  outlines: [], outlinePos: 'outside',
   // Background: 'square' (corner: rounding, 0–1 of the short side's half),
   // 'none', or for circuits 'outline' | 'sticker' | 'infill' (pad: cells
   // of margin round the lines for outline and sticker).
@@ -68,15 +74,11 @@ export const lineworkLayerDefaults = (over = {}) => ({
   maskEdge: 'cells', maskOutline: 0,
   // Shape plates (made by Plates from SVG; utils/linework/shapeClip.js):
   // shapeClip { rings } is the shape in the plate's box, or null for a
-  // plain plate. shapeMode 'cutout' cuts the plate to the shape exactly,
-  // with an Outline shapeOutline cells wide round its inside; 'mask' masks
-  // it to the cells the shape covers, as a Silhouette mask does. upright:
-  // placed on the canvas as drawn, not turned with a diamond base.
-  // shapeOutlinePos 'inside' | 'centre' | 'outside'; shapeOutlineDouble adds
-  // a second ring shapeOutlineGap cells away; shapeOutlineInk false draws it
-  // in the ground colour.
-  shapeClip: null, shapeMode: 'cutout', shapeOutline: 0.1, upright: false,
-  shapeOutlinePos: 'inside', shapeOutlineDouble: false, shapeOutlineGap: 0.1, shapeOutlineInk: true,
+  // plain plate. shapeMode 'cutout' cuts the plate to the shape exactly
+  // (its outlines follow the shape); 'mask' masks it to the cells the shape
+  // covers, as a Silhouette mask does. upright: placed on the canvas as
+  // drawn, not turned with a diamond base.
+  shapeClip: null, shapeMode: 'cutout', upright: false,
   ...over,
 });
 
@@ -185,9 +187,10 @@ export function platesFromShapes(layers, { parts, width, height }, area, { paddi
     const plate = newPlate([...layers, ...out], {
       name: part.name, sizing: 'cells', w: round(Math.max(0.5, part.box.w * k)), h: round(Math.max(0.5, part.box.h * k)),
       ox: round((part.box.x + part.box.w / 2 - width / 2) * k), oy: round((part.box.y + part.box.h / 2 - height / 2) * k),
-      shape: 'square', upright: true, backing: 'square', corner: 0, shadow: 'none', rim: 0,
+      shape: 'square', upright: true, backing: 'square', corner: 0, shadow: 'none',
       mask: 'none', maskSettings: {},
-      shapeClip: { rings: part.rings }, shapeMode: 'cutout', shapeOutline: 0.1,
+      shapeClip: { rings: part.rings }, shapeMode: 'cutout',
+      outlines: [{ weight: 1, colour: 'ink' }], outlinePos: 'inside',
       // Where the shape came from, for Refresh from SVG (refreshShapePlates).
       shapeFrom: { file, by, name: part.name, key: part.key, padding },
       ...over,
@@ -266,10 +269,10 @@ export const EXPERIMENTAL_FILLS = [
 // Plates are sized in cells, so a base layer with fewer cells (a smaller
 // artboard, fewer columns) would leave them too big for it. base: the base
 // layer's size in cells now, [w, h]. Scales the plates' size, place, line
-// scale, shadow, rim and padding by as much as the base has shrunk or grown
+// scale, shadow and padding by as much as the base has shrunk or grown
 // since settings.plateFit, and records the new size (or forgets it once
 // there are no plates). Returns the same settings when nothing changes.
-const PLATE_LENGTHS = ['size', 'w', 'h', 'ox', 'oy', 'depth', 'rim', 'pad', 'scale', 'shapeOutline', 'shapeOutlineGap'];
+const PLATE_LENGTHS = ['size', 'w', 'h', 'ox', 'oy', 'depth', 'pad', 'scale'];
 export function fitPlates(settings, base) {
   const ref = settings.plateFit;
   if ((settings.layers?.length ?? 0) < 2) return ref ? { ...settings, plateFit: null } : settings;
@@ -297,6 +300,30 @@ function maskModeOf(l) {
   return rest;
 }
 
+// Plates once had a Rim (rim cells wide inside a square background, ink or
+// ground by rimInk) and shape plates an Outline (shapeOutline cells wide,
+// shapeOutlinePos, optionally doubled shapeOutlineGap apart, ground when
+// shapeOutlineInk was false): both become outlines, their widths in the
+// layer's line widths. lines: the document's lines per cell and ratio.
+const LEGACY_OUTLINE = ['rim', 'rimInk', 'shapeOutline', 'shapeOutlinePos', 'shapeOutlineDouble', 'shapeOutlineGap', 'shapeOutlineInk'];
+function outlinesOf(l, plate, { n, ratio }) {
+  if (!l || !LEGACY_OUTLINE.some(k => k in l)) return l;
+  const rest = { ...l };
+  for (const k of LEGACY_OUTLINE) delete rest[k];
+  if (l.outlines || !plate) return rest;
+  const lines = cells => Math.round((cells * n) / ((l.scale ?? 1) * ratio) * 1000) / 1000;
+  const cutout = l.shapeClip && (l.shapeMode ?? 'cutout') === 'cutout';
+  if (cutout && (l.shapeOutline ?? 0.1) > 0) {
+    const one = { weight: lines(l.shapeOutline ?? 0.1), colour: l.shapeOutlineInk === false ? 'ground' : 'ink' };
+    const outlines = l.shapeOutlineDouble ? [one, { weight: lines(l.shapeOutlineGap ?? 0.1), colour: 'none' }, { ...one }] : [one];
+    return { ...rest, outlines, outlinePos: l.shapeOutlinePos ?? 'inside' };
+  }
+  if (!cutout && (l.backing ?? 'square') === 'square' && (l.rim ?? 0) > 0) {
+    return { ...rest, outlines: [{ weight: lines(l.rim), colour: l.rimInk ? 'ink' : 'ground' }], outlinePos: 'inside' };
+  }
+  return rest;
+}
+
 // Fills older or partial settings out to the full shape. Documents from
 // before plates could be added had three fixed slots with an on/off switch:
 // the switched-off ones are dropped and the rest get ids.
@@ -304,6 +331,7 @@ export function mergeLineworkSettings(saved) {
   const d = createLineworkSettings();
   if (!saved) return d;
   const [base, ...plates] = saved.layers?.length ? saved.layers : d.layers;
+  const lines = { n: Math.max(1, saved.linesPerCell ?? d.linesPerCell), ratio: Math.min(0.95, Math.max(0.05, saved.lineRatio ?? d.lineRatio)) };
   return {
     ...d,
     // Cells were briefly a per-layer setting: the base layer's carries over.
@@ -311,9 +339,9 @@ export function mergeLineworkSettings(saved) {
     ...saved,
     word: { ...d.word, ...(saved.word ?? {}) },
     layers: [
-      { ...lineworkLayerDefaults(), ...maskModeOf(base), id: 'base', name: 'Base' },
+      { ...lineworkLayerDefaults(), ...outlinesOf(maskModeOf(base), false, lines), id: 'base', name: 'Base' },
       ...plates.filter(l => l && l.enabled !== false).map((l, i) => ({
-        ...lineworkLayerDefaults(), ...maskModeOf(l), id: l.id ?? `p${i + 1}`, name: l.name ?? `Plate ${i + 1}`, enabled: true,
+        ...lineworkLayerDefaults(), ...outlinesOf(maskModeOf(l), true, lines), id: l.id ?? `p${i + 1}`, name: l.name ?? `Plate ${i + 1}`, enabled: true,
       })),
     ],
   };
@@ -335,8 +363,8 @@ export const LINEWORK_PRESETS = [
     name: 'Triangle keys', cols: 17, colours: ['#d0a64e', '#1d3a9c', '#000000'],
     settings: { orientation: 'diamond', linesPerCell: 4, lineRatio: 0.26, layers: [
       L({ tile: 4, fills: ['split4'], sym: 'mirror-diag', orient: 'uniform', seed: 3 }),
-      P(1, { size: 6, shape: 'diamond', tile: 2, scale: 0.5, fills: ['split4', 'spiral'], sym: 'mirror-diag', orient: 'uniform', shadow: 'none', rim: 0.06, rimInk: true, seed: 5 }),
-      P(2, { size: 2.5, tile: 4, scale: 0.4, fills: ['split4'], sym: 'mirror-diag', orient: 'uniform', shadow: 'none', rim: 0.06, rimInk: true, seed: 8 }),
+      P(1, { size: 6, shape: 'diamond', tile: 2, scale: 0.5, fills: ['split4', 'spiral'], sym: 'mirror-diag', orient: 'uniform', shadow: 'none', outlines: [{ weight: 1.75, colour: 'ink' }], outlinePos: 'inside', seed: 5 }),
+      P(2, { size: 2.5, tile: 4, scale: 0.4, fills: ['split4'], sym: 'mirror-diag', orient: 'uniform', shadow: 'none', outlines: [{ weight: 2.25, colour: 'ink' }], outlinePos: 'inside', seed: 8 }),
     ] },
   },
   {
@@ -356,7 +384,7 @@ export const LINEWORK_PRESETS = [
     name: 'Labyrinth mandala', cols: 24, colours: ['#c9e86a', '#0f0f0f', '#000000'],
     settings: { orientation: 'square', linesPerCell: 2, lineRatio: 0.69, layers: [
       L({ style: 'circuit', sym: 'mirror-both', bundle: 1, straight: 0.5, maxLen: 30, edgeExit: 0.3, seed: 7 }),
-      P(1, { style: 'circuit', size: 12, shape: 'diamond', sym: 'mirror-both', straight: 0.7, edgeExit: 0, shadow: 'none', rim: 0.3, seed: 3 }),
+      P(1, { style: 'circuit', size: 12, shape: 'diamond', sym: 'mirror-both', straight: 0.7, edgeExit: 0, shadow: 'none', outlines: [{ weight: 1, colour: 'ground' }], outlinePos: 'inside', seed: 3 }),
     ] },
   },
   {
@@ -376,9 +404,9 @@ export const LINEWORK_PRESETS = [
     name: 'Stacked planes', cols: 16, colours: ['#2f8fe3', '#f7f1e3', '#6b4a1e'],
     settings: { orientation: 'square', linesPerCell: 2, lineRatio: 0.64, layers: [
       L({ tile: 4, fills: ['split2', 'chevron', 'hatch'], triFill: 'rings', angles: ['45', '135'], sym: 'mirror-diag', seed: 5 }),
-      P(1, { size: 11.3, shape: 'diamond', tile: 2, fills: ['hatch', 'split4', 'rings'], triFill: 'rings', angles: ['0', '90'], sym: 'mirror-diag', shadow: 'soft', depth: 0.35, rim: 0.15, seed: 9 }),
-      P(2, { size: 6, tile: 3, fills: ['split4'], triFill: 'rings', sym: 'mirror-diag', shadow: 'soft', depth: 0.3, rim: 0.15, seed: 2 }),
-      P(3, { size: 4.2, shape: 'diamond', tile: 2, fills: ['split4'], orient: 'uniform', sym: 'mirror-diag', shadow: 'soft', depth: 0.25, rim: 0.12, seed: 6 }),
+      P(1, { size: 11.3, shape: 'diamond', tile: 2, fills: ['hatch', 'split4', 'rings'], triFill: 'rings', angles: ['0', '90'], sym: 'mirror-diag', shadow: 'soft', depth: 0.35, outlines: [{ weight: 0.5, colour: 'ground' }], outlinePos: 'inside', seed: 9 }),
+      P(2, { size: 6, tile: 3, fills: ['split4'], triFill: 'rings', sym: 'mirror-diag', shadow: 'soft', depth: 0.3, outlines: [{ weight: 0.5, colour: 'ground' }], outlinePos: 'inside', seed: 2 }),
+      P(3, { size: 4.2, shape: 'diamond', tile: 2, fills: ['split4'], orient: 'uniform', sym: 'mirror-diag', shadow: 'soft', depth: 0.25, outlines: [{ weight: 0.5, colour: 'ground' }], outlinePos: 'inside', seed: 6 }),
     ] },
   },
 ];

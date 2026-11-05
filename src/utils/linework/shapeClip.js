@@ -174,3 +174,27 @@ export const shapeMaskSettings = (shapeClip) => ({
 });
 
 export const isShapePlate = (cfg) => !!cfg?.shapeClip?.rings?.length;
+
+// Built-in plate shapes (v1.15.1): rings in the plate's own box, as an SVG
+// shape plate's are, so they stretch to the plate's sides and are cut out
+// exactly. Square and Diamond stay plain plates.
+const BUILTIN = {
+  circle: () => Array.from({ length: 96 }, (_, i) => { const a = (i / 96) * Math.PI * 2; return [0.5 * Math.cos(a), 0.5 * Math.sin(a)]; }),
+  hexagon: () => [[-0.5, 0], [-0.25, -0.5], [0.25, -0.5], [0.5, 0], [0.25, 0.5], [-0.25, 0.5]],
+  octagon: () => { const t = 0.5 * Math.tan(Math.PI / 8); return [[-t, -0.5], [t, -0.5], [0.5, -t], [0.5, t], [t, 0.5], [-t, 0.5], [-0.5, t], [-0.5, -t]]; },
+  triangle: () => [[0, -0.5], [0.5, 0.5], [-0.5, 0.5]],
+};
+export const BUILTIN_SHAPES = Object.keys(BUILTIN);
+const builtinCache = new Map();
+// The points are kept exact (a union here would snap them to Clipper's
+// grid, a hundredth of the plate), wound as unionRings winds a solid.
+export function builtinShapeRings(shape) {
+  if (!BUILTIN[shape]) return null;
+  if (!builtinCache.has(shape)) {
+    const ring = BUILTIN[shape]();
+    const big = ring.map(([x, y]) => [x * 1000, y * 1000]);
+    const solid = Clipper.Orientation(toPath(unionRings([big])[0]));
+    builtinCache.set(shape, [Clipper.Orientation(toPath(big)) === solid ? ring : ring.slice().reverse()]);
+  }
+  return builtinCache.get(shape);
+}
