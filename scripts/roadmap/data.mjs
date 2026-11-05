@@ -269,6 +269,8 @@ export const SHIPPED = [
     also: 'Plates from SVG cut to exact outlines (Cutout or Mask), word plates in any font, exact mask edges, plates dragged on the canvas. Plates on a diamond base now reach past it. The Animation and Audio panels are gone.' },
   { ver: '1.15.0', date: '5 Nov', title: 'Continuous lines', items: [],
     also: 'Linework style C: lines run edge to edge through every cell (Straight, Diagonal or a 90° Corner) on the cell boundaries, so cells read as squares; shared edges drawn once, every line ends on a line. Merge cells into bigger squares, gap lines in the diagonals’ empty halves, the Build tool switches a turn. Columns now only offer counts that divide the sheet into equal squares, and the grid always sits inside the border.' },
+  { ver: '1.15.1', date: '5 Nov', title: 'Plate shapes & outlines', items: [],
+    also: 'Circle (or ellipse), Hexagon, Octagon and Triangle plates, cut out exactly. Rim becomes Outlines: as many as you like, each its own colour (Ink, Ground, a swatch, any colour, or a Gap) and width in line widths, stacked from the edge outwards, inwards or centred on it; the shadow falls from the outer edge. Old rims and shape outlines convert.' },
 ];
 
 // Proposed releases. Order is the suggestion. (Output was 1.11 in the 1 Nov
