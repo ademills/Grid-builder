@@ -55,6 +55,16 @@ describe('continuous lines', () => {
     }
   });
 
+  it('lines that meet end to end are one line (so bends join cleanly)', () => {
+    for (const seed of [1, 2, 1234]) for (const gapLines of ['random', 'diagonal', 'off']) {
+      const R = continuousLayer(layerOf(8, 6, 5), cfgOf({ bundle: 2, maxLen: 4, gapLines }), seed, null);
+      const ends = new Map();
+      const key = p => `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
+      for (const g of R.groups) for (const l of g.lines) if (!l.closed) for (const p of [l.pts[0], l.pts[l.pts.length - 1]]) ends.set(key(p), (ends.get(key(p)) ?? 0) + 1);
+      expect([...ends.values()].filter(n => n > 1).length).toBe(0);
+    }
+  });
+
   it('a mask leaves cells empty, and the rest are still drawn', () => {
     const L = layerOf(6, 6);
     const inside = (i, j) => !(i >= 2 && i <= 3 && j >= 2 && j <= 3);

@@ -268,8 +268,11 @@ function stitch(pieces) {
     const pts = [];
     let cur = i, from = fe;
     const first = pieces[i];
+    // A line made of a path's lines and gap lines belongs to the path.
+    let group = first.group;
     while (true) {
       used[cur] = 1;
+      if (String(group).startsWith('g') && !String(pieces[cur].group).startsWith('g')) group = pieces[cur].group;
       const seg = from === 0 ? pieces[cur].pts : pieces[cur].pts.slice().reverse();
       pts.push(...(pts.length ? seg.slice(1) : seg));
       const nxt = (ends.get(keyOf(seg[seg.length - 1])) || []).find(([j]) => !used[j]);
@@ -277,7 +280,7 @@ function stitch(pieces) {
       [cur, from] = nxt;
     }
     const closed = pts.length > 2 && keyOf(pts[0]) === keyOf(pts[pts.length - 1]);
-    lines.push({ pts: closed ? pts.slice(0, -1) : pts, closed, group: first.group, cell: first.cell });
+    lines.push({ pts: closed ? pts.slice(0, -1) : pts, closed, group, cell: first.cell });
   };
   for (const v of ends.values()) if (v.length === 1 && !used[v[0][0]]) walk(v[0][0], v[0][1]);
   for (let i = 0; i < pieces.length; i++) if (!used[i]) walk(i, 0);
@@ -444,11 +447,15 @@ export function continuousLayer(L, cfg, seed, insideCell, opts = {}) {
   const main = stitch(pieces);
   const gaps = stitch(gapLines(cfg, seed, cells, k, S, cols).map(g => ({ ...g, group: `g${g.cell}` })));
   meetLines([...main, ...gaps], main.length, W, H, S, p);
+  // Gap lines that carry a path's lines on (and lines run on end to end) are
+  // one line now: outlined in one piece, so their bends join cleanly rather
+  // than as two flat ends meeting.
+  const joined = [...stitch([...main, ...gaps].filter(l => !l.closed)), ...[...main, ...gaps].filter(l => l.closed)];
 
   // Group into items: each path, and each cell's gap lines.
   const hw = (L.lineW ?? p * (L.ratio ?? 0.5)) / 2;
   const groups = new Map();
-  for (const l of [...main, ...gaps]) {
+  for (const l of joined) {
     const g = groups.get(l.group) ?? { key: l.group, name: String(l.group).startsWith('g') ? 'Gap lines' : 'Path', contours: [], lines: [] };
     const pts = l.pts.map(([x, y]) => [x + ox, y + oy]);
     g.lines.push({ pts, closed: l.closed });
