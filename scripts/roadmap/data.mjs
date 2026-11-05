@@ -268,7 +268,7 @@ export const SHIPPED = [
   { ver: '1.14.0', date: '4 Nov', title: 'Shape plates', items: ['13.1','13.2','13.3','13.4','13.5','13.6'],
     also: 'Plates from SVG cut to exact outlines (Cutout or Mask), word plates in any font, exact mask edges, plates dragged on the canvas. Plates on a diamond base now reach past it. The Animation and Audio panels are gone.' },
   { ver: '1.15.0', date: '5 Nov', title: 'Continuous lines', items: [],
-    also: 'Linework style C: lines run edge to edge through every cell (Straight, Diagonal or a 90° Corner), sharing points with the next cell, carrying on where cells line up and running on to meet the next line where they don’t. Gap lines fill the diagonals’ empty halves; the Build tool switches a turn. Uses the existing route, frame, masks and plates.' },
+    also: 'Linework style C: lines run edge to edge through every cell (Straight, Diagonal or a 90° Corner) on the cell boundaries, so cells read as squares; shared edges drawn once, every line ends on a line. Merge cells into bigger squares, gap lines in the diagonals’ empty halves, the Build tool switches a turn. Columns now only offer counts that divide the sheet into equal squares, and the grid always sits inside the border.' },
 ];
 
 // Proposed releases. Order is the suggestion. (Output was 1.11 in the 1 Nov
