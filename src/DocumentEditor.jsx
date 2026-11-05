@@ -586,7 +586,12 @@ export function DocumentEditor({ mode: appMode }) {
     [workArea.width, workArea.height, gridSettings.borderPct, appMode]
   );
 
+  // A change of artboard or border moves Columns to the nearest count that
+  // fits. Not on opening a document, which keeps its own count (its grid
+  // still fits inside the border: computeGrid).
+  const validColsSeen = useRef(false);
   useEffect(() => {
+    if (!validColsSeen.current) { validColsSeen.current = true; return; }
     if (!validCols) return;
     setGridSettings(prev => {
       const cols = snapCols(validCols, prev.cols);

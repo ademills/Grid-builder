@@ -100,7 +100,7 @@ export function PropertiesPanel() {
       {gridComputed && (
         <div className={styles.gridInfo}>
           {gridComputed.cols} × {gridComputed.rows} cells · {gridComputed.cellSize.toFixed(1)}px each
-          {validCols && !validCols.includes(gridSettings.cols) && <span className={styles.snapNote}> (snapped)</span>}
+          {validCols && !validCols.includes(gridSettings.cols) && <span className={styles.snapNote} title="This count doesn't divide the artboard into whole rows of squares, so the grid is fitted inside the border with a gap. Step Columns to pick one that fits."> (not an even fit)</span>}
         </div>
       )}
       {validCols === null && <div className={styles.gridNote}>Any column count is valid for this layout.</div>}

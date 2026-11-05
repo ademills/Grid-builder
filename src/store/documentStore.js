@@ -34,9 +34,9 @@ export const useDocumentStore = create((set, get) => ({
     if (n) untitledCounter[mode] = Math.max(untitledCounter[mode], +n);
     const id = overrides.id && !get().docs[overrides.id] ? overrides.id : crypto.randomUUID();
     const state = { ...createDefaultDocState(mode), ...(overrides.state ?? {}) };
-    // Snap the column count to one that tiles this artboard now, so the
-    // editor's own snapping doesn't flag a brand-new document as modified.
-    state.gridSettings = snapGridCols(state, mode);
+    // A new document starts on a column count that fits its artboard. One
+    // opened or restored keeps its own count, so its design doesn't move.
+    if (!overrides.state) state.gridSettings = snapGridCols(state, mode);
     const doc = {
       id, mode,
       name: overrides.name ?? `Untitled ${MODES[mode].shortLabel} ${untitledCounter[mode]}`,

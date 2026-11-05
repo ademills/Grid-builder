@@ -15,10 +15,14 @@ export const PRESETS = [
 ];
 
 /**
- * Returns column counts (1–maxCols) where the fractional leftover row is within
- * 10% of a cell — i.e. the grid tiles the inner area without a visible gap.
- * Returns null when no constraint can be determined (all values treated as valid).
+ * Returns the column counts (1–maxCols) that divide the inner area into
+ * equal squares with whole rows: the gap left over is at most FIT of the
+ * sheet. Measured against the sheet (not a cell), so multiples of a count
+ * that fits fit too (3 → 6, 9, 12…: the same gap in pixels). A sheet with
+ * almost no such counts gets a looser fit, step by step, until there are a
+ * few. Returns null when none can be found (every count is then allowed).
  */
+const FITS = [0.005, 0.01, 0.02, 0.04, 0.08];
 export function getValidCols(workArea, borderPct, maxCols = 80) {
   const { width, height } = workArea;
   if (!width || !height) return null;
@@ -28,28 +32,25 @@ export function getValidCols(workArea, borderPct, maxCols = 80) {
   const innerH = height - 2 * borderPx;
   if (innerW <= 0 || innerH <= 0) return null;
 
-  const EPSILON = 0.1; // allow up to 10% leftover at the edge
-  const valid = [];
-  for (let c = 1; c <= maxCols; c++) {
-    const rowsExact = (innerH * c) / innerW;
-    const frac = rowsExact - Math.floor(rowsExact);
-    if (frac < EPSILON || frac > 1 - EPSILON) {
-      valid.push(c);
+  const enough = Math.max(3, Math.floor(maxCols / 10));
+  let valid = [];
+  for (const fit of FITS) {
+    valid = [];
+    for (let c = 1; c <= maxCols; c++) {
+      const cell = innerW / c;
+      const rows = Math.round(innerH / cell);
+      if (rows >= 1 && Math.abs(innerH - rows * cell) <= fit * innerH) valid.push(c);
     }
+    if (valid.length >= enough) break;
   }
   return valid.length > 1 ? valid : null;
 }
 
 // The column count to use after the artboard or border changes: the
-// nearest count that tiles the artboard, if one is within SNAP_REACH of the
-// current count; otherwise the current count stays (rows round, and the
-// grid is centred in what's left). Without the limit a border change could
-// jump from 13 columns to 4.
-const SNAP_REACH = 2;
+// nearest count that fits it.
 export function snapCols(validCols, cols) {
   if (!validCols || validCols.includes(cols)) return cols;
-  const nearest = validCols.reduce((a, b) => (Math.abs(b - cols) < Math.abs(a - cols) ? b : a));
-  return Math.abs(nearest - cols) <= SNAP_REACH ? nearest : cols;
+  return validCols.reduce((a, b) => (Math.abs(b - cols) < Math.abs(a - cols) ? b : a));
 }
 
 /**
@@ -68,16 +69,18 @@ export function computeGrid(workArea, gridSettings) {
 
   if (innerW <= 0 || innerH <= 0) return null;
 
-  const cellSize = innerW / cols;
-  const rows = Math.round(innerH / cellSize);
-
-  if (rows < 1) return null;
+  // Equal squares: rows round to the nearest whole number, and if that
+  // would run past the border the squares shrink to fit, so the grid always
+  // sits inside it. A count that fits (getValidCols) leaves a gap too small
+  // to see.
+  const rows = Math.max(1, Math.round(innerH / (innerW / cols)));
+  const cellSize = Math.min(innerW / cols, innerH / rows);
 
   const gridW = cols * cellSize;
   const gridH = rows * cellSize;
 
-  // Center the grid within the work area so any leftover from floor() is
-  // split evenly between top/bottom rather than accumulating at the bottom.
+  // Centre the grid within the work area so any leftover is split evenly
+  // between the two sides rather than accumulating at one.
   const gridOriginX = (width - gridW) / 2;
   const gridOriginY = (height - gridH) / 2;
 
