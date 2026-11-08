@@ -302,3 +302,4 @@
   color: var(--chrome-text);
   font-variant-numeric: tabular-nums;
 }
+.iconGroup button:disabled, .iconGroup button:disabled:hover { opacity: 0.4; cursor: default; background: none; }

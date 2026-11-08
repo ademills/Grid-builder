@@ -1,3 +1,4 @@
+import { CELL as LINEWORK_CELL } from '../utils/linework/compose';
 import { normaliseSymmetry } from '../utils/symmetry';
 import { useAppStore } from '../store/appStore';
 import { brushCells, brushOrigin, clampBrush } from '../utils/brush';
@@ -65,12 +66,13 @@ export function BrushOutline({ tool, gridComputed }) {
 }
 
 // The Lasso's loop while it's being drawn.
-export function LassoPath({ points }) {
+// (open: a line rather than a loop, for the Weave tool's drag.)
+export function LassoPath({ points, open = false }) {
   if (!points || points.length < 2) return null;
-  const d = points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join('') + 'Z';
+  const d = points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join('') + (open ? '' : 'Z');
   return (
     <g pointerEvents="none" data-noexport="true">
-      <path d={d} fill="rgba(124,58,237,0.08)" stroke="#fff" strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+      <path d={d} fill={open ? 'none' : 'rgba(124,58,237,0.08)'} stroke="#fff" strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
       <path d={d} fill="none" stroke="#7c3aed" strokeWidth={1.25} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
     </g>
   );
@@ -125,6 +127,38 @@ export function PlateGhost({ ghost, editBox, handles, gridComputed, workArea, sc
         <rect key={h.key} x={X(h.x) - hs / 2} y={Y(h.y) - hs / 2} width={hs} height={hs}
           fill="#fff" stroke={accent} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       ))}
+    </g>
+  );
+}
+
+// Linework cells picked in Select's Cell mode (and their mirror images),
+// from the probe's polygons in design units: purple, dashed amber when locked.
+export function CellPicks({ cells, gridComputed }) {
+  if (!cells?.length || !gridComputed) return null;
+  const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+  const px = ([x, y]) => `${(gridOriginX + (x / LINEWORK_CELL) * cellSize).toFixed(2)} ${(gridOriginY + (y / LINEWORK_CELL) * cellSize).toFixed(2)}`;
+  const dOf = (P) => P.map((v, i) => `${i ? 'L' : 'M'}${px(v)}`).join('') + 'Z';
+  return (
+    <g pointerEvents="none" data-noexport="true">
+      {cells.map(c => c.polys.map((P, k) => (
+        <g key={`${c.id}:${k}`} opacity={k ? 0.55 : 1}>
+          <path d={dOf(P)} fill={c.locked ? 'rgba(245,158,11,0.10)' : 'rgba(124,58,237,0.12)'} stroke="#fff" strokeWidth={3} vectorEffect="non-scaling-stroke" />
+          <path d={dOf(P)} fill="none" stroke={c.locked ? '#d97706' : '#7c3aed'} strokeWidth={1.5}
+            strokeDasharray={c.locked ? '4 3' : undefined} vectorEffect="non-scaling-stroke" />
+        </g>
+      )))}
+    </g>
+  );
+}
+
+// The Shape Builder's drag box (artboard px): purple to merge, red to split.
+export function ShapeBox({ box }) {
+  if (!box || (box.w < 1 && box.h < 1)) return null;
+  const colour = box.split ? '#e5484d' : '#7c3aed';
+  return (
+    <g pointerEvents="none" data-noexport="true">
+      <rect x={box.x} y={box.y} width={box.w} height={box.h} fill={box.split ? 'rgba(229,72,77,0.08)' : 'rgba(124,58,237,0.08)'}
+        stroke={colour} strokeWidth={1.5} strokeDasharray="5 3" vectorEffect="non-scaling-stroke" />
     </g>
   );
 }

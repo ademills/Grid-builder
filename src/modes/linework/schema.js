@@ -108,7 +108,7 @@ export const LINEWORK_LAYER_SCHEMA = [
       // copy can't join them: no symmetry there.
       { key: 'sym', label: 'Symmetry', type: 'symmetry', keys: LINEWORK_SYMMETRY, bar: true, showIf: L => !continuous(L),
         surprise: (r, L) => oneOf(L.style === 'circuit' ? ['mirror-both', 'mirror-x', 'none'] : ['mirror-both', 'mirror-diag', 'mirror-diag', 'rotate4'])(r) },
-      { key: 'scale', label: 'Line scale', type: 'slider', min: 0.2, max: 2, step: 0.05, format: v => `${v}×`,
+      { key: 'scale', label: 'Line scale', type: 'slider', min: 0.2, max: 6, step: 0.05, format: v => `${v}×`,
         help: "Scales this layer's cells and lines" },
       { key: 'invert', label: 'Swap colours', type: 'toggle', help: 'Swap ink and ground on this layer' },
       { key: 'frame', label: 'Frame', type: 'slider', min: 0, max: 1, step: 0.01, format: cells,

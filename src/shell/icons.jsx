@@ -133,6 +133,24 @@ export const BuildIcon = (p) => (
   </Icon>
 );
 
+// Weave: two bands crossing, one passing under the other.
+export const WeaveIcon = (p) => (
+  <Icon {...p}>
+    <path d="M3 7.5h14M3 12.5h14" />
+    <path d="M7.5 3v3M7.5 9v2M7.5 14v3M12.5 3v1.5M12.5 6v8M12.5 15.5V17" />
+  </Icon>
+);
+
+// Shape Builder: cells joined into one.
+export const ShapeBuilderIcon = (p) => (
+  <Icon {...p}>
+    <rect x="3" y="3" width="6" height="6" rx="0.5" strokeDasharray="1.6 1.6" />
+    <rect x="11" y="3" width="6" height="6" rx="0.5" strokeDasharray="1.6 1.6" />
+    <path d="M3 12.5h14v4.5H3z" />
+    <path d="M10 9.5v2" />
+  </Icon>
+);
+
 export const StampIcon = (p) => (
   <Icon {...p}>
     <rect x="3.5" y="12.5" width="13" height="3" rx="0.8" />

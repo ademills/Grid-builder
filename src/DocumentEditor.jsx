@@ -52,7 +52,7 @@ import { usePresetStore, presetFields } from './store/presetStore';
 import { surpriseValues } from './panels/schemaUtils';
 import { MEANDER_SCHEMA } from './modes/meander/schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA, LINEWORK_LAYER_SCHEMA } from './modes/linework/schema';
-import { SymmetryAxes, MoveGhost, BrushOutline, LassoPath, PlateGhost } from './components/ToolOverlays';
+import { SymmetryAxes, MoveGhost, BrushOutline, LassoPath, PlateGhost, CellPicks, ShapeBox } from './components/ToolOverlays';
 import { silhouetteCoverage, silhouetteCells, silhouetteRaster } from './utils/silhouetteMask';
 import { traceRings, rasterWord, rasterSize } from './utils/linework/traceMask';
 import { tidySvg } from './utils/svgExport';
@@ -546,7 +546,21 @@ const isTypingTarget = (el) =>
 // saved designs are rebuilt on open (2: backing bands that merge, v1.7.2;
 // 3: One circuit margins and circuits on hex/triangle/Voronoi cells, v1.9;
 // 4: masks remove or invert, v1.13).
-const LINEWORK_ENGINE = 6;
+const LINEWORK_ENGINE = 7;
+
+// Linework cell edits (v1.15.2): why one couldn't be made, and their undo names.
+const CELL_REFUSED = {
+  locked: 'That cell is locked: unlock it first',
+  layer: 'That layer is locked (Layers panel)',
+  whole: 'A single circuit filling every cell can’t be edited cell by cell',
+  continuous: 'Continuous lines run through every cell: only Re-run works on them',
+  axis: 'Tiles can’t merge across a symmetry axis',
+  tiling: 'Shape Builder works on square tiles (angular layers)',
+};
+const CELL_LABELS = {
+  rerun: 'Re-run Cells', fill: 'Fill Cells', delete: 'Delete Cells', flip: 'Swap Crossings', weave: 'Weave',
+  lock: 'Lock Cells', unlock: 'Unlock Cells', rotate: 'Rotate Tiles', reflect: 'Reflect Tiles',
+};
 // The settings a design is drawn from: plateFit only records what the
 // plates were last fitted to, so it's left out.
 const lineworkDesign = (s) => ({ ...s, plateFit: undefined });
@@ -1897,13 +1911,14 @@ export function DocumentEditor({ mode: appMode }) {
   const editLineworkByHand = useCallback((edit, label) => {
     if (!gridComputed) return null;
     const { cols, rows } = gridComputed;
-    const { edits } = composeLinework(lineworkSettings, { cols, rows }, {
+    const { edits, refusals } = composeLinework(lineworkSettings, { cols, rows }, {
       maskFor: lineworkMaskFor(lineworkSettings), maskShapeFor: lineworkMaskShapeFor(lineworkSettings), baseGround: !!lineworkSettings.groundSwatch, areas: lineworkAreas,
       edit: { ...edit, rng: Math.random },
     });
     const locked = lockedLineworkLayers();
     const made = edits.filter(e => !locked.has(e.layerId));
-    if (!made.length) return edits.length ? 'locked' : null;
+    // (A locked cell, v1.15.2: its lines can't be taken out or grown into.)
+    if (!made.length) return edits.length ? 'locked' : refusals.length ? 'lockedCell' : null;
     const names = { remove: made.some(e => e.hand.tiles) ? 'Remove Tile' : 'Remove Line', grow: made.some(e => e.hand.tiles) ? 'Fill Tile' : 'Grow Line', turn: 'Switch Turn' };
     updateLinework(s => ({
       ...s,
@@ -1930,8 +1945,134 @@ export function DocumentEditor({ mode: appMode }) {
     const at = [((pt.x - gridOriginX) / cellSize) * LINEWORK_CELL, ((pt.y - gridOriginY) / cellSize) * LINEWORK_CELL];
     const made = editLineworkByHand({ at });
     if (made === 'locked') showToast('That layer is locked (Layers panel)');
+    else if (made === 'lockedCell') showToast(CELL_REFUSED.locked);
     else if (!made) showToast('No room to grow a line here');
   }, [gridComputed, editLineworkByHand, showToast]);
+
+  // ── Linework cells (v1.15.2) ───────────────────────────────────────────────
+  // Select's Cell mode, Rotate / Reflect, Weave and Shape Builder work on the
+  // grid's cells (tiles, circuit cells) rather than whole lines. Picked cells
+  // are kept as points in the design, one each; what's in them is probed
+  // from the design as drawn, so it follows every change.
+  const lwSelectMode = useAppStore(s => s.toolOptions.selectMode);
+  const [cellPicks, setCellPicks] = useState([]); // [{ at: [x, y], id }]
+  const toDesignPt = useCallback((pt) => {
+    if (!gridComputed || !pt) return null;
+    const { cellSize, gridOriginX, gridOriginY } = gridComputed;
+    return [((pt.x - gridOriginX) / cellSize) * LINEWORK_CELL, ((pt.y - gridOriginY) / cellSize) * LINEWORK_CELL];
+  }, [gridComputed]);
+  const composeLineworkEdit = useCallback((edit) => {
+    const { cols, rows } = gridComputed;
+    return composeLinework(lineworkSettings, { cols, rows }, {
+      maskFor: lineworkMaskFor(lineworkSettings), maskShapeFor: lineworkMaskShapeFor(lineworkSettings),
+      baseGround: !!lineworkSettings.groundSwatch, areas: lineworkAreas, edit: { rng: Math.random, ...edit },
+    });
+  }, [gridComputed, lineworkSettings, lineworkMaskFor, lineworkMaskShapeFor, lineworkAreas]);
+  const probeCells = useCallback((pts) => {
+    if (!gridComputed || !pts.length) return [];
+    const seen = new Set();
+    return composeLineworkEdit({ cells: pts, op: 'probe' }).probes.filter(p => !seen.has(p.id) && seen.add(p.id));
+  }, [gridComputed, composeLineworkEdit]);
+  const pickedCells = useMemo(() => (isLinework && cellPicks.length ? probeCells(cellPicks.map(c => c.at)) : []), [isLinework, cellPicks, probeCells]);
+
+  // A cell edit (see composeLinework): each changed layer keeps its new
+  // layout (cfg.hand) and lock store (cfg.locks), as one undoable change.
+  const editLineworkCells = useCallback((edit, label) => {
+    if (!gridComputed) return null;
+    const R = composeLineworkEdit(edit);
+    const lockedLayers = lockedLineworkLayers();
+    const made = R.edits.filter(e => !lockedLayers.has(e.layerId));
+    const why = R.refusals[0]?.reason ?? (R.edits.length > made.length ? 'layer' : null);
+    if (why) showToast(CELL_REFUSED[why] ?? 'That cell can’t be changed');
+    if (!made.length) return null;
+    updateLinework(s => ({
+      ...s,
+      layers: s.layers.map((l, li) => {
+        const mine = made.filter(e => e.li === li);
+        if (!mine.length) return l;
+        const hand = { ...(l.hand ?? {}) };
+        const locks = { ...(l.locks ?? {}) };
+        for (const e of mine) {
+          hand[e.tag] = e.hand;
+          if (e.locks === null) delete locks[e.tag];
+          else if (e.locks) locks[e.tag] = e.locks;
+        }
+        const next = { ...l, hand };
+        if (Object.keys(locks).length) next.locks = locks; else delete next.locks;
+        return next;
+      }),
+    }), label);
+    return made;
+  }, [gridComputed, composeLineworkEdit, lockedLineworkLayers, showToast, updateLinework]);
+
+  const cellAction = useCallback((op, more = {}) => {
+    if (!cellPicks.length) return;
+    editLineworkCells({ cells: cellPicks.map(c => c.at), op, ...more }, CELL_LABELS[op]);
+  }, [cellPicks, editLineworkCells]);
+  const lineworkCellCommands = useMemo(() => ({
+    rerun: () => cellAction('rerun'),
+    fill: (kind) => cellAction('fill', { kind }),
+    remove: () => cellAction('delete'),
+    flip: () => cellAction('flip'),
+    lock: () => cellAction('lock'),
+    unlock: () => cellAction('unlock'),
+    rotate: (dir = 1) => cellAction('rotate', { dir }),
+    reflect: (vertical = false) => cellAction('reflect', { vertical }),
+    clear: () => setCellPicks([]),
+  }), [cellAction]);
+  // What the control bar shows for the picked cells: how many, and which
+  // actions any of them takes.
+  const cellSummary = useMemo(() => {
+    if (!pickedCells.length) return null;
+    const any = k => pickedCells.some(c => c.can[k]);
+    return {
+      count: pickedCells.length,
+      can: { rerun: any('rerun'), fill: any('fill'), delete: any('delete'), flip: any('flip'), lock: any('lock'), rotate: any('rotate'), reflect: any('reflect') },
+      allLocked: pickedCells.every(c => c.locked), anyLocked: pickedCells.some(c => c.locked),
+      kinds: [...new Set(pickedCells.map(c => c.kind).filter(Boolean))],
+      styles: [...new Set(pickedCells.map(c => c.style))],
+    };
+  }, [pickedCells]);
+
+  // Cell mode clicks: the cell under the point (Shift adds or takes it away).
+  const pickCellAt = useCallback((pt, add) => {
+    const at = toDesignPt(pt);
+    const [hit] = at ? probeCells([at]) : [];
+    if (!hit) { if (!add) setCellPicks([]); return; }
+    setCellPicks(prev => {
+      if (!add) return [{ at, id: hit.id }];
+      return prev.some(c => c.id === hit.id) ? prev.filter(c => c.id !== hit.id) : [...prev, { at, id: hit.id }];
+    });
+  }, [toDesignPt, probeCells]);
+  // A marquee in Cell mode (screen px): every cell it touches, sampled every half cell.
+  const pickCellsIn = useCallback(({ x1, y1, x2, y2 }, add) => {
+    if (!gridComputed) return;
+    const { x: panX, y: panY, scale } = viewTransform;
+    const a = toDesignPt({ x: (x1 - panX) / scale, y: (y1 - panY) / scale });
+    const b = toDesignPt({ x: (x2 - panX) / scale, y: (y2 - panY) / scale });
+    const step = LINEWORK_CELL / 2;
+    const pts = [];
+    for (let y = Math.max(0, a[1]); y <= b[1] && pts.length < 20000; y += step) {
+      for (let x = Math.max(0, a[0]); x <= b[0]; x += step) pts.push([x, y]);
+    }
+    const hits = probeCells(pts).map(p => {
+      const P = p.polys[0];
+      return { at: P.reduce((s, v) => [s[0] + v[0] / P.length, s[1] + v[1] / P.length], [0, 0]), id: p.id };
+    });
+    setCellPicks(prev => (add ? [...prev, ...hits.filter(h => !prev.some(c => c.id === h.id))] : hits));
+  }, [gridComputed, viewTransform, toDesignPt, probeCells]);
+  const cellMode = isLinework && lwSelectMode === 'cell';
+  // Lines and cells aren't picked together: switching drops the other kind.
+  useEffect(() => {
+    if (cellMode) setSelectedIds(prev => (prev.size ? new Set() : prev));
+    else setCellPicks(prev => (prev.length ? [] : prev));
+  }, [cellMode, setSelectedIds]);
+  useEffect(() => {
+    if (!cellPicks.length) return;
+    const onKey = (e) => { if (e.key === 'Escape') setCellPicks([]); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cellPicks.length]);
 
   // Delete, in Meander and Linework, takes strands, bundles and tiles out
   // by hand, so they stay out when the design is rebuilt. False when the
@@ -1942,12 +2083,17 @@ export function DocumentEditor({ mode: appMode }) {
     const keys = new Set(placedBlocksRef.current
       .filter(b => ids.has(b.id) && !b.locked && b.lwKind === 'ink' && /^[^:]+:[abc]:/.test(b.genKey ?? ''))
       .map(b => b.genKey));
-    return keys.size > 0 && Array.isArray(editLineworkByHand({ remove: keys }));
-  }, [appMode, removeKnotworkByHand, editLineworkByHand]);
+    if (!keys.size) return false;
+    const made = editLineworkByHand({ remove: keys });
+    if (made === 'lockedCell') showToast('Those lines run through a locked cell: unlock it first');
+    return Array.isArray(made) || made === 'lockedCell';
+  }, [appMode, removeKnotworkByHand, editLineworkByHand, showToast]);
   const deleteSelected = useCallback(() => {
+    // Select's Cell mode: Delete empties the picked cells.
+    if (cellMode && useAppStore.getState().activeTool === 'select' && cellPicks.length) { cellAction('delete'); return; }
     if (deleteByHand(selectedIdsRef.current)) { setSelectedIds(new Set()); return; }
     handleDeleteSelected();
-  }, [deleteByHand, setSelectedIds, handleDeleteSelected]);
+  }, [cellMode, cellPicks.length, cellAction, deleteByHand, setSelectedIds, handleDeleteSelected]);
   const contextDelete = useCallback(() => {
     const id = contextMenu?.block?.id;
     if (id && deleteByHand(new Set([id]))) return;
@@ -2398,6 +2544,8 @@ export function DocumentEditor({ mode: appMode }) {
   const toolDrag = useRef(null);
   // The Lasso's loop while it's being drawn (artboard px).
   const [lassoPath, setLassoPath] = useState(null);
+  // Shape Builder's drag box (artboard px).
+  const [shapeBox, setShapeBox] = useState(null);
 
   // Cell under an artboard point, and the visible block covering it with the
   // point's position (u, v) inside that block.
@@ -2681,6 +2829,61 @@ export function DocumentEditor({ mode: appMode }) {
       setLassoPath(toolDrag.current?.points ? [...toolDrag.current.points] : null);
       return;
     }
+    // Linework cell tools (v1.15.2).
+    if (isLinework && (tool === 'rotate' || tool === 'reflect')) {
+      if (phase !== 'down') return;
+      const at = toDesignPt(pt);
+      if (!at) return;
+      if (tool === 'rotate') editLineworkCells({ cells: [at], op: 'rotate', dir: pt.altKey ? -1 : 1 }, CELL_LABELS.rotate);
+      else editLineworkCells({ cells: [at], op: 'reflect', vertical: !!pt.altKey }, CELL_LABELS.reflect);
+      return;
+    }
+    // Weave: a click swaps the crossing there; a drag weaves the line it follows.
+    if (isLinework && tool === 'weave') {
+      if (phase === 'down') {
+        toolDrag.current = { weave: [pt] };
+      } else if (phase === 'move' && toolDrag.current?.weave && pt) {
+        const pts = toolDrag.current.weave;
+        const last = pts[pts.length - 1];
+        if (Math.hypot(pt.x - last.x, pt.y - last.y) < (gridComputed?.cellSize ?? 10) / 4) return;
+        pts.push(pt);
+      } else if (phase === 'up') {
+        const pts = toolDrag.current?.weave;
+        toolDrag.current = null;
+        setLassoPath(null);
+        if (pts?.length) {
+          const cells = pts.map(toDesignPt).filter(Boolean);
+          const made = editLineworkCells({ cells, op: pts.length > 1 ? 'weave' : 'flip' }, CELL_LABELS[pts.length > 1 ? 'weave' : 'flip']);
+          if (!made && !composeLineworkEdit({ cells, op: 'probe' }).probes.some(p => p.crossing)) {
+            showToast('No crossing here: turn on Weave (over / under) for the layer to get some');
+          }
+        }
+        return;
+      }
+      setLassoPath(toolDrag.current?.weave?.length > 1 ? { points: [...toolDrag.current.weave], open: true } : null);
+      return;
+    }
+    // Shape Builder: drag across tiles to merge them (Alt: split them apart).
+    if (isLinework && tool === 'shapeBuilder') {
+      if (phase === 'down') {
+        toolDrag.current = { build: pt, to: pt, split: !!pt.altKey };
+      } else if (phase === 'move' && toolDrag.current?.build && pt) {
+        toolDrag.current.to = pt;
+      } else if (phase === 'up') {
+        const drag = toolDrag.current;
+        toolDrag.current = null;
+        setShapeBox(null);
+        if (drag?.build) {
+          const end = pt ?? drag.to;
+          editLineworkCells({ merge: [toDesignPt(drag.build), toDesignPt(end)], split: drag.split || !!end.altKey },
+            drag.split || end.altKey ? 'Split Tiles' : 'Merge Tiles');
+        }
+        return;
+      }
+      const d = toolDrag.current;
+      setShapeBox(d?.build ? { x: Math.min(d.build.x, d.to.x), y: Math.min(d.build.y, d.to.y), w: Math.abs(d.to.x - d.build.x), h: Math.abs(d.to.y - d.build.y), split: d.split } : null);
+      return;
+    }
     if (phase === 'up') { toolDrag.current = null; return; }
     // Build (Meander, Linework): one click takes out a line or grows one.
     if (tool === 'build') {
@@ -2846,7 +3049,7 @@ export function DocumentEditor({ mode: appMode }) {
     if (tool === 'reflect') {
       updateBlocks([block.id], b => (pt.altKey ? { ...b, flipY: !b.flipY } : { ...b, flipX: !b.flipX }), 'Reflect');
     }
-  }, [docId, appMode, lineworkBuildAt, knotworkBuildAt, hitTest, stampSymmetric, symmetricHits, handleMovePointer, handlePlatePointer, isLinework, handleLassoSelect, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
+  }, [docId, appMode, lineworkBuildAt, knotworkBuildAt, toDesignPt, editLineworkCells, composeLineworkEdit, hitTest, stampSymmetric, symmetricHits, handleMovePointer, handlePlatePointer, isLinework, handleLassoSelect, pushHistory, relabelHistory, setPlacedBlocks, syncHistorySize, toolOptions, colourCtx, setSelectedIds, slotUnder, setToolOption, showToast, ensureSwatch, updateBlocks, paintIds, addRecentColour, gridComputed]);
 
   // Actions on the current selection, shared by the task bar, the right-click
   // menu and the Object / Select menus. Locked shapes are never edited.
@@ -2948,10 +3151,15 @@ export function DocumentEditor({ mode: appMode }) {
     });
   }, [setSelectedIds]);
   const handleSelectAt = useCallback((pt, addToSelection) => {
+    if (cellMode) { pickCellAt(pt, addToSelection); return; }
     const block = hitTest(pt, placedBlocksRef.current)?.block;
     if (block && !block.locked && !block.type) selectWithGroup(block, addToSelection);
     else if (!addToSelection) handleDeselectAll();
-  }, [hitTest, selectWithGroup, handleDeselectAll]);
+  }, [cellMode, pickCellAt, hitTest, selectWithGroup, handleDeselectAll]);
+  const marqueeSelect = useCallback((rect) => {
+    if (cellMode) { pickCellsIn(rect, false); return; }
+    handleMarqueeSelect(rect);
+  }, [cellMode, pickCellsIn, handleMarqueeSelect]);
   const handleContextMenuAt = useCallback((pt, x, y) => {
     const block = hitTest(pt, placedBlocksRef.current)?.block;
     if (!block || block.locked || block.type) return false;
@@ -3254,10 +3462,11 @@ export function DocumentEditor({ mode: appMode }) {
     recolourArtwork: () => setShowRecolour(true),
     updateLinework,
     setLineworkEditLayer: editLineworkLayer,
+    lineworkCells: lineworkCellCommands,
     // Guides
     hasGuides: guides.v.length + guides.h.length > 0,
     clearGuides: () => setGuides({ v: [], h: [] }),
-  }), [openExport, savePreset, setShowRecolour, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, deleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, editLineworkLayer, guides, setGuides]);
+  }), [openExport, savePreset, setShowRecolour, selectionActions, fillSelection, layerActions, handleSelectInverse, handleUndo, handleRedo, handleZoom, handleSetZoom, handleResetView, setSelectedIds, placedBlocks, handleDeselectAll, deleteSelected, handleExport, buildThumbnail, clipboardActions, fillActions, activeFill, canShapeFill, handleFillGaps, surpriseMe, pushHistory, setPlacedBlocks, syncHistorySize, handleFlipH, handleFlipV, activeLayoutId, handleClearLayout, handleRandomRerun, paletteKey, shapeColors, showToast, setEnabledAssetIds, handleKnotworkFill, handleKnotworkRecolour, handleKnotworkSurprise, reseedLinework, recolourLinework, surpriseLinework, applyLineworkPreset, updateLinework, editLineworkLayer, lineworkCellCommands, guides, setGuides]);
   const editorStatus = useMemo(() => ({
     zoom: viewTransform.scale,
     cols: gridComputed?.cols ?? 0,
@@ -3275,7 +3484,8 @@ export function DocumentEditor({ mode: appMode }) {
     colorMode,
     selectionFrozen: selectedBlocks.length > 0 && selectedBlocks.every(b => b.colorLocked),
     selectionPinned: selectedBlocks.some(b => b.slotPins),
-  }), [viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer, lineworkEditLayers, colorMode, selectedBlocks]);
+    lineworkCells: cellSummary,
+  }), [cellSummary, viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer, lineworkEditLayers, colorMode, selectedBlocks]);
   useEffect(() => { setEditorBridge(editorCommands, editorStatus); }, [setEditorBridge, editorCommands, editorStatus]);
   useEffect(() => () => setEditorBridge(null, null), [setEditorBridge]);
 
@@ -3292,7 +3502,7 @@ export function DocumentEditor({ mode: appMode }) {
           canvasBg={canvasBg}
           workArea={workArea}
           onDeselectAll={handleDeselectAll}
-          onMarqueeSelect={handleMarqueeSelect}
+          onMarqueeSelect={marqueeSelect}
           onToolPointer={handleToolPointer}
           onPointerMove={handlePointerMove}
           onSelectAt={handleSelectAt}
@@ -3348,7 +3558,7 @@ export function DocumentEditor({ mode: appMode }) {
             placedBlocks={movePreview?.ok ? movePreview.blocks : placedBlocks}
             visibleRect={visibleRect}
             gridComputed={gridComputed}
-            activeTool={activeTool}
+            activeTool={cellMode && activeTool === 'select' ? 'selectCells' : activeTool}
             selectedIds={selectedIds}
             onSelect={handleSelectBlock}
             onContextMenu={handleOpenContextMenu}
@@ -3366,7 +3576,9 @@ export function DocumentEditor({ mode: appMode }) {
             <PlateGhost ghost={plateGhost} editBox={editPlateBox} handles={editPlateBox ? handlesOf(editPlateBox) : null}
               gridComputed={gridComputed} workArea={workArea} scale={viewTransform.scale} />
           )}
-          <LassoPath points={lassoPath} />
+          <LassoPath points={lassoPath?.points ?? lassoPath} open={!!lassoPath?.open} />
+          {cellMode && activeTool === 'select' && <CellPicks cells={pickedCells} gridComputed={gridComputed} />}
+          {isLinework && activeTool === 'shapeBuilder' && <ShapeBox box={shapeBox} />}
           {(showGuides || guideDrag.drag) && (
             <GuideLines guides={guides} drag={guideDrag.drag} onStartDrag={startGuideDrag}
               interactive={activeTool === 'select'} scale={viewTransform.scale} />

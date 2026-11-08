@@ -1,6 +1,6 @@
 import {
   SelectIcon, LassoIcon, MoveIcon, HandIcon, ZoomIcon, WandIcon, EyedropperIcon, BucketIcon, StampIcon, EraserIcon, RotateIcon, ReflectIcon,
-  BuildIcon, GridModeMark, MeanderModeMark, LineworkModeMark,
+  BuildIcon, WeaveIcon, ShapeBuilderIcon, GridModeMark, MeanderModeMark, LineworkModeMark,
 } from '../shell/icons';
 import { PropertiesPanel } from '../panels/PropertiesPanel';
 import { InfoPanel } from '../panels/InfoPanel';
@@ -27,17 +27,22 @@ import { LineworkPanel } from '../panels/LineworkPanels';
 
 // Tool ids in a mode's `tools` list; '|' draws a divider in the tool bar.
 export const TOOLS = {
-  select:     { id: 'select',     label: 'Selection',   key: 'V', icon: SelectIcon },
+  select:     { id: 'select',     label: 'Selection',   key: 'V', icon: SelectIcon,
+    modeHints: { linework: 'Line: click lines to select them · Cell: click grid cells (Shift adds, drag a box) to re-run, fill, swap crossings, lock or delete · V switches' } },
   lasso:      { id: 'lasso',      label: 'Lasso',       key: 'Q', icon: LassoIcon, hint: 'Drag around shapes to select them · Shift adds · Alt removes' },
   move:       { id: 'move',       label: 'Move',        key: 'M', icon: MoveIcon, hint: 'Drag shapes to other cells · Alt+drag copies · Shift keeps it straight · Esc cancels',
     modeHints: { linework: 'Drag a plate to move it · drag the handles to resize · Shift keeps it straight (or the ratio) · Alt: no snapping · Esc cancels' } },
   wand:       { id: 'wand',       label: 'Magic Wand',  key: 'Y', icon: WandIcon, hint: 'Click a shape to select every shape with the same colour (or shape / size)' },
   stamp:      { id: 'stamp',      label: 'Shape Stamp', key: 'S', icon: StampIcon, hint: 'Click or drag to place shapes; Alt+click to replace; [ ] size' },
   eraser:     { id: 'eraser',     label: 'Eraser',      key: 'E', icon: EraserIcon, hint: 'Click or drag to remove shapes; [ ] size' },
-  rotate:     { id: 'rotate',     label: 'Rotate',      key: 'R', icon: RotateIcon, hint: 'Click to rotate 90° clockwise, Alt+click anticlockwise' },
-  reflect:    { id: 'reflect',    label: 'Reflect',     key: 'O', icon: ReflectIcon, hint: 'Click to mirror horizontally, Alt+click vertically' },
+  rotate:     { id: 'rotate',     label: 'Rotate',      key: 'R', icon: RotateIcon, hint: 'Click to rotate 90° clockwise, Alt+click anticlockwise',
+    modeHints: { linework: 'Click a tile to turn its fill a quarter turn (a side, on hexagons and triangles) · Alt+click turns it back' } },
+  reflect:    { id: 'reflect',    label: 'Reflect',     key: 'O', icon: ReflectIcon, hint: 'Click to mirror horizontally, Alt+click vertically',
+    modeHints: { linework: 'Click a tile to mirror its fill left to right · Alt+click mirrors it top to bottom' } },
   bucket:     { id: 'bucket',     label: 'Paint Bucket', key: 'K', icon: BucketIcon, hint: 'Click a part of a shape to paint it; Alt+click to paint every part of that colour' },
   build:      { id: 'build',      label: 'Build',       key: 'B', icon: BuildIcon, hint: 'Click a line to remove it, with its mirror images · Click an empty space to grow a new one there' },
+  weave:      { id: 'weave',      label: 'Weave',       key: 'W', icon: WeaveIcon, hint: 'Click a crossing to swap which line goes under · Drag along a line to weave it over, under, over…' },
+  shapeBuilder: { id: 'shapeBuilder', label: 'Shape Builder', key: 'Shift+M', icon: ShapeBuilderIcon, hint: 'Drag across tiles to merge them into one · Alt+drag to split merged tiles apart' },
   eyedropper: { id: 'eyedropper', label: 'Eyedropper',  key: 'I', icon: EyedropperIcon, hint: 'Click a part of a shape to pick up its colour' },
   hand:       { id: 'hand',       label: 'Hand',        key: 'H', icon: HandIcon, hint: 'Or hold Space with any tool' },
   zoom:       { id: 'zoom',       label: 'Zoom',        key: 'Z', icon: ZoomIcon, hint: 'Click to zoom in, Alt+click to zoom out' },
@@ -111,7 +116,7 @@ MODE_REGISTRY.linework = {
   description: 'Greek-key spirals, nested triangles, hatching and parallel circuit routing, with symmetry, diamond grids and stacked plates.',
   accent: '#2f8fe3',
   mark: LineworkModeMark,
-  tools: ['select', 'lasso', 'move', 'wand', '|', 'build', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
+  tools: ['select', 'lasso', 'move', 'wand', '|', 'build', 'weave', 'rotate', 'reflect', 'shapeBuilder', '|', 'bucket', 'eyedropper', '|', 'hand', 'zoom'],
   dock: [
     { id: 'properties', panels: [
       { id: 'properties', title: 'Properties', component: PropertiesPanel, menu: ['view.fit', 'file.export'] },

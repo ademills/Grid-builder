@@ -541,14 +541,50 @@ export function continuousLayer(L, cfg, seed, insideCell, opts = {}) {
   let edited = null;
   const build = (rulesNow) => layout(cfg, seed, route, rulesNow, { G, blocks, cols, k, S, single, straight });
   let lay = build(rules);
+  const cellAt = ([x, y]) => {
+    const i = Math.floor((x - ox) / S), j = Math.floor((y - oy) / S);
+    return i >= 0 && j >= 0 && i < cols && j < rows ? lay.cells.get(j * cols + i) : null;
+  };
+  const isTurn = c => c && (c.kind === 'diag' || c.kind === 'corner');
   if (opts.edit?.at) {
-    const gx = opts.edit.at[0] - ox, gy = opts.edit.at[1] - oy;
-    const i = Math.floor(gx / S), j = Math.floor(gy / S);
-    const c = i >= 0 && j >= 0 && i < cols && j < rows ? lay.cells.get(j * cols + i) : null;
-    if (c && (c.kind === 'diag' || c.kind === 'corner')) {
+    const c = cellAt(opts.edit.at);
+    if (isTurn(c)) {
       rules = { ...(rules ?? {}), [c.block]: c.kind === 'diag' ? 'corner' : 'diag' };
       edited = { op: 'turn', rules };
       lay = build(rules);
+    }
+  }
+  // Cell edits (Select's Cell mode): the route runs through every cell, so
+  // a cell can't be taken out or locked; Re-run picks a turn cell's rule
+  // again at random.
+  if (opts.edit?.cells) {
+    const seen = new Map();
+    for (const p of opts.edit.cells) {
+      const c = cellAt(p);
+      if (c && !seen.has(c.block)) seen.set(c.block, c);
+    }
+    if (opts.edit.op === 'probe') {
+      edited = {
+        probed: [...seen.values()].map(c => {
+          const b = blocks.find(B => B.id === c.block);
+          const n = b?.n ?? 1, bx = b ? b.x : c.block % cols, by = b ? b.y : Math.floor(c.block / cols);
+          return {
+            id: `c${c.block}`, polys: [rectPoly(ox + bx * S, oy + by * S, n * S, n * S)], locked: false, filled: true, crossing: false,
+            can: { rerun: isTurn(c), delete: false, flip: false, lock: false, rotate: false, reflect: false, fill: false },
+          };
+        }),
+      };
+    } else if (opts.edit.op === 'rerun') {
+      const next = { ...(rules ?? {}) };
+      let changed = false;
+      for (const c of seen.values()) {
+        if (!isTurn(c)) continue;
+        next[c.block] = opts.edit.rng() < 0.5 ? 'corner' : 'diag';
+        changed = true;
+      }
+      if (changed) { rules = next; edited = { op: 'rerun', rules }; lay = build(rules); }
+    } else if (seen.size) {
+      edited = { refused: 'continuous' };
     }
   }
 

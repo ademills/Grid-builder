@@ -40,13 +40,20 @@ const EPS = 1e-6;
 // instead of walking one from the seed, and opts.edit changes it first
 // (see editSquare). The route drawn is returned as `route`, and the edit
 // made as `edited` ({ route, op }, or null when it changed nothing).
+//
+// Locked cells (v1.15.2, opts.locks { cells: ['i,j'], bundles, crossings }):
+// the bundles through them are pinned -- laid down first whenever the
+// route is walked afresh, the rest routed round them -- and no edit takes
+// them out or cuts them. A cell edit (opts.edit.cells, see squareCellEdit)
+// may also come back with `locks` (the layer's new lock store, null for
+// none), `probed` (what's in the cells) or `refused` ('locked').
 export function circuitLayer(L, cfg, seed, sym, insideCell, opts = {}) {
   const G = squareGrid(L, cfg, sym);
-  let route = opts.hand ?? routeSquare(G, cfg, seed, L, sym, insideCell, opts);
+  let route = opts.hand ?? routeSquare(G, cfg, seed, L, sym, insideCell, opts, opts.locks);
   let edited = null;
   if (opts.edit) {
-    edited = editSquare(G, cfg, route, opts.edit);
-    if (edited) route = edited.route;
+    edited = editSquare(G, cfg, route, opts.edit, opts.locks);
+    if (edited?.route) route = edited.route;
   }
   return { ...drawSquare(G, L, cfg, seed, sym, route, opts), route, edited };
 }
@@ -279,8 +286,9 @@ const bundleData = (B) => ({
 const crossingData = (X) => [X.i, X.j, X.under, X.over, X.axis];
 
 // Walks the layer's route from the seed.
-function routeSquare(G, cfg, seed, L, sym, insideCell, opts) {
-  if (cfg.route === 'single' && cfg.fill && singleCircuit(L, cfg, seed, sym, opts)) {
+function routeSquare(G, cfg, seed, L, sym, insideCell, opts, locks = null) {
+  const pins = locks && (locks.cells?.length || locks.bundles?.length) ? locks : null;
+  if (!pins && cfg.route === 'single' && cfg.fill && singleCircuit(L, cfg, seed, sym, opts)) {
     return { bundles: [{ index: 0, whole: true }], crossings: [] };
   }
   const one = cfg.route === 'single';
@@ -289,6 +297,13 @@ function routeSquare(G, cfg, seed, L, sym, insideCell, opts) {
   const router = squareRouter(G, cfg, r, insideCell, one);
   const { occ, key } = router;
   const bundles = [];
+  // Pinned bundles go down first; new ones are numbered after them.
+  let next = 0;
+  if (pins) {
+    router.place({ bundles: pins.bundles ?? [], crossings: pins.crossings ?? [] });
+    blockLocked(router, pins.cells);
+    next = (pins.bundles ?? []).reduce((m, b) => Math.max(m, b.index + 1), 0);
+  }
 
   const starts = [];
   for (let j = 0; j < Math.min(rows, limJ); j++) for (let i = 0; i < Math.min(cols, limI); i++) starts.push([i, j]);
@@ -304,13 +319,250 @@ function routeSquare(G, cfg, seed, L, sym, insideCell, opts) {
       if (one && bundles.length) return;
       if (occ.has(key(i, j)) || !canStart(i, j)) continue;
       if (!one && r() > (cfg.density ?? 1)) { occ.set(key(i, j), { b: -1, dir: 'E' }); continue; }
-      const B = router.start(i, j, bundles.length);
+      const B = router.start(i, j, next + bundles.length);
       if (B) bundles.push(B);
     }
   };
   // A mask's cells are the only ones routed.
   runPass(insideCell ?? (() => true));
-  return { bundles: bundles.map(bundleData), crossings: router.crossings.map(crossingData) };
+  const made = { bundles: bundles.map(bundleData), crossings: router.crossings.map(crossingData) };
+  if (!pins) return made;
+  return { bundles: [...(pins.bundles ?? []), ...made.bundles], crossings: [...(pins.crossings ?? []), ...made.crossings] };
+}
+
+// Locked cells, for a router: nothing grows into an empty one, and nothing
+// crosses one that's taken.
+function blockLocked(router, cells = []) {
+  for (const k of cells) {
+    const o = router.occ.get(k);
+    if (o) o.dir = 'L';
+    else router.occ.set(k, { b: -1, dir: 'E' });
+  }
+}
+
+// The bundles a lock store pins: those through any of the locked cells,
+// with the crossings between them. Null when no cell is locked.
+function pinsFor(route, cells) {
+  if (!cells.length) return null;
+  const set = new Set(cells);
+  const bundles = route.bundles.filter(b => !b.whole && b.cells.some(([i, j]) => set.has(`${i},${j}`)));
+  const ids = new Set(bundles.map(b => b.index));
+  return { cells: [...set], bundles, crossings: route.crossings.filter(([, , u, o]) => ids.has(u) && ids.has(o)) };
+}
+
+// A cell (i, j) of the routed part of the grid for a point in the layer's
+// frame (folded into the routed half with mirror symmetry), with the cell
+// and its mirror images as rectangles. Null off the grid.
+function foldSquare(G, [x, y]) {
+  const i0 = Math.floor((x - G.ox) / G.S), j0 = Math.floor((y - G.oy) / G.S);
+  if (i0 < 0 || j0 < 0 || i0 >= G.cols || j0 >= G.rows) return null;
+  const i = G.mx && i0 >= G.limI && i0 !== G.axI ? G.cols - 1 - i0 : i0;
+  const j = G.my && j0 >= G.limJ && j0 !== G.axJ ? G.rows - 1 - j0 : j0;
+  const is = G.mx ? [...new Set([i, G.cols - 1 - i])] : [i];
+  const js = G.my ? [...new Set([j, G.rows - 1 - j])] : [j];
+  const polys = is.flatMap(a => js.map(b => rectPoly(G.ox + a * G.S, G.oy + b * G.S, G.S, G.S)));
+  return { i, j, key: `${i},${j}`, polys };
+}
+
+const headingDir = (h) => (h % 2 === 0 ? 'H' : 'V');
+// How a bundle's piece runs through its cell: 'H', 'V', or null (a turn or end).
+const pieceDir = ([, , a, b]) => (a >= 0 && a === b ? headingDir(a) : null);
+
+// Cuts every bundle through cell (i, j) there: each side ends in a hairpin
+// in the cell beside it (an end that would sit in a crossing's cell is cut
+// back past it, and that crossing goes). A lone cell left over is an eye,
+// or goes when eyes are off. Crossings keep to the piece they're on.
+function cutSquare(cfg, route, i, j) {
+  const at = ([a, b]) => a === i && b === j;
+  if (!route.bundles.some(B => B.cells?.some(at))) return null;
+  const xCells = new Set(route.crossings.filter(([a, b]) => !(a === i && b === j)).map(([a, b]) => `${a},${b}`));
+  const dropX = new Set([`${i},${j}`]);
+  let nextIdx = route.bundles.reduce((m, b) => Math.max(m, b.index + 1), 0);
+  const split = new Map(); // old index -> its parts
+  const bundles = [];
+  for (const B of route.bundles) {
+    if (!B.cells?.some(at)) { bundles.push(B); continue; }
+    const runs = [];
+    let cur = null;
+    B.cells.forEach((c, m) => {
+      if (at(c)) { if (cur) { cur.endCut = true; runs.push(cur); } cur = null; return; }
+      if (!cur) cur = { cells: [], startCut: m > 0, endCut: false };
+      cur.cells.push([...c]);
+    });
+    if (cur) runs.push(cur);
+    const parts = [];
+    for (const run of runs) {
+      const k = (c) => `${c[0]},${c[1]}`;
+      while (run.startCut && run.cells.length && xCells.has(k(run.cells[0]))) dropX.add(k(run.cells.shift()));
+      while (run.endCut && run.cells.length && xCells.has(k(run.cells[run.cells.length - 1]))) dropX.add(k(run.cells.pop()));
+      if (!run.cells.length) continue;
+      if (run.startCut) run.cells[0][2] = -1;
+      if (run.endCut) run.cells[run.cells.length - 1][3] = -1;
+      const [, , a, b] = run.cells[0];
+      if (run.cells.length === 1 && a < 0 && b < 0 && !cfg.eyes) continue;
+      const keepsEnd = (!run.startCut && B.s !== 'cap') || (!run.endCut && B.e !== 'cap');
+      parts.push({
+        index: parts.length ? nextIdx++ : B.index, cells: run.cells,
+        s: run.startCut ? 'cap' : B.s, e: run.endCut ? 'cap' : B.e, axes: keepsEnd ? [...B.axes] : [],
+      });
+    }
+    split.set(B.index, parts);
+    bundles.push(...parts);
+  }
+  // The part of a split bundle a crossing at (a, b) is on: the one with a
+  // piece there running `dir` ('H' / 'V'), or not.
+  const partAt = (index, a, b, dir, same) => {
+    const parts = split.get(index);
+    if (!parts) return index;
+    const p = parts.find(P => P.cells.some(c => c[0] === a && c[1] === b && (pieceDir(c) === dir) === same));
+    return p ? p.index : null;
+  };
+  const crossings = [];
+  for (const [a, b, under, over, axis] of route.crossings) {
+    if (dropX.has(`${a},${b}`)) continue;
+    const u = partAt(under, a, b, axis, true), o = partAt(over, a, b, axis, false);
+    if (u == null || o == null) continue;
+    crossings.push([a, b, u, o, axis]);
+  }
+  return { bundles, crossings };
+}
+
+// Grows a new bundle from empty cell (i, j), as the Build tool does. Null
+// when there's no room.
+function growSquare(G, cfg, route, i, j, rng, lockedCells = []) {
+  // Bundles only end in a mirror axis's cells: start beside it instead.
+  if (i === G.axI) i -= 1;
+  if (j === G.axJ) j -= 1;
+  const router = squareRouter(G, cfg, rng, null, cfg.route === 'single');
+  router.place(route);
+  blockLocked(router, lockedCells);
+  if (router.outside(i, j) || router.occ.has(router.key(i, j))) return null;
+  const index = route.bundles.reduce((m, b) => Math.max(m, b.index + 1), 0);
+  const B = router.start(i, j, index);
+  if (!B) return null;
+  return { bundles: [...route.bundles, bundleData(B)], crossings: [...route.crossings, ...router.crossings.map(crossingData)] };
+}
+
+// Whether the crossing X can be turned over: the bundle on top would go
+// under, so it must run straight on both sides of the cell (as the router
+// asks of a lower bundle), or off the grid / over a mirror axis.
+function canFlipSquare(G, route, X) {
+  const [i, j, , over, axis] = X;
+  const dir = axis === 'H' ? 'V' : 'H';
+  const B = route.bundles.find(b => b.index === over);
+  if (!B?.cells) return false;
+  const along = dir === 'H' ? [[1, 0], [-1, 0]] : [[0, 1], [0, -1]];
+  return B.cells.some((c, m) => {
+    if (c[0] !== i || c[1] !== j || pieceDir(c) !== dir) return false;
+    return along.every(([a, b]) => {
+      const ni = i + a, nj = j + b;
+      const off = ni < 0 || nj < 0 || ni >= G.cols || nj >= G.rows || (G.mx && ni >= G.limI && ni !== G.axI) || (G.my && nj >= G.limJ && nj !== G.axJ);
+      if (off) return true;
+      return [B.cells[m - 1], B.cells[m + 1]].some((q, side) => {
+        if (!q || q[0] !== ni || q[1] !== nj) return false;
+        if (pieceDir(q) === dir) return true;
+        // A bundle ending on a mirror axis runs straight on into its image.
+        const end = side === 0 ? m - 1 === 0 && B.s === 'half' : m + 1 === B.cells.length - 1 && B.e === 'half';
+        return end && (ni === G.axI || nj === G.axJ);
+      });
+    });
+  });
+}
+const flipped = ([i, j, under, over, axis]) => [i, j, over, under, axis === 'H' ? 'V' : 'H'];
+
+// Turns crossings over: one cell flips; a drag across several (in order)
+// alternates the bundle that runs through them -- over at one, under the
+// next -- flipping whichever crossings need it. Crossings that can't turn
+// (see canFlipSquare) stay as they are.
+function weaveSquare(G, route, keys) {
+  const crossings = route.crossings.map(X => [...X]);
+  const seq = [];
+  for (const k of keys) {
+    const n = crossings.findIndex(([a, b]) => `${a},${b}` === k);
+    if (n >= 0 && !seq.includes(n)) seq.push(n);
+  }
+  if (!seq.length) return null;
+  let changed = false;
+  const flip = (n) => {
+    if (!canFlipSquare(G, { ...route, crossings }, crossings[n])) return false;
+    crossings[n] = flipped(crossings[n]);
+    changed = true;
+    return true;
+  };
+  const shares = (a, b) => [a[2], a[3]].find(x => x === b[2] || x === b[3]);
+  let run = null, prevTop = null;
+  seq.forEach((n, s) => {
+    const X = crossings[n];
+    if (s === 0 || run == null || (X[2] !== run && X[3] !== run)) {
+      flip(n);
+      run = seq[s + 1] != null ? shares(crossings[n], crossings[seq[s + 1]]) ?? null : null;
+      prevTop = run == null ? null : crossings[n][3] === run;
+      return;
+    }
+    const top = X[3] === run;
+    if (top === prevTop) flip(n);
+    prevTop = crossings[n][3] === run;
+  });
+  return changed ? { bundles: route.bundles, crossings } : null;
+}
+
+// Cell edits (Select's Cell mode, the Weave tool). edit: { cells: points
+// in the layer's frame, op: 'probe' | 'rerun' | 'delete' | 'flip' |
+// 'weave' | 'lock' | 'unlock', rng }. Returns as editSquare.
+function squareCellEdit(G, cfg, route, edit, locks) {
+  const whole = route.bundles.some(b => b.whole);
+  const locked = new Set(locks?.cells ?? []);
+  const pinned = new Set((locks?.bundles ?? []).map(b => b.index));
+  const seen = new Set();
+  const cells = [];
+  for (const p of edit.cells) {
+    const c = foldSquare(G, p);
+    if (c && !seen.has(c.key)) { seen.add(c.key); cells.push(c); }
+  }
+  if (!cells.length) return null;
+  const owners = (rt, c) => rt.bundles.filter(b => b.cells?.some(([a, b2]) => a === c.i && b2 === c.j));
+  const crossingAt = (rt, c) => rt.crossings.find(([a, b]) => a === c.i && b === c.j);
+  if (edit.op === 'probe') {
+    return {
+      probed: cells.map(c => {
+        const X = crossingAt(route, c), own = owners(route, c);
+        const isLocked = locked.has(c.key);
+        const touchesPin = own.some(b => pinned.has(b.index));
+        return {
+          id: c.key, polys: c.polys, locked: isLocked, filled: whole || own.length > 0, crossing: !!X,
+          can: {
+            rerun: !whole && !isLocked && !touchesPin, delete: !whole && !isLocked && !touchesPin && own.length > 0,
+            flip: !!X && canFlipSquare(G, route, X), lock: !whole, rotate: false, reflect: false, fill: false,
+          },
+        };
+      }),
+    };
+  }
+  if (edit.op === 'lock' || edit.op === 'unlock') {
+    if (whole) return { refused: 'whole' };
+    const next = new Set(locked);
+    for (const c of cells) edit.op === 'lock' ? next.add(c.key) : next.delete(c.key);
+    if (next.size === locked.size && [...next].every(k => locked.has(k))) return null;
+    // The route stays as it is (kept by hand), so nothing moves.
+    return { op: edit.op, route, locks: pinsFor(route, [...next]) };
+  }
+  if (edit.op === 'flip' || edit.op === 'weave') {
+    const r2 = weaveSquare(G, route, cells.map(c => c.key));
+    return r2 ? { op: 'flip', route: r2 } : null;
+  }
+  if (whole) return { refused: 'whole' };
+  let rt = route, refused = null, changed = false;
+  for (const c of cells) {
+    if (locked.has(c.key) || owners(rt, c).some(b => pinned.has(b.index))) { refused = 'locked'; continue; }
+    const cut = cutSquare(cfg, rt, c.i, c.j);
+    if (cut) { rt = cut; changed = true; }
+    if (edit.op === 'rerun') {
+      const grown = growSquare(G, cfg, rt, c.i, c.j, edit.rng, [...locked]);
+      if (grown) { rt = grown; changed = true; }
+    }
+  }
+  if (!changed) return refused ? { refused } : null;
+  return { op: edit.op, route: rt, locks: locks ? pinsFor(rt, [...locked]) : undefined };
 }
 
 const withoutBundles = (route, gone) => ({
@@ -324,10 +576,14 @@ const withoutBundles = (route, gone) => ({
 // rules, drawing from edit.rng. With mirror symmetry the point is folded
 // into the routed half first. Returns { route, op: 'remove' | 'grow' }, or
 // null when nothing changed.
-function editSquare(G, cfg, route, edit) {
+function editSquare(G, cfg, route, edit, locks = null) {
+  if (edit.cells) return squareCellEdit(G, cfg, route, edit, locks);
+  const pinned = new Set((locks?.bundles ?? []).map(b => b.index));
   if (edit.remove) {
     if (!route.bundles.some(b => edit.remove.has(b.index))) return null;
-    return { op: 'remove', route: withoutBundles(route, edit.remove) };
+    const gone = new Set([...edit.remove].filter(i => !pinned.has(i)));
+    if (!gone.size || !route.bundles.some(b => gone.has(b.index))) return { refused: 'locked' };
+    return { op: 'remove', route: withoutBundles(route, gone) };
   }
   let [x, y] = edit.at;
   // (A point on an axis goes just inside the routed half.)
@@ -343,21 +599,12 @@ function editSquare(G, cfg, route, edit) {
     // At a crossing, the bundle on top.
     const X = route.crossings.find(([ci, cj]) => ci === i && cj === j);
     const target = (X && owners.find(b => b.index === X[3])) || owners[0];
+    if (pinned.has(target.index)) return { refused: 'locked' };
     return { op: 'remove', route: withoutBundles(route, new Set([target.index])) };
   }
-  // Bundles only end in a mirror axis's cells: start beside it instead.
-  if (i === G.axI) i -= 1;
-  if (j === G.axJ) j -= 1;
-  const router = squareRouter(G, cfg, edit.rng, null, cfg.route === 'single');
-  router.place(route);
-  if (router.outside(i, j) || router.occ.has(router.key(i, j))) return null;
-  const index = route.bundles.reduce((m, b) => Math.max(m, b.index + 1), 0);
-  const B = router.start(i, j, index);
-  if (!B) return null;
-  return {
-    op: 'grow',
-    route: { bundles: [...route.bundles, bundleData(B)], crossings: [...route.crossings, ...router.crossings.map(crossingData)] },
-  };
+  if ((locks?.cells ?? []).includes(`${i},${j}`)) return { refused: 'locked' };
+  const grown = growSquare(G, cfg, route, i, j, edit.rng, locks?.cells);
+  return grown ? { op: 'grow', route: grown } : null;
 }
 
 // Draws a route: each bundle's strands as filled outlines, cut back where

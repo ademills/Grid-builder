@@ -124,7 +124,7 @@ function cellRouter(nodes, cfg, r, one) {
   const maxLen = (cfg.maxLen ?? 40) >= 200 ? Infinity : (cfg.maxLen ?? 40);
   const straight = cfg.straight ?? 0.6;
   const weave = cfg.weave ?? 'off';
-  const router = { used, crossings, allowed: () => true };
+  const router = { used, crossed, crossings, allowed: () => true };
   const free = i => !used[i] && router.allowed(i);
   const reach = (from, blocked) => {
     const seen = new Set([from]); const stack = [from];
@@ -249,9 +249,16 @@ function cellRouter(nodes, cfg, r, one) {
 
 // Walks a layer's bundles from the seed. passes: the cells each pass may
 // use, in turn.
-function routeCells(nodes, cfg, r, one, passes) {
+function routeCells(nodes, cfg, r, one, passes, pins = null) {
   const router = cellRouter(nodes, cfg, r, one);
   const bundles = [];
+  // Locked cells' bundles go down first (see pinsFor); new ones are numbered after them.
+  let next = 0;
+  if (pins) {
+    router.place(pathsOf(nodes, pins), pins.crossings.map(([cell]) => cell));
+    blockLocked(router, pins.cells);
+    next = pins.bundles.reduce((m, b) => Math.max(m, b.index + 1), 0);
+  }
   for (const pass of passes) {
     router.allowed = pass;
     const order = shuffle(nodes.map((_, i) => i).filter(i => nodes[i].role === 'domain'), r);
@@ -260,11 +267,191 @@ function routeCells(nodes, cfg, r, one, passes) {
       if (one && bundles.length) break;
       if (!router.free(s)) continue;
       if (!one && r() > (cfg.density ?? 1)) { router.used[s] = 1; continue; }
-      const B = router.start(s, bundles.length);
+      const B = router.start(s, next + bundles.length);
       if (B) bundles.push(B);
     }
   }
   return { bundles, crossings: router.crossings };
+}
+
+// Locked cells, for a router: taken, and never crossed (nor beside a crossing).
+function blockLocked(router, cells = []) {
+  for (const c of cells) { router.used[c] = 1; router.crossed.add(c); }
+}
+
+// The bundles a lock store pins (see circuit.js pinsFor): those through any
+// locked cell, with the crossings between them. Null when none is locked.
+function pinsFor(route, cells) {
+  if (!cells.length) return null;
+  const set = new Set(cells);
+  const bundles = route.bundles.filter(b => !b.fill && b.cells.some(c => set.has(c)));
+  const ids = new Set(bundles.map(b => b.index));
+  return { cells: [...set], bundles, crossings: route.crossings.filter(([, u, o]) => ids.has(u) && ids.has(o)) };
+}
+
+// Cuts every bundle through `cell` there (as circuit.js cutSquare): each
+// side ends in a hairpin in the cell before it; an end that would sit in a
+// crossing's cell is cut back past it (the crossing goes); a lone cell left
+// is an eye when eyes are on. Crossings keep to the part they're on.
+function cutCells(nodes, cfg, route, cell) {
+  if (!route.bundles.some(B => !B.fill && B.cells.includes(cell))) return null;
+  const xCells = new Set(route.crossings.map(([c]) => c).filter(c => c !== cell));
+  const dropX = new Set([cell]);
+  let nextIdx = route.bundles.reduce((m, b) => Math.max(m, b.index + 1), 0);
+  const split = new Map();
+  const bundles = [];
+  for (const B of route.bundles) {
+    if (B.fill || !B.cells.includes(cell)) { bundles.push(B); continue; }
+    const runs = [];
+    let cur = null;
+    B.cells.forEach((c, m) => {
+      if (c === cell) { if (cur) { cur.endCut = true; runs.push(cur); } cur = null; return; }
+      if (!cur) cur = { cells: [], startCut: m > 0, endCut: false };
+      cur.cells.push(c);
+    });
+    if (cur) runs.push(cur);
+    const parts = [];
+    for (const run of runs) {
+      while (run.startCut && run.cells.length && xCells.has(run.cells[0])) dropX.add(run.cells.shift());
+      while (run.endCut && run.cells.length && xCells.has(run.cells[run.cells.length - 1])) dropX.add(run.cells.pop());
+      if (!run.cells.length) continue;
+      const s = run.startCut ? null : B.s, e = run.endCut ? null : B.e;
+      const lone = run.cells.length === 1 && s == null && e == null;
+      if (lone && !cfg.eyes) continue;
+      const keepsEnd = (!run.startCut && B.s != null) || (!run.endCut && B.e != null);
+      const part = { index: parts.length ? nextIdx++ : B.index, cells: run.cells, s, e, axes: keepsEnd ? [...B.axes] : [] };
+      if (lone) part.eye = true;
+      parts.push(part);
+    }
+    split.set(B.index, parts);
+    bundles.push(...parts);
+  }
+  // The part a crossing in cell c is on: for the bundle on top, the one
+  // running along the crossing's top line; for the one under, another.
+  const next = { bundles, crossings: [] };
+  const pathFor = new Map(pathsOf(nodes, next).map(P => [P.index, P]));
+  const along = (index, c, line) => {
+    const pc = pathFor.get(index)?.path.find(q => q.cell === c && q.inE && q.outE);
+    if (!pc) return false;
+    const ms = [keyOf(pc.inE.m), keyOf(pc.outE.m)];
+    return ms.includes(keyOf(line[0])) && ms.includes(keyOf(line[1]));
+  };
+  const partAt = (index, c, line, top) => {
+    const parts = split.get(index);
+    if (!parts) return index;
+    const p = parts.find(P => P.cells.includes(c) && along(P.index, c, line) === top);
+    return p ? p.index : null;
+  };
+  for (const [c, under, over, x0, y0, x1, y1] of route.crossings) {
+    if (dropX.has(c)) continue;
+    const line = [[x0, y0], [x1, y1]];
+    const u = partAt(under, c, line, false), o = partAt(over, c, line, true);
+    if (u == null || o == null) continue;
+    next.crossings.push([c, u, o, x0, y0, x1, y1]);
+  }
+  return next;
+}
+
+// Grows a new bundle from an empty cell, as the Build tool does. Null when there's no room.
+function growCells(nodes, cfg, route, at, rng, one, lockedCells = []) {
+  const router = cellRouter(nodes, cfg, rng, one);
+  router.place(pathsOf(nodes, route), route.crossings.map(([cell]) => cell));
+  blockLocked(router, lockedCells);
+  // Bundles only end in a cell on a mirror axis: start beside it instead.
+  if (nodes[at].role === 'axis') at = nodes[at].nb.find(e => nodes[e.to].role === 'domain' && router.free(e.to))?.to ?? -1;
+  if (at < 0 || !router.free(at)) return null;
+  const index = route.bundles.reduce((m, b) => Math.max(m, b.index + 1), 0);
+  const B = router.start(at, index);
+  if (!B) return null;
+  return { bundles: [...route.bundles, bundleData(nodes, B)], crossings: [...route.crossings, ...router.crossings.map(crossingData)] };
+}
+
+// A crossing turned over: the bundle under goes on top, along its own way
+// through the cell. (Both run straight through, so either can be on top.)
+// (A bundle crossing itself has two ways through: the one not on top now.)
+function flipCrossing(nodes, route, n) {
+  const [c, under, over, x0, y0, x1, y1] = route.crossings[n];
+  const top = [keyOf([x0, y0]), keyOf([x1, y1])];
+  const onTop = q => top.includes(keyOf(q.inE.m)) && top.includes(keyOf(q.outE.m));
+  const pc = pathsOf(nodes, route).find(b => b.index === under)?.path.find(q => q.cell === c && q.inE && q.outE && !onTop(q));
+  if (!pc) return null;
+  return [c, over, under, ...pc.inE.m, ...pc.outE.m];
+}
+
+// Cell edits (Select's Cell mode, the Weave tool), as circuit.js
+// squareCellEdit: edit { cells (points in the layer's frame), op, rng }.
+function cellsCellEdit(nodes, cfg, route, edit, one, sym, locks) {
+  const whole = route.bundles.some(b => b.fill);
+  const locked = new Set(locks?.cells ?? []);
+  const pinned = new Set((locks?.bundles ?? []).map(b => b.index));
+  const ops = SYM_OPS[sym] ?? SYM_OPS.none;
+  const fold = ([x, y]) => {
+    if (sym === 'mirror-x' || sym === 'mirror-both') x = -Math.abs(x) - 1e-6;
+    if (sym === 'mirror-y' || sym === 'mirror-both') y = -Math.abs(y) - 1e-6;
+    return nodes.findIndex(n => n.role !== 'mirror' && insidePoly(n.P, [x, y]));
+  };
+  const cells = [...new Set(edit.cells.map(fold).filter(i => i >= 0))];
+  if (!cells.length) return null;
+  const owners = (rt, c) => rt.bundles.filter(b => !b.fill && b.cells.includes(c));
+  if (edit.op === 'probe') {
+    return {
+      probed: cells.map(c => {
+        const own = owners(route, c), isLocked = locked.has(c);
+        const touchesPin = own.some(b => pinned.has(b.index));
+        const X = route.crossings.some(([cc]) => cc === c);
+        return {
+          id: `n${c}`, polys: ops.map(m => nodes[c].P.map(v => [m[0] * v[0] + m[1] * v[1], m[2] * v[0] + m[3] * v[1]])),
+          locked: isLocked, filled: whole || own.length > 0, crossing: X,
+          can: {
+            rerun: !whole && !isLocked && !touchesPin, delete: !whole && !isLocked && !touchesPin && own.length > 0,
+            flip: X, lock: !whole, rotate: false, reflect: false, fill: false,
+          },
+        };
+      }),
+    };
+  }
+  if (edit.op === 'lock' || edit.op === 'unlock') {
+    if (whole) return { refused: 'whole' };
+    const next = new Set(locked);
+    for (const c of cells) edit.op === 'lock' ? next.add(c) : next.delete(c);
+    if (next.size === locked.size && [...next].every(k => locked.has(k))) return null;
+    return { op: edit.op, route, locks: pinsFor(route, [...next]) };
+  }
+  if (edit.op === 'flip' || edit.op === 'weave') {
+    // As weaveSquare: one cell flips; along a drag the bundle through them alternates.
+    const crossings = route.crossings.map(X => [...X]);
+    const seq = [];
+    for (const c of cells) { const n = crossings.findIndex(([cc]) => cc === c); if (n >= 0) seq.push(n); }
+    if (!seq.length) return null;
+    const flip = (n) => { const f = flipCrossing(nodes, { ...route, crossings }, n); if (f) crossings[n] = f; };
+    const shares = (a, b) => [a[1], a[2]].find(x => x === b[1] || x === b[2]);
+    let run = null, prevTop = null;
+    seq.forEach((n, s) => {
+      const X = crossings[n];
+      if (s > 0 && run != null && (X[1] === run || X[2] === run)) {
+        if ((X[2] === run) === prevTop) flip(n);
+        prevTop = crossings[n][2] === run;
+        return;
+      }
+      flip(n);
+      run = seq[s + 1] != null ? shares(crossings[n], crossings[seq[s + 1]]) ?? null : null;
+      prevTop = run == null ? null : crossings[n][2] === run;
+    });
+    return { op: 'flip', route: { bundles: route.bundles, crossings } };
+  }
+  if (whole) return { refused: 'whole' };
+  let rt = route, refused = null, changed = false;
+  for (const c of cells) {
+    if (locked.has(c) || owners(rt, c).some(b => pinned.has(b.index))) { refused = 'locked'; continue; }
+    const cut = cutCells(nodes, cfg, rt, c);
+    if (cut) { rt = cut; changed = true; }
+    if (edit.op === 'rerun') {
+      const grown = growCells(nodes, cfg, rt, c, edit.rng, one, [...locked]);
+      if (grown) { rt = grown; changed = true; }
+    }
+  }
+  if (!changed) return refused ? { refused } : null;
+  return { op: edit.op, route: rt };
 }
 
 // A route as plain data (a hand-built layer keeps it in its settings):
@@ -321,10 +508,15 @@ const withoutBundles = (route, gone) => ({
 // A hand edit, as editSquare's: edit.remove (bundle indices) or edit.at (a
 // point in the layer's frame: the bundle in that cell is taken out, or a
 // new one grown from it when it's empty).
-function editCells(nodes, cfg, route, edit, one, sym) {
+function editCells(nodes, cfg, route, edit, one, sym, locks = null) {
+  if (edit.cells) return cellsCellEdit(nodes, cfg, route, edit, one, sym, locks);
+  const pinned = new Set((locks?.bundles ?? []).map(b => b.index));
+  const lockedCells = locks?.cells ?? [];
   if (edit.remove) {
     if (!route.bundles.some(b => edit.remove.has(b.index))) return null;
-    return { op: 'remove', route: withoutBundles(route, edit.remove) };
+    const gone = new Set([...edit.remove].filter(i => !pinned.has(i)));
+    if (!gone.size || !route.bundles.some(b => gone.has(b.index))) return { refused: 'locked' };
+    return { op: 'remove', route: withoutBundles(route, gone) };
   }
   let [x, y] = edit.at;
   if (sym === 'mirror-x' || sym === 'mirror-both') x = -Math.abs(x) - 1e-6;
@@ -338,20 +530,12 @@ function editCells(nodes, cfg, route, edit, one, sym) {
     // At a crossing, the bundle on top.
     const X = route.crossings.find(([cell]) => cell === at);
     const target = (X && owners.find(b => b.index === X[2])) || owners[0];
+    if (pinned.has(target.index)) return { refused: 'locked' };
     return { op: 'remove', route: withoutBundles(route, new Set([target.index])) };
   }
-  const router = cellRouter(nodes, cfg, edit.rng, one);
-  router.place(pathsOf(nodes, route), route.crossings.map(([cell]) => cell));
-  // Bundles only end in a cell on a mirror axis: start beside it instead.
-  if (nodes[at].role === 'axis') at = nodes[at].nb.find(e => nodes[e.to].role === 'domain' && router.free(e.to))?.to ?? -1;
-  if (at < 0 || !router.free(at)) return null;
-  const index = route.bundles.reduce((m, b) => Math.max(m, b.index + 1), 0);
-  const B = router.start(at, index);
-  if (!B) return null;
-  return {
-    op: 'grow',
-    route: { bundles: [...route.bundles, bundleData(nodes, B)], crossings: [...route.crossings, ...router.crossings.map(crossingData)] },
-  };
+  if (lockedCells.includes(at)) return { refused: 'locked' };
+  const grown = growCells(nodes, cfg, route, at, edit.rng, one, lockedCells);
+  return grown ? { op: 'grow', route: grown } : null;
 }
 
 // Path: the backward steps reversed, the start, the forward steps. Each cell
@@ -552,21 +736,25 @@ export function cellCircuitLayer(L, cfg, seed, tiling, regularity, one, opts = {
 
   let route = opts.hand;
   let filled = null;
+  // Locked cells' bundles (v1.15.2, as circuit.js): laid down first when the route is walked afresh.
+  const pins = opts.locks && (opts.locks.cells?.length || opts.locks.bundles?.length)
+    ? { cells: opts.locks.cells ?? [], bundles: opts.locks.bundles ?? [], crossings: opts.locks.crossings ?? [] } : null;
   if (!route) {
     const r = rngAt(seed, 77);
-    if (one && cfg.fill) filled = fillCircuit(nodes, cfg, r, { k, p, outline, bandHalf, loop: !!cfg.loop });
+    if (one && cfg.fill && !pins) filled = fillCircuit(nodes, cfg, r, { k, p, outline, bandHalf, loop: !!cfg.loop });
     if (filled) {
       route = { bundles: [{ index: 0, fill: true }], crossings: [] };
     } else {
       const inside = opts.inside ? (i) => opts.inside(nodes[i].c[0], nodes[i].c[1]) : null;
-      const routed = routeCells(nodes, cfg, r, one, [inside ?? (() => true)]);
+      const routed = routeCells(nodes, cfg, r, one, [inside ?? (() => true)], pins);
       route = { bundles: routed.bundles.map(B => bundleData(nodes, B)), crossings: routed.crossings.map(crossingData) };
+      if (pins) route = { bundles: [...pins.bundles, ...route.bundles], crossings: [...pins.crossings, ...route.crossings] };
     }
   }
   let edited = null;
   if (opts.edit) {
-    edited = editCells(graph(), cfg, route, opts.edit, one, sym);
-    if (edited) route = edited.route;
+    edited = editCells(graph(), cfg, route, opts.edit, one, sym, opts.locks);
+    if (edited?.route) route = edited.route;
   }
   if (route.bundles.some(b => b.fill)) {
     filled ??= fillNow();

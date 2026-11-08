@@ -119,8 +119,18 @@ function useShellShortcuts(activeId, activeMode) {
       }
       const key = e.key.toLowerCase();
       const tools = MODE_REGISTRY[activeMode].tools;
-      const tool = tools.find(t => TOOLS[t]?.key.toLowerCase() === key);
-      if (tool) { useAppStore.getState().setActiveTool(tool); e.preventDefault(); }
+      // 'Shift+M' keys need Shift; a plain key takes either.
+      const keyOf = t => TOOLS[t]?.key.toLowerCase() ?? '';
+      const tool = (e.shiftKey && tools.find(t => keyOf(t) === `shift+${key}`)) || tools.find(t => keyOf(t) === key);
+      if (tool) {
+        const app = useAppStore.getState();
+        // V again (Linework): Select switches between lines and cells.
+        if (tool === 'select' && activeMode === 'linework' && app.activeTool === 'select' && !e.repeat) {
+          app.setToolOption({ selectMode: app.toolOptions.selectMode === 'cell' ? 'line' : 'cell' });
+        }
+        app.setActiveTool(tool);
+        e.preventDefault();
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

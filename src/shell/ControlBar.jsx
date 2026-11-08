@@ -10,7 +10,7 @@ import { DiceIcon, RotateIcon, ReflectIcon, WandIcon, PinIcon } from './icons';
 import { symmetryOptions, normaliseSymmetry, TOOL_SYMMETRY } from '../utils/symmetry';
 import { BRUSH_MAX, clampBrush } from '../utils/brush';
 import { FILLS } from '../modes/gridBuilder/fills';
-import { mergeLineworkSettings, updateLayers } from '../modes/linework/settings';
+import { mergeLineworkSettings, updateLayers, ANGULAR_FILLS } from '../modes/linework/settings';
 import { runCommand } from './commands';
 import { BarFields } from '../panels/schema';
 import { MEANDER_SCHEMA } from '../modes/meander/schema';
@@ -312,6 +312,46 @@ function SelectionActions({ mode, selectedCount }) {
   );
 }
 
+// Linework, Select's Cell mode (v1.15.2): what can be done to the cells
+// picked. Each button is greyed out when none of them takes it.
+function CellActions() {
+  const cells = useAppStore(s => s.editorStatus?.lineworkCells);
+  const cmd = (name, ...args) => useAppStore.getState().editorCommands?.lineworkCells?.[name]?.(...args);
+  if (!cells) return <span className={styles.hint}>Click a cell to pick it · Shift+click adds · drag a box for several</span>;
+  const { can } = cells;
+  const kind = cells.kinds.length === 1 ? cells.kinds[0] : '';
+  return (
+    <>
+      <span className={styles.label}>{cells.count} {cells.count === 1 ? 'cell' : 'cells'}</span>
+      <span className={styles.iconGroup}>
+        <button disabled={!can.rerun} onClick={() => cmd('rerun')} title="Fill the cell afresh at random (circuits: cut the lines there and grow new ones)">Re-run</button>
+        {can.fill && (
+          <select className={styles.select} value={kind} onChange={e => e.target.value && cmd('fill', e.target.value)} title="Fill the tile with…">
+            <option value="">{kind ? '' : 'Fill…'}</option>
+            {ANGULAR_FILLS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+        )}
+        {(can.rotate || can.reflect) && (
+          <>
+            <button disabled={!can.rotate} onClick={() => cmd('rotate', 1)} title="Turn the fill a quarter turn (R)"><RotateIcon size={15} /></button>
+            <button disabled={!can.reflect} onClick={() => cmd('reflect', false)} title="Mirror the fill left to right (O)"><ReflectIcon size={15} /></button>
+          </>
+        )}
+        {cells.styles.includes('circuit') && (
+          <button disabled={!can.flip} onClick={() => cmd('flip')} title="Swap which line goes under where they cross (Weave tool, W)">Swap crossing</button>
+        )}
+      </span>
+      <span className={styles.iconGroup}>
+        {cells.allLocked
+          ? <button onClick={() => cmd('unlock')} title="Let the cells change again">Unlock</button>
+          : <button disabled={!can.lock} onClick={() => cmd('lock')} title="Keep the cells as they are through Generate, a new seed and Re-run">Lock</button>}
+        {cells.anyLocked && !cells.allLocked && <button onClick={() => cmd('unlock')}>Unlock</button>}
+        <button disabled={!can.delete} onClick={() => cmd('remove')} title="Empty the cells (Del); lines through them end either side">Delete</button>
+      </span>
+    </>
+  );
+}
+
 // Tools with no options of their own, which show the design's settings
 // instead (with nothing selected).
 const DESIGN_TOOLS = new Set(['select', 'hand', 'zoom']);
@@ -324,6 +364,7 @@ export function ControlBar({ mode, selectedCount }) {
   const setToolOption = useAppStore(s => s.setToolOption);
   const def = TOOLS[tool];
   if (!def || !MODE_REGISTRY[mode].tools.includes(tool)) return <div className={styles.bar} />;
+  const cellMode = mode === 'linework' && tool === 'select' && options.selectMode === 'cell';
   const Icon = def.icon;
 
   return (
@@ -331,8 +372,23 @@ export function ControlBar({ mode, selectedCount }) {
       <span className={styles.toolName}><Icon size={15} /> {def.label}</span>
       <span className={styles.sep} />
 
-      {(tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionActions mode={mode} selectedCount={selectedCount} />}
-      {DESIGN_TOOLS.has(tool) && !selectedCount && <DesignOptions mode={mode} />}
+      {cellMode && (
+        <>
+          <Segment value="cell" onChange={v => setToolOption({ selectMode: v })} options={[
+            { key: 'line', label: 'Line', title: 'Pick whole lines (V switches)' },
+            { key: 'cell', label: 'Cell', title: 'Pick grid cells (V switches)' },
+          ]} />
+          <CellActions />
+        </>
+      )}
+      {!cellMode && mode === 'linework' && tool === 'select' && (
+        <Segment value="line" onChange={v => setToolOption({ selectMode: v })} options={[
+          { key: 'line', label: 'Line', title: 'Pick whole lines (V switches)' },
+          { key: 'cell', label: 'Cell', title: 'Pick grid cells (V switches)' },
+        ]} />
+      )}
+      {!cellMode && (tool === 'select' || tool === 'wand') && selectedCount > 0 && <SelectionActions mode={mode} selectedCount={selectedCount} />}
+      {!cellMode && DESIGN_TOOLS.has(tool) && !selectedCount && <DesignOptions mode={mode} />}
 
       {tool === 'wand' && (
         <>

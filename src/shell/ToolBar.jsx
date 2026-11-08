@@ -20,7 +20,7 @@ export function ToolBar({ mode }) {
             key={id}
             className={`${styles.toolBtn} ${activeTool === id ? styles.toolBtnActive : ''}`}
             onClick={() => setActiveTool(id)}
-            title={`${tool.label} (${tool.key})${tool.hint ? ` — ${tool.hint}` : ''}`}
+            title={`${tool.label} (${tool.key})${(tool.modeHints?.[mode] ?? tool.hint) ? ` — ${tool.modeHints?.[mode] ?? tool.hint}` : ''}`}
             aria-pressed={activeTool === id}
           >
             <Icon />

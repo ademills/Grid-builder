@@ -371,11 +371,22 @@ const angleOf = (v) => (Math.atan2(v[1], v[0]) * 180) / Math.PI;
 // 'triangle', 'voronoi' (tilings.js), whose cells take the same fills;
 // "split" fills fan each cell into triangles from its centre.
 // hand: a hand-built layer's tiles, { [tile key]: 0 (removed, left empty)
-// or [kind, seed] (filled again with that fill, its own randomness) }.
+// or [kind, seed, turn?, mirror?, skip?] (filled again with that fill, its
+// own randomness -- `skip` draws thrown away first, so a tile can be kept
+// exactly as the layer drew it -- turned `turn` steps (a quarter turn on a
+// square tile, one side on a cell) and mirrored left to right first) }.
+// more.locks: locked tiles, as hand's; they're kept whatever the seed --
+// a square tile is subdivided (or not) so each locked tile is still there,
+// and no merge takes one in. more.merges: square tiles merged by hand,
+// [[i, j, w, h], ...] on the layer's tile grid (1 × 1: kept apart).
 // Returns { regions: [{ key, kind, name, shapes }], outlines: shapes,
-// tiles: [{ key, P, kinds, filled }] } -- tiles are every tile or cell
-// (before clipping to the domain), with the fills it may take.
-export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = null) {
+// tiles: [{ key, P, kinds, filled, kind, seed, skip, turn, mirror, locked,
+// rect? }], grid } -- tiles are every tile or cell (before clipping to the
+// domain), with the fills it may take and how it's filled; grid (square
+// tiles) is the tile grid { x0, y0, Tw, Th, nx, ny, mergeable(i, j, w, h) }.
+export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = null, more = {}) {
+  const locks = more.locks && Object.keys(more.locks).length ? more.locks : null;
+  const handMerges = more.merges ?? [];
   const { C, lineW: w, p } = L;
   const regions = [];
   const outlines = [];
@@ -402,6 +413,8 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = nul
   // Random placement weighs the fills by cfg.fillWeights (as before when
   // they're even); the patterns cycle through them.
   const placement = cfg.placement ?? 'random';
+  // How many draws pick takes from a tile's randomness.
+  const pickDraws = placement === 'random' && !uni ? 1 : 0;
   const pick = (kinds, r, uniHash, pos) => {
     if (placement !== 'random') {
       const k = placement === 'checker' ? pos.i + pos.j : placement === 'rows' ? pos.j : placement === 'cols' ? pos.i : pos.ring;
@@ -448,16 +461,55 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = nul
   // Records a tile or cell about to be filled. Returns false when it's left
   // empty (removed by hand -- its outline stays -- or outside the cells a
   // mask keeps), { kind, r } when it's filled again by hand, else null.
+  // rngOf(seed): the tile's randomness for a seed. The tile recorded is
+  // left in curTile, for its fill to be noted on it.
+  let curTile = null;
   const handTile = (key, P, kinds, rngOf) => {
-    const t = { key, P, kinds: kinds ?? (cfg.fills?.length ? cfg.fills : ['spiral']), filled: false };
+    const t = { key, P, kinds: kinds ?? (cfg.fills?.length ? cfg.fills : ['spiral']), filled: false, locked: locks?.[key] !== undefined };
     tiles.push(t);
-    const h = hand?.[key];
+    curTile = t;
+    const h = t.locked ? locks[key] : hand?.[key];
     if (h === 0) { pushOutline(P); return false; }
-    if (h) { t.filled = true; return { kind: h[0], r: rngOf() }; }
+    if (h) {
+      t.filled = true;
+      const r = rngOf(h[1]);
+      for (let s = 0; s < (h[4] ?? 0); s++) r();
+      return { kind: h[0], r, seed: h[1], skip: h[4] ?? 0, turn: h[2] ?? 0, mirror: !!h[3] };
+    }
     if (!kinds) return false;
     t.filled = true;
     return null;
   };
+  // Notes how a tile is filled on it, so it can be kept just so (see hand).
+  const noteFill = (t, kind, own, skip) => Object.assign(t, {
+    kind, seed: own ? own.seed : seed, skip: own ? own.skip : skip, turn: own?.turn ?? 0, mirror: own?.mirror ?? false,
+  });
+  // A tile's regions (from index r0) turned and mirrored: about the tile's
+  // centre c, with half sizes hx, hy (a square tile: quarter turns), or,
+  // for a cell P, by turns of 2π / sides, then cut back to the cell.
+  const turnRegions = (r0, c, { hx, hy, P, turn, mirror }) => {
+    const n = P ? P.length : 4;
+    const a = (2 * Math.PI * turn) / n, ca = Math.cos(a), sa = Math.sin(a);
+    const planes = P ? halfPlanesOf(signedArea(P) > 0 ? P : P.slice().reverse()) : null;
+    const map = (q) => {
+      let u = (q[0] - c[0]) / (hx ?? 1), v = (q[1] - c[1]) / (hy ?? 1);
+      if (mirror) u = -u;
+      if (P) [u, v] = [u * ca - v * sa, u * sa + v * ca];
+      else for (let k = 0; k < ((turn % 4) + 4) % 4; k++) [u, v] = [-v, u];
+      return [c[0] + u * (hx ?? 1), c[1] + v * (hy ?? 1)];
+    };
+    const fit = (Q) => (Q && planes ? clipToPlanes(Q, planes) : Q);
+    for (let i = r0; i < regions.length; i++) {
+      regions[i].shapes = regions[i].shapes.map(sh => {
+        const s = fit(sh.s.map(map));
+        return s ? { ...sh, s, h: sh.h ? fit(sh.h.map(map)) : sh.h } : null;
+      }).filter(Boolean);
+    }
+  };
+  // Locked tiles' boxes [x, y, w] (from their keys), to subdivide down to them.
+  const lockBoxes = locks ? Object.keys(locks).map(k => k.split(',').map(Number)).filter(b => b.length === 3 && b.every(Number.isFinite)) : [];
+  const lockedWithin = (x, y, tw, th) => lockBoxes.some(([lx, ly, lw]) =>
+    lw < tw - 0.5 && lx > x - 0.5 && ly > y - 0.5 && lx + lw < x + tw + 0.5 && ly + lw < y + th + 0.5);
 
   // opts: { start, flip } fix the spiral's start edge and turn; kind names it.
   function region(key, P, mode, r, startHint, tri, opts = {}) {
@@ -636,23 +688,37 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = nul
   }
 
   // A tile tw × th at (x, y); quadtree subdivision splits it into four.
-  function tile(x, y, tw, th, depth) {
+  // (rect: a merged tile's [i, j, w, h] on the tile grid.)
+  function tile(x, y, tw, th, depth, rect = null) {
     if (dom && (x >= dom[2] || y >= dom[3] || x + tw <= dom[0] || y + th <= dom[1])) return;
     let r = rngAt(seed, x, y, tw, 7);
-    if (depth < 3 && Math.min(tw, th) / 2 >= (cfg.minTile ?? 1) * C - 1e-6 && r() < (cfg.subdiv ?? 0)) {
+    const key = `${Math.round(x)},${Math.round(y)},${Math.round(tw)}`;
+    // A locked tile stays whole; one with a locked tile inside is split down to it.
+    const lockedHere = locks?.[key] !== undefined;
+    const tries = !lockedHere && depth < 3 && Math.min(tw, th) / 2 >= (cfg.minTile ?? 1) * C - 1e-6;
+    const within = !lockedHere && depth < 3 && lockBoxes.length > 0 && lockedWithin(x, y, tw, th);
+    if (within || (tries && r() < (cfg.subdiv ?? 0))) {
       const hw = tw / 2, hh = th / 2;
       tile(x, y, hw, hh, depth + 1); tile(x + hw, y, hw, hh, depth + 1);
       tile(x, y + hh, hw, hh, depth + 1); tile(x + hw, y + hh, hw, hh, depth + 1);
       return;
     }
-    const key = `${Math.round(x)},${Math.round(y)},${Math.round(tw)}`;
     const kinds = kindsFor(x, y, tw, th);
-    const own = handTile(key, rectPoly(x, y, tw, th), kinds, () => rngAt(hand[key][1], x, y, tw, 7));
+    const own = handTile(key, rectPoly(x, y, tw, th), kinds, (s) => rngAt(s, x, y, tw, 7));
+    const t = curTile;
+    if (rect) t.rect = rect;
     if (own === false) return;
     if (own) r = own.r;
     const pos = posOf(x + tw / 2, y + th / 2, tw, th);
     parity = (pos.i + pos.j) % 2 !== 0;
     const kind = own ? own.kind : pick(kinds, r, hash(seed, Math.round(tw)), pos);
+    noteFill(t, kind, own, (tries ? 1 : 0) + pickDraws);
+    const r0 = regions.length;
+    squareFill(x, y, tw, th, key, kind, r);
+    if (own && (own.turn || own.mirror)) turnRegions(r0, [x + tw / 2, y + th / 2], { hx: tw / 2, hy: th / 2, turn: own.turn, mirror: own.mirror });
+  }
+  // A square tile's fill.
+  function squareFill(x, y, tw, th, key, kind, r) {
     if (G > 0) {
       if (Math.min(tw, th) <= 2 * G + w) return;
       x += G; y += G; tw -= 2 * G; th -= 2 * G;
@@ -778,22 +844,31 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = nul
     }
   }
   // A convex cell of a hex / triangle / Voronoi tiling.
-  function cell({ key, P, box }) {
+  function cell(cl) {
+    const { key, P, box } = cl;
     const kinds = kindsFor(box[0], box[1], box[2] - box[0], box[3] - box[1]);
     const c = centroid(P);
-    const own = handTile(key, P, kinds, () => rngAt(hand[key][1], c[0], c[1], 7));
+    const own = handTile(key, P, kinds, (s) => rngAt(s, c[0], c[1], 7));
+    const t = curTile;
     if (own === false) return;
     const r = own ? own.r : rngAt(seed, c[0], c[1], 7);
     const pos = posOf(c[0], c[1], T, T);
     parity = (pos.i + pos.j) % 2 !== 0;
     const kind = own ? own.kind : pick(kinds, r, hash(seed, P.length), pos);
-    if (G > 0 && !(P = inset(P, G))) return;
+    noteFill(t, kind, own, pickDraws);
+    const r0 = regions.length;
+    const Pin = cellFill(P, key, kind, r, c);
+    if (own && (own.turn || own.mirror) && Pin) turnRegions(r0, c, { P: Pin, turn: own.turn, mirror: own.mirror });
+  }
+  // A cell's fill; returns the cell as filled (inset by the tile gap), or null.
+  function cellFill(P, key, kind, r, c) {
+    if (G > 0 && !(P = inset(P, G))) return null;
     // Square-tile fills a cell takes its own way: a cross as a diamond, a
     // quad spin as one spin; corner Ls, nested Us, ziggurats, corner steps
     // and tunnels as rings; spirals in the fan's
     // triangles; a weave hatching them along and across in turn; zigzag and
     // herringbone as a chevron's single direction.
-    if (convexFill(key, P, c, { cross: 'diamond', quadSpin: 'spin' }[kind] ?? kind, r)) return;
+    if (convexFill(key, P, c, { cross: 'diamond', quadSpin: 'spin' }[kind] ?? kind, r)) return P;
     switch (kind) {
       case 'spiral': region(key, P, 'spiral', r, 0); break;
       case 'rings': case 'cornerL': case 'nestedU': case 'ziggurat': case 'cornerSteps': case 'tunnel':
@@ -823,39 +898,65 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = nul
         pushOutline(P);
       }
     }
+    return P;
   }
+
+  // The square tile grid, and whether a w × h block at (i, j) may merge:
+  // inside the grid and never across a symmetry axis.
+  const crosses = (a, b, bw, bh) => (sym.planes ?? []).some(({ n, c }) => {
+    const xs = [x0 + a * Tw, x0 + (a + bw) * Tw], ys = [y0 + b * Th, y0 + (b + bh) * Th];
+    const v = xs.flatMap(X => ys.map(Y => n[0] * X + n[1] * Y - c));
+    return v.some(t => t > 1e-6) && v.some(t => t < -1e-6);
+  });
+  const mergeable = (a, b, bw, bh) => a >= 0 && b >= 0 && a + bw <= nx && b + bh <= ny && !crosses(a, b, bw, bh);
+  // Merges by hand and locked tiles' merges, where they still fit; the
+  // grid cells under locked tiles (no random merge takes those in).
+  const lockMerges = more.lockMerges ?? [];
+  const forced = new Map();
+  const forcedCells = new Set();
+  for (const [i, j, bw, bh] of [...lockMerges, ...handMerges]) {
+    if (!mergeable(i, j, bw, bh)) continue;
+    const cellsOf = [...Array(bw * bh)].map((_, k) => `${i + (k % bw)},${j + Math.floor(k / bw)}`);
+    if (cellsOf.some(k => forcedCells.has(k))) continue;
+    forced.set(`${i},${j}`, [bw, bh]);
+    for (const k of cellsOf) forcedCells.add(k);
+  }
+  const lockCells = new Set(lockBoxes.map(([lx, ly]) => `${Math.floor((lx - x0) / Tw + 1e-3)},${Math.floor((ly - y0) / Th + 1e-3)}`));
 
   if (cfg.tiling && cfg.tiling !== 'square') {
     const cells = tilingCells(cfg.tiling, L.w, L.h, T, { seed, dom, ops: sym.ops, planes: sym.planes, regularity: cfg.regularity ?? 0.5 });
     for (const c of cells) cell(c);
-  } else if (!(cfg.merge > 0)) {
+  } else if (!(cfg.merge > 0) && !forced.size) {
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) tile(x0 + i * Tw, y0 + j * Th, Tw, Th, 0);
   } else {
     // Merged tiles: a tile may take in its neighbours to the right and below
     // as a 2 × 1, 1 × 2 or 2 × 2 block (never across a symmetry axis, and
-    // never subdivided).
+    // never subdivided). Merges made by hand come first, any size.
     const taken = new Set();
-    const crosses = (a, b, bw, bh) => (sym.planes ?? []).some(({ n, c }) => {
-      const xs = [x0 + a * Tw, x0 + (a + bw) * Tw], ys = [y0 + b * Th, y0 + (b + bh) * Th];
-      const v = xs.flatMap(X => ys.map(Y => n[0] * X + n[1] * Y - c));
-      return v.some(t => t > 1e-6) && v.some(t => t < -1e-6);
-    });
     const fits = (a, b, bw, bh) => a + bw <= nx && b + bh <= ny && !crosses(a, b, bw, bh)
-      && [...Array(bw * bh)].every((_, k) => !taken.has(`${a + (k % bw)},${b + Math.floor(k / bw)}`));
+      && [...Array(bw * bh)].every((_, k) => {
+        const q = `${a + (k % bw)},${b + Math.floor(k / bw)}`;
+        return !taken.has(q) && !forcedCells.has(q) && !lockCells.has(q);
+      });
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
-        if (taken.has(`${i},${j}`)) continue;
-        const rm = rngAt(seed, i, j, 13);
+        const here = `${i},${j}`;
+        if (taken.has(here)) continue;
         let [bw, bh] = [1, 1];
-        if (rm() < cfg.merge) {
-          const ways = [[2, 2], [2, 1], [1, 2]].filter(([a, b]) => fits(i, j, a, b));
-          if (ways.length) [bw, bh] = ways[Math.floor(rm() * ways.length)];
+        if (forced.has(here)) [bw, bh] = forced.get(here);
+        else if (!forcedCells.has(here)) {
+          const rm = rngAt(seed, i, j, 13);
+          if (!lockCells.has(here) && rm() < cfg.merge) {
+            const ways = [[2, 2], [2, 1], [1, 2]].filter(([a, b]) => fits(i, j, a, b));
+            if (ways.length) [bw, bh] = ways[Math.floor(rm() * ways.length)];
+          }
         }
         for (let k = 0; k < bw * bh; k++) taken.add(`${i + (k % bw)},${j + Math.floor(k / bw)}`);
-        tile(x0 + i * Tw, y0 + j * Th, bw * Tw, bh * Th, bw * bh > 1 ? 3 : 0);
+        tile(x0 + i * Tw, y0 + j * Th, bw * Tw, bh * Th, bw * bh > 1 ? 3 : 0, bw * bh > 1 ? [i, j, bw, bh] : null);
       }
     }
   }
   for (const reg of regions) reg.name = KIND_NAMES[reg.kind];
-  return { regions, outlines, tiles };
+  const square = !cfg.tiling || cfg.tiling === 'square';
+  return { regions, outlines, tiles, grid: square ? { x0, y0, Tw, Th, nx, ny, mergeable } : null };
 }

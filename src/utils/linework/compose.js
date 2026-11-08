@@ -186,6 +186,21 @@ function handSig(cfg, settings, lw, lh, sym) {
     tiling === 'square' ? null : settings.regularity ?? 0.5, sym, Math.round(lw), Math.round(lh)]);
 }
 
+// Locked cells (v1.15.2): cfg.locks[tag] = { sig, ...data } -- a circuit's
+// { cells, bundles, crossings } (the bundles through locked cells, see
+// circuit.js) or an angular layer's { tiles, merges } (as hand's). Unlike
+// hand, they're kept through a new seed and the routing settings: only
+// what moves the cells themselves (their size, the tiling, the layer's
+// size and symmetry, the mask) lets them go -- and Voronoi cells move with
+// the seed. Continuous lines have none (one route runs through every cell).
+const LOCK_KEYS = { circuit: ['bundle', 'scale', 'mask', 'maskMode'], angular: ['tile', 'scale', 'mask', 'maskMode'], continuous: [] };
+function lockSig(cfg, settings, lw, lh, sym) {
+  const style = styleOf(cfg);
+  const tiling = style === 'continuous' ? 'square' : settings.tiling ?? 'square';
+  return JSON.stringify([style, ...LOCK_KEYS[style].map(k => cfg[k] ?? null), tiling,
+    tiling === 'square' ? null : settings.regularity ?? 0.5, tiling === 'voronoi' ? cfg.seed ?? null : null, sym, Math.round(lw), Math.round(lh)]);
+}
+
 const insidePoly = (P, [x, y]) => {
   let inside = false;
   for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
@@ -242,6 +257,8 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
   const { n, ratio } = lineSize(settings);
   const items = [];
   const edits = [];
+  const probes = [];
+  const refusals = [];
   const counts = {};
   const nameFor = (layer, label) => {
     const k = `${layer}:${label}`;
@@ -253,15 +270,28 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
   const shown = (cfg, li) => cfg && (li === 0 || cfg.enabled);
 
   // The layer and frame a point edit goes to: the topmost one under it.
-  let target = null;
-  if (edit?.at) {
-    for (let li = layers.length - 1; li >= 0 && !target; li--) {
+  const targetAt = (pt) => {
+    for (let li = layers.length - 1; li >= 0; li--) {
       if (!shown(layers[li], li)) continue;
       for (const [f, tag] of framesOf(layers[li], li)) {
         const place = layerPlace(layers[li], li, f);
-        const [x, y] = toLocal(place, edit.at);
-        if (Math.abs(x) <= place.lw / 2 && Math.abs(y) <= place.lh / 2) { target = { li, tag, at: [x, y] }; break; }
+        const [x, y] = toLocal(place, pt);
+        if (Math.abs(x) <= place.lw / 2 && Math.abs(y) <= place.lh / 2) return { li, tag, at: [x, y] };
       }
+    }
+    return null;
+  };
+  const target = edit?.at ? targetAt(edit.at) : null;
+  // Cell edits: each point goes to the topmost layer under it. A merge's
+  // points all go to the layer under its first point.
+  let cellTargets = null;
+  if (edit?.cells) cellTargets = edit.cells.map(targetAt).filter(Boolean);
+  if (edit?.merge?.length) {
+    const first = targetAt(edit.merge[0]);
+    if (first) {
+      const [f] = framesOf(layers[first.li], first.li).find(([, tag]) => tag === first.tag);
+      const place = layerPlace(layers[first.li], first.li, f);
+      cellTargets = edit.merge.map(pt => ({ li: first.li, tag: first.tag, at: toLocal(place, pt) }));
     }
   }
   // The edit for one layer's frame, as its engine takes it, or null.
@@ -273,6 +303,14 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     if (edit?.at) {
       return target && target.li === li && target.tag === frameTag && run.owns(target.at)
         ? { at: [target.at[0] - run.c[0], target.at[1] - run.c[1]], rng: edit.rng } : null;
+    }
+    if (cellTargets) {
+      const mine = cellTargets.filter(t => t.li === li && t.tag === frameTag && (edit.merge || run.owns(t.at)));
+      if (!mine.length) return null;
+      const pts = mine.map(t => [t.at[0] - run.c[0], t.at[1] - run.c[1]]);
+      return edit.merge
+        ? { merge: pts, split: !!edit.split, rng: edit.rng }
+        : { cells: pts, op: edit.op, kind: edit.kind, dir: edit.dir ?? 1, vertical: !!edit.vertical, rng: edit.rng };
     }
     if (!edit?.remove) return null;
     const tag = run.tag;
@@ -374,14 +412,33 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     const stored = cfg.hand?.[tag];
     const hand = stored && stored.sig === sig ? stored : null;
     const editHere = editFor(li, frameTag, run, style);
-    const record = (op, data) => edits.push({ li, layerId: cfg.id ?? (li ? `p${li}` : 'base'), tag, op, hand: { sig, ...data } });
+    // Locked cells, while their cells are where they were (see lockSig).
+    const lsig = lockSig(cfg, settings, lw, lh, style === 'circuit' ? csym : sym) + (run.sub ? `@${run.sub}` : '');
+    const lockStored = cfg.locks?.[tag];
+    const locks = lockStored && lockStored.sig === lsig ? lockStored : null;
+    const layerId = cfg.id ?? (li ? `p${li}` : 'base');
+    // extra.locks: the layer's new lock store for this tag (null: none left; undefined: unchanged).
+    const record = (op, data, extra = {}) => edits.push({
+      li, layerId, tag, op, hand: { sig, ...data },
+      ...(extra.locks !== undefined ? { locks: extra.locks ? { sig: lsig, ...extra.locks } : null } : {}),
+    });
+    // What a cell edit found (probe) or couldn't do, mapped to the design.
+    const report = (ed) => {
+      if (ed?.probed) {
+        for (const pb of ed.probed) {
+          probes.push({ ...pb, li, layerId, tag, style, id: `${tag}:${pb.id}`, polys: pb.polys.map(P => toDesign(P)) });
+        }
+      }
+      if (ed?.refused) refusals.push({ li, layerId, tag, reason: ed.refused });
+    };
     if (style === 'continuous') {
       // Continuous lines (square cells only). The mask is read on the cell grid.
       const S = C;
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
       const mask = masked(cfg) ? run.maskAt(bc, br) : null;
       const R = continuousLayer(L, cfg, seed, mask ? (i, j) => mask.has(`${i},${j}`) : null, { hand, edit: editHere });
-      if (R.edited) record(R.edited.op, { rules: R.edited.rules });
+      report(R.edited);
+      if (R.edited?.rules) record(R.edited.op, { rules: R.edited.rules });
       for (const g of R.groups) {
         push({
           key: `${tag}:l:${g.key}`, name: nameFor(li, g.name), kind: 'ink',
@@ -396,8 +453,9 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
       const mask = masked(cfg) ? run.maskAt(bc, br) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + bc * S / 2) / S)},${Math.floor((y + br * S / 2) / S)}`) : null;
       const R = cellCircuitLayer(L, cfg, seed, tiling, settings.regularity ?? 0.5, cfg.route === 'single',
-        { ...bandOpts, sym: csym, inside, hand, edit: editHere });
-      if (R.edited) record(R.edited.op, R.edited.route);
+        { ...bandOpts, sym: csym, inside, hand, edit: editHere, locks });
+      report(R.edited);
+      if (R.edited?.route) record(R.edited.op, R.edited.route, { locks: R.edited.locks });
       for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym, { keepWinding: true })) {
         toBand(b.bands);
         push({
@@ -409,8 +467,9 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
       const S = Math.max(1, cfg.bundle ?? 1) * C;
       const bc = Math.max(1, Math.floor(lw / S + 1e-6)), br = Math.max(1, Math.floor(lh / S + 1e-6));
       const mask = masked(cfg) ? run.maskAt(bc, br) : null;
-      const R = circuitLayer(L, cfg, seed, csym, mask ? (i, j) => mask.has(`${i},${j}`) : null, { ...bandOpts, hand, edit: editHere });
-      if (R.edited) record(R.edited.op, R.edited.route);
+      const R = circuitLayer(L, cfg, seed, csym, mask ? (i, j) => mask.has(`${i},${j}`) : null, { ...bandOpts, hand, edit: editHere, locks });
+      report(R.edited);
+      if (R.edited?.route) record(R.edited.op, R.edited.route, { locks: R.edited.locks });
       for (const P of R.holes ?? []) bands.push([polyContour(toDesign(P))]);
       // One circuit is built whole (already symmetric), so it isn't copied.
       for (const b of replicateBundles(R.bundles, R.whole ? 'none' : csym)) {
@@ -431,19 +490,27 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
       const cols = Math.max(1, Math.round(lw / C)), rows = Math.max(1, Math.round(lh / C));
       const mask = masked(cfg) ? run.maskAt(cols, rows) : null;
       const inside = mask ? (x, y) => mask.has(`${Math.floor((x + lw / 2) / C)},${Math.floor((y + lh / 2) / C)}`) : null;
-      const fill = (tiles) => angularLayer(L, { ...cfg, tiling, regularity: settings.regularity }, seed, dom, inside, { ops, planes }, tiles);
+      const fill = (tiles, merges, lk) => angularLayer(L, { ...cfg, tiling, regularity: settings.regularity }, seed, dom, inside, { ops, planes }, tiles,
+        { locks: lk?.tiles, lockMerges: lk?.merges, merges });
       // With outlines on, the content shrinks by half a line all round so the
       // full-width Edge (below) frames it like the borders between tiles.
       // A shape's run has no Edge of its own (its box isn't an edge in the design).
       const edged = cfg.outline && !run.sub;
       const edgeW = L.lineW * (cfg.outlineWeight ?? 1);
       const fx = edged ? (lw - edgeW) / lw : 1, fy = edged ? (lh - edgeW) / lh : 1;
-      let A = fill(hand?.tiles ?? null);
+      const merges = hand?.merges ?? [];
+      let A = fill(hand?.tiles ?? null, merges, locks);
       if (editHere) {
-        const done = editTiles(A.tiles, hand?.tiles ?? {}, editHere, ops, [fx, fy]);
-        if (done) {
-          record(done.op, { tiles: done.tiles });
-          A = fill(done.tiles);
+        const own = hand?.tiles ?? {};
+        const done = editHere.cells ? angularCellEdit(A, own, locks, editHere, ops, [fx, fy])
+          : editHere.merge ? angularMerge(A, own, merges, editHere, ops, [fx, fy], cfg)
+            : editTiles(A.tiles, own, editHere, ops, [fx, fy]);
+        report(done);
+        if (done?.tiles) {
+          const nextMerges = done.merges ?? merges;
+          record(done.op, { tiles: done.tiles, ...(nextMerges.length ? { merges: nextMerges } : {}) }, { locks: done.locks });
+          const nextLocks = done.locks !== undefined ? done.locks : locks;
+          A = fill(done.tiles, nextMerges, nextLocks);
         }
       }
       const { regions, outlines } = A;
@@ -688,7 +755,7 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
   });
 
   for (const it of items) it.centre ??= frames[0].centre;
-  return { width: W, height: H, items, baseCells: frames[0].base.cells, edits };
+  return { width: W, height: H, items, baseCells: frames[0].base.cells, edits, probes, refusals };
 }
 
 // An edit to an angular layer's hand-built tiles (tiles: angularLayer's,
@@ -700,15 +767,17 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
 function editTiles(tiles, own, edit, ops, scale) {
   const next = { ...own };
   if (edit.remove) {
-    const gone = tiles.filter(t => t.filled && edit.remove.has(t.key));
+    const hit = tiles.filter(t => t.filled && edit.remove.has(t.key));
+    const gone = hit.filter(t => !t.locked);
     for (const t of gone) next[t.key] = 0;
-    return gone.length ? { op: 'remove', tiles: next } : null;
+    return gone.length ? { op: 'remove', tiles: next } : hit.length ? { refused: 'locked' } : null;
   }
   const q0 = [edit.at[0] / scale[0], edit.at[1] / scale[1]];
   for (const op of ops) {
     const q = applyLinear([op[0], op[2], op[1], op[3]], q0);
     const tile = tiles.find(t => insidePoly(t.P, q));
     if (!tile) continue;
+    if (tile.locked) return { refused: 'locked' };
     if (tile.filled) {
       next[tile.key] = 0;
       return { op: 'remove', tiles: next };
@@ -717,6 +786,151 @@ function editTiles(tiles, own, edit, ops, scale) {
     return { op: 'grow', tiles: next };
   }
   return null;
+}
+
+// The tile under a point in an angular layer (A: angularLayer's result),
+// found in the symmetry domain by trying each map back; with the map.
+function tileAt(A, p, ops, scale) {
+  const q0 = [p[0] / scale[0], p[1] / scale[1]];
+  for (const op of ops) {
+    const q = applyLinear([op[0], op[2], op[1], op[3]], q0);
+    const tile = A.tiles.find(t => insidePoly(t.P, q));
+    if (tile) return { tile, op };
+  }
+  return null;
+}
+// A tile kept just as it's drawn now (see angularLayer's hand).
+const frozenTile = (t) => (t.filled ? [t.kind, t.seed, t.turn ?? 0, t.mirror ? 1 : 0, t.skip ?? 0] : 0);
+const sameRect = (a, b) => a.every((v, i) => v === b[i]);
+
+// Cell edits on an angular layer (Select's Cell mode, Rotate / Reflect):
+// edit { cells (points), op, kind (Fill), dir (Rotate: 1 clockwise, -1
+// anti), vertical (Reflect top to bottom), rng }. own: the layer's hand
+// tiles; locks: its lock store ({ tiles, merges }) or null. Returns
+// { op, tiles, locks? } or { probed } or { refused }, or null.
+function angularCellEdit(A, own, locks, edit, ops, scale) {
+  const found = [];
+  for (const p of edit.cells) {
+    const hit = tileAt(A, p, ops, scale);
+    if (hit && !found.includes(hit.tile)) found.push(hit.tile);
+  }
+  if (!found.length) return null;
+  const square = !!A.grid;
+  const sides = t => (square ? 4 : t.P.length);
+  if (edit.op === 'probe') {
+    return {
+      probed: found.map(t => ({
+        id: t.key, polys: ops.map(op => t.P.map(v => { const q = applyLinear(op, v); return [q[0] * scale[0], q[1] * scale[1]]; })),
+        locked: t.locked, filled: t.filled, kind: t.filled ? t.kind : null, kinds: t.kinds, crossing: false,
+        can: {
+          rerun: !t.locked, fill: !t.locked, delete: !t.locked && t.filled, rotate: !t.locked && t.filled,
+          reflect: !t.locked && t.filled, flip: false, lock: true,
+        },
+      })),
+    };
+  }
+  const next = { ...own };
+  const lockTiles = { ...(locks?.tiles ?? {}) };
+  let lockMerges = [...(locks?.merges ?? [])];
+  let changed = false, refused = null;
+  const seedOf = () => Math.floor(edit.rng() * 0x7fffffff);
+  for (const t of found) {
+    if (edit.op === 'lock') {
+      lockTiles[t.key] = frozenTile(t);
+      next[t.key] = frozenTile(t);
+      if (t.rect && !lockMerges.some(m => sameRect(m, t.rect))) lockMerges.push(t.rect);
+      changed = true;
+      continue;
+    }
+    if (edit.op === 'unlock') {
+      if (!(t.key in lockTiles)) continue;
+      delete lockTiles[t.key];
+      if (t.rect) lockMerges = lockMerges.filter(m => !sameRect(m, t.rect));
+      changed = true;
+      continue;
+    }
+    if (t.locked) { refused = 'locked'; continue; }
+    const n = sides(t);
+    switch (edit.op) {
+      case 'rerun':
+        next[t.key] = [t.kinds[Math.floor(edit.rng() * t.kinds.length)], seedOf()];
+        break;
+      case 'fill':
+        if (!edit.kind) continue;
+        next[t.key] = t.filled ? [edit.kind, t.seed, t.turn, t.mirror ? 1 : 0, t.skip] : [edit.kind, seedOf()];
+        break;
+      case 'delete':
+        if (!t.filled) continue;
+        next[t.key] = 0;
+        break;
+      case 'rotate':
+        if (!t.filled) continue;
+        next[t.key] = [t.kind, t.seed, (((t.turn + (edit.dir < 0 ? -1 : 1)) % n) + n) % n, t.mirror ? 1 : 0, t.skip];
+        break;
+      case 'reflect': {
+        // Mirroring after a turn t is the mirror after a turn -t; top to
+        // bottom is that turned half round (cells with an even side count).
+        if (!t.filled) continue;
+        const half = edit.vertical && n % 2 === 0 ? n / 2 : 0;
+        next[t.key] = [t.kind, t.seed, (((half - t.turn) % n) + n) % n, t.mirror ? 0 : 1, t.skip];
+        break;
+      }
+      default: continue;
+    }
+    changed = true;
+  }
+  if (!changed) return refused ? { refused } : null;
+  const out = { op: edit.op, tiles: next };
+  if (edit.op === 'lock' || edit.op === 'unlock') {
+    out.locks = Object.keys(lockTiles).length ? { tiles: lockTiles, merges: lockMerges } : null;
+  }
+  return out;
+}
+
+// Shape Builder on an angular layer of square tiles: the tiles from the
+// first point to the last (a rectangle on the tile grid, in the symmetry
+// domain) merge into one, or with edit.split go back to single tiles. A
+// merge can't take in a locked tile or cross a symmetry axis. Hand tiles
+// under it are let go (it's a new tile). own / merges: the layer's hand
+// tiles and merges. Returns { op, tiles, merges } or { refused }, or null.
+function angularMerge(A, own, merges, edit, ops, scale, cfg) {
+  const g = A.grid;
+  if (!g) return { refused: 'tiling' };
+  const first = tileAt(A, edit.merge[0], ops, scale);
+  if (!first) return null;
+  const inv = first.op;
+  const cellOf = (p) => {
+    const q = applyLinear([inv[0], inv[2], inv[1], inv[3]], [p[0] / scale[0], p[1] / scale[1]]);
+    return [Math.floor((q[0] - g.x0) / g.Tw), Math.floor((q[1] - g.y0) / g.Th)];
+  };
+  const cs = edit.merge.map(cellOf);
+  const i0 = Math.max(0, Math.min(...cs.map(c => c[0]))), j0 = Math.max(0, Math.min(...cs.map(c => c[1])));
+  const i1 = Math.min(g.nx - 1, Math.max(...cs.map(c => c[0]))), j1 = Math.min(g.ny - 1, Math.max(...cs.map(c => c[1])));
+  const rect = [i0, j0, i1 - i0 + 1, j1 - j0 + 1];
+  if (rect[2] < 1 || rect[3] < 1) return null;
+  if (!edit.split && rect[2] * rect[3] < 2) return null;
+  if (!g.mergeable(...rect)) return { refused: 'axis' };
+  // The rectangle in the layer's units, and the tiles it touches.
+  const bx0 = g.x0 + i0 * g.Tw, by0 = g.y0 + j0 * g.Th, bx1 = bx0 + rect[2] * g.Tw, by1 = by0 + rect[3] * g.Th;
+  const touches = (t) => {
+    const xs = t.P.map(v => v[0]), ys = t.P.map(v => v[1]);
+    return Math.min(...xs) < bx1 - 1e-3 && Math.max(...xs) > bx0 + 1e-3 && Math.min(...ys) < by1 - 1e-3 && Math.max(...ys) > by0 + 1e-3;
+  };
+  const under = A.tiles.filter(touches);
+  if (under.some(t => t.locked)) return { refused: 'locked' };
+  const overlaps = ([a, b, w, h]) => a < i0 + rect[2] && a + w > i0 && b < j0 + rect[3] && b + h > j0;
+  // A merge reaching outside the rectangle is let go as a whole.
+  const kept = merges.filter(m => !overlaps(m));
+  const next = { ...own };
+  for (const t of under) delete next[t.key];
+  if (edit.split) {
+    // With random merging on, single tiles are kept apart by hand.
+    if (cfg.merge > 0) for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) kept.push([i, j, 1, 1]);
+    if (kept.length === merges.length && !under.some(t => t.rect) && kept.every((m, k) => sameRect(m, merges[k] ?? []))) return null;
+    return { op: 'split', tiles: next, merges: kept };
+  }
+  kept.push(rect);
+  return { op: 'merge', tiles: next, merges: kept };
 }
 
 // Plates as groups: the layer index each plate's items belong to.
