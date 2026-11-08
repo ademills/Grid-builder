@@ -5,6 +5,7 @@ import { wireframeRects } from '../utils/layouts';
 import { effectsActive } from '../effects/effectDefs';
 import { vectorFit } from '../utils/meanderBlocks';
 import { createEffectsRenderer } from '../effects/effectsRenderer';
+import { radialOn, wedgePoints, copyMatrix } from '../utils/kaleidoscope';
 import { resolveShapeStroke } from '../utils/shapeStroke';
 import styles from './Canvas.module.css';
 
@@ -255,6 +256,64 @@ function buildBatches(p) {
   return { layers, strokes, own };
 }
 
+// View › Outline: every shape as a 1px line along its path, no fills or
+// outlines, opacity or blend modes.
+const OUTLINE_INK = '#1b1b1b';
+function drawOutlines(ctx, p, batches, view, dpr) {
+  const k = dpr * view.scale;
+  ctx.setTransform(k, 0, 0, k, dpr * view.x, dpr * view.y);
+  ctx.strokeStyle = OUTLINE_INK;
+  ctx.lineWidth = 1 / view.scale;
+  ctx.lineJoin = 'round';
+  for (const layer of batches.layers) for (const batch of layer?.values() ?? []) ctx.stroke(batch.path);
+  for (const { block, model, box } of batches.own) {
+    const m = new DOMMatrix(blockMatrix(block, model, box));
+    for (const el of model.elements) {
+      const path = new Path2D();
+      path.addPath(el.path, m);
+      ctx.stroke(path);
+    }
+  }
+}
+
+// Radial repeat (v1.16): the whole artboard's shapes and vector / image
+// blocks drawn once offscreen (up to 4096 px a side, so copies of parts off
+// screen are there too), then drawn back `count` times, each clipped to the
+// source wedge and turned (or mirrored) into place.
+let radialScratch = null;
+function drawRadial(ctx, p, batches, view, dpr, onImage) {
+  const { width: W, height: H } = p.workArea;
+  const ks = Math.min(dpr * view.scale, 4096 / Math.max(W, H));
+  radialScratch ??= document.createElement('canvas');
+  const sw = Math.max(1, Math.ceil(W * ks)), sh = Math.max(1, Math.ceil(H * ks));
+  if (radialScratch.width !== sw) radialScratch.width = sw;
+  if (radialScratch.height !== sh) radialScratch.height = sh;
+  const sc = radialScratch.getContext('2d');
+  sc.setTransform(1, 0, 0, 1, 0, 0);
+  sc.clearRect(0, 0, sw, sh);
+  const whole = { x: 0, y: 0, scale: ks };
+  drawShapes(sc, { ...p, visibleRect: null }, batches, whole, 1);
+  drawLayerBlocks(sc, p, whole, 1, onImage);
+
+  const k = dpr * view.scale;
+  const count = Math.min(24, Math.round(p.radialRepeat.count));
+  const wedge = wedgePoints(W / 2, H / 2, Math.hypot(W, H), count, 0.0015);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  for (let i = 0; i < count; i++) {
+    const [a, b, c, d, e, f] = copyMatrix(i, count, !!p.radialRepeat.mirror, W / 2, H / 2);
+    ctx.save();
+    ctx.setTransform(k, 0, 0, k, dpr * view.x, dpr * view.y); // artboard -> screen
+    ctx.transform(a, b, c, d, e, f); // the copy's place, in artboard units
+    ctx.beginPath();
+    wedge.forEach(([x, y], n) => (n ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(radialScratch, 0, 0, W, H);
+    ctx.restore();
+  }
+}
+
 let scratch = null; // reused canvas for blocks drawn with opacity or a blend mode
 
 function drawShapes(ctx, p, batches, view, dpr) {
@@ -403,7 +462,7 @@ function drawEffects(renderer, p, bg, fg, view, dpr, onImage) {
   // Image and vector blocks (e.g. Meander strands) live in the SVG layer, so
   // draw them here too — unless Cutout already drew them into the shapes.
   const k = dpr * view.scale;
-  if (!cutoutColour(p)) drawLayerBlocks(ctx, p, view, dpr, onImage);
+  if (!cutoutColour(p) && !radialOn(p.radialRepeat)) drawLayerBlocks(ctx, p, view, dpr, onImage);
   renderer.render(composite, p.effects, {
     k, off: [dpr * view.x, dpr * view.y], artSize: p.workArea, outW: bg.width, outH: bg.height,
   });
@@ -435,18 +494,23 @@ export function ShapeCanvas(props) {
     const p = latest.current;
     if (!p.viewportSize || !bgRef.current || !fgRef.current) return;
     const dpr = window.devicePixelRatio || 1;
-    const image = p.backdropSrc ? loadImage(p.backdropSrc, () => setImageTick(t => t + 1)) : null;
+    const image = p.backdropSrc && !p.outline ? loadImage(p.backdropSrc, () => setImageTick(t => t + 1)) : null;
     const bg = prepare(bgRef.current, p.viewportSize, p.viewTransform, dpr);
-    drawBackground(bg, p, image);
+    drawBackground(bg, p.outline ? { ...p, canvasBg: '#ffffff', backdropSettings: null } : p, image);
     const fg = prepare(fgRef.current, p.viewportSize, p.viewTransform, dpr);
     if (!p.gridComputed) return;
+    if (p.outline) {
+      bgRef.current.style.visibility = '';
+      fgRef.current.style.visibility = '';
+      if (fxRef.current) fxRef.current.style.display = 'none';
+    }
     // Per-shape blend modes blend with what's behind them, so the background
     // is drawn into the shapes canvas too — unless a whole-layer blend mode
     // is in play, which applies to the shapes alone.
     const ownBlend = p.blocks.some(b => isShape(b) && b.blendMode && b.blendMode !== 'normal');
     const layerEffect = p.blendMode && p.blendMode !== 'normal';
     const cutout = cutoutColour(p);
-    if (ownBlend && !layerEffect && !cutout) drawBackground(fg, p, image);
+    if (ownBlend && !layerEffect && !cutout && !p.outline) drawBackground(fg, p, image);
     // Static content: rebuild only when the shapes or their colours change.
     const key = staticKey.current;
     if (!key || key.blocks !== p.blocks || key.colourCtx !== p.colourCtx || key.imagePixels !== p.imagePixels
@@ -459,11 +523,14 @@ export function ShapeCanvas(props) {
       };
     }
     const batches = staticKey.current.batches;
+    if (p.outline) { drawOutlines(fg, p, batches, p.viewTransform, dpr); return; }
     drawShapes(fg, p, batches, p.viewTransform, dpr);
     if (cutout) {
       drawLayerBlocks(fg, p, p.viewTransform, dpr, () => setImageTick(t => t + 1));
       cutOut(fg, p, p.viewTransform, dpr, cutout);
     }
+    // Radial repeat: not in Outline (which shows the paths as built) or with Cutout.
+    if (radialOn(p.radialRepeat) && !cutout) drawRadial(fg, p, batches, p.viewTransform, dpr, () => setImageTick(t => t + 1));
 
     const live = effectsActive(p.effects) && p.effects.preview && fxRef.current;
     if (live && fxRenderer.current === undefined) {
@@ -485,7 +552,7 @@ export function ShapeCanvas(props) {
 
   if (!viewportSize) return null;
   const fgStyle = {
-    mixBlendMode: blendMode && blendMode !== 'normal' ? blendMode : undefined,
+    mixBlendMode: blendMode && blendMode !== 'normal' && !props.outline ? blendMode : undefined,
   };
   return (
     <>

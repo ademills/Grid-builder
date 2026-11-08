@@ -5,13 +5,13 @@ import { randomSeed } from './panelUtils';
 import { symmetryOptions, normaliseSymmetry } from '../utils/symmetry';
 import { useAppStore } from '../store/appStore';
 import { scrubDrag } from './scrub';
+import { evalNumber } from '../utils/numberExpr';
 import { SeedHistoryButton } from './SeedHistory';
 import styles from './Panel.module.css';
 
-const NUMBER = /-?\d*\.?\d+/;
 
-// Whole-number field: type a value, drag the value (or the row's label)
-// sideways to scrub it, or step with − / +. `validValues` limits it to a
+// Whole-number field: type a value (or a sum: 12*3, *2), drag the value (or
+// the row's label) sideways to scrub it, or step with − / + or ↑ ↓ (Shift: 10). `validValues` limits it to a
 // sorted list (e.g. column counts that divide the artboard evenly).
 export function NumberField({ value, onChange, min = 0, max = Infinity, format, validValues }) {
   const [draft, setDraft] = useState(null); // text while typing
@@ -56,9 +56,9 @@ export function NumberField({ value, onChange, min = 0, max = Infinity, format, 
   }, []);
 
   const commit = () => {
-    const typed = draft?.match(NUMBER);
+    const typed = evalNumber(draft, { current: latest.current.value });
     setDraft(null);
-    if (typed) set(clampTo(+typed[0]));
+    if (typed != null) set(clampTo(typed));
   };
 
   return (
@@ -68,7 +68,7 @@ export function NumberField({ value, onChange, min = 0, max = Infinity, format, 
         ref={inputRef}
         className={styles.stepVal}
         value={draft ?? (format ? format(value) : value)}
-        inputMode="numeric"
+        inputMode="decimal"
         onPointerDown={(e) => {
           if (document.activeElement === inputRef.current) return;
           e.preventDefault();
@@ -83,7 +83,7 @@ export function NumberField({ value, onChange, min = 0, max = Infinity, format, 
           else if (e.key === 'Escape') { setDraft(null); requestAnimationFrame(() => inputRef.current?.blur()); }
           else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             e.preventDefault();
-            const v = stepFrom(clampTo(+(draft?.match(NUMBER)?.[0] ?? value)), e.key === 'ArrowUp' ? 1 : -1);
+            const v = stepN(clampTo(evalNumber(draft) ?? value), (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 10 : 1));
             setDraft(String(v));
             set(v);
           }

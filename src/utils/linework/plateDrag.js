@@ -7,6 +7,12 @@
 // within `threshold` cells; failing that, its offset snaps to half cells.
 // Resizing works on plates that aren't turned: a handle moves its edges, the
 // opposite ones stay put, and those edges snap the same way.
+//
+// Smart guides (v1.16): failing an edge, a move also snaps to equal spacing
+// -- the same gap as between the plates beside it, or halfway between two --
+// and every move and resize reports the gaps to the nearest plate or canvas
+// edge on each side (measureGaps), equal ones marked, for the overlay to
+// label.
 
 const rad = d => (d * Math.PI) / 180;
 
@@ -72,6 +78,72 @@ function nearest(values, lines, threshold) {
 
 const half = v => Math.round(v * 2) / 2;
 
+// Along one axis: a box's span [lo, hi] and the cross span it covers, for
+// neighbours either side (others overlapping it across).
+const spanOf = (b, axis) => (axis === 'x' ? { lo: b.l, hi: b.r, a: b.t, z: b.b } : { lo: b.t, hi: b.b, a: b.l, z: b.r });
+const overlaps = (A, B) => A.a < B.z - 1e-6 && B.a < A.z - 1e-6;
+
+// The nearest plate before and after `me` along an axis (or null).
+function neighbours(me, spans) {
+  let before = null, after = null;
+  for (const o of spans) {
+    if (!overlaps(me, o)) continue;
+    if (o.hi <= me.lo + 1e-6 && (!before || o.hi > before.hi)) before = o;
+    if (o.lo >= me.hi - 1e-6 && (!after || o.lo < after.lo)) after = o;
+  }
+  return { before, after };
+}
+
+// The shift along `axis` that spaces the box evenly with its neighbours, or
+// null: halfway between the plates either side, or the same gap as between
+// the neighbour and the plate beyond it.
+function equalShift(bounds, otherBounds, axis, threshold) {
+  const me = spanOf(bounds, axis), spans = otherBounds.map(o => spanOf(o, axis));
+  const { before, after } = neighbours(me, spans);
+  const size = me.hi - me.lo;
+  const options = [];
+  if (before && after && after.lo - before.hi > size) options.push((before.hi + after.lo - size) / 2 - me.lo);
+  if (before) {
+    const beyond = neighbours(before, spans).before;
+    if (beyond) options.push(before.hi + (before.lo - beyond.hi) - me.lo);
+  }
+  if (after) {
+    const beyond = neighbours(after, spans).after;
+    if (beyond) options.push(after.lo - (beyond.lo - after.hi) - size - me.lo);
+  }
+  const d = options.filter(v => Math.abs(v) <= threshold).sort((a, b) => Math.abs(a) - Math.abs(b))[0];
+  return d == null ? null : d;
+}
+
+// The gaps from a box to what's nearest on each side -- another plate across
+// from it, or else the canvas edge -- in cells: [{ axis, from, to, at, equal }]
+// (from → to along the axis, drawn at `at` across it). equal: the same as
+// another gap shown, or as the gap between the neighbour and the plate
+// beyond it (to within `tolerance`).
+export function measureGaps(box, others, area, tolerance = 0.01) {
+  const bounds = boxBounds(box), all = others.map(boxBounds);
+  const gaps = [];
+  for (const axis of ['x', 'y']) {
+    const me = spanOf(bounds, axis), spans = all.map(o => spanOf(o, axis));
+    const { before, after } = neighbours(me, spans);
+    const edge0 = axis === 'x' ? area.x : area.y, edge1 = axis === 'x' ? area.x + area.w : area.y + area.h;
+    const at = (o) => (o ? (Math.max(me.a, o.a) + Math.min(me.z, o.z)) / 2 : (me.a + me.z) / 2);
+    const chain = (o, dir) => {
+      const n = o && neighbours(o, spans)[dir];
+      return n ? (dir === 'before' ? o.lo - n.hi : n.lo - o.hi) : null;
+    };
+    const lo = before ? before.hi : edge0, hi = after ? after.lo : edge1;
+    if (me.lo - lo > 1e-6) gaps.push({ axis, from: lo, to: me.lo, at: at(before), plate: !!before, beyond: chain(before, 'before') });
+    if (hi - me.hi > 1e-6) gaps.push({ axis, from: me.hi, to: hi, at: at(after), plate: !!after, beyond: chain(after, 'after') });
+  }
+  const equal = gaps.map((g) => {
+    const size = g.to - g.from;
+    return (g.beyond != null && Math.abs(g.beyond - size) <= tolerance)
+      || gaps.some(o => o !== g && o.axis === g.axis && o.plate && g.plate && Math.abs(o.to - o.from - size) <= tolerance);
+  });
+  return gaps.map(({ axis, from, to, at }, i) => ({ axis, from, to, at, equal: equal[i] }));
+}
+
 // Moving `box` by (dx, dy) cells. opts: { others, threshold, free (no snapping),
 // straight (keep to one axis) }. Returns { cx, cy, guides: [{ x } | { y }] };
 // grid: whether the offset should still snap to half cells (no edge snap on that axis).
@@ -88,8 +160,18 @@ export function snapMove(box, dx, dy, { others = [], threshold = 0.3, free = fal
     const sy = straight && dy === 0 ? null : nearest([t, (t + b) / 2, b], lines.ys, threshold);
     if (sx) { moved.cx += sx.d; guides.push({ x: sx.line }); grid.x = false; }
     if (sy) { moved.cy += sy.d; guides.push({ y: sy.line }); grid.y = false; }
+    // No edge to snap to: even spacing with the plates alongside.
+    const others0 = others.map(boxBounds);
+    if (!sx && !(straight && dx === 0)) {
+      const d = equalShift(boxBounds(moved), others0, 'x', threshold);
+      if (d != null) { moved.cx += d; grid.x = false; }
+    }
+    if (!sy && !(straight && dy === 0)) {
+      const d = equalShift(boxBounds(moved), others0, 'y', threshold);
+      if (d != null) { moved.cy += d; grid.y = false; }
+    }
   }
-  return { cx: moved.cx, cy: moved.cy, guides, grid };
+  return { cx: moved.cx, cy: moved.cy, guides, grid, gaps: box.area ? measureGaps(moved, others, box.area) : [] };
 }
 
 // The plate's offset for a move result: edge-snapped axes as they are,
@@ -125,5 +207,6 @@ export function resizeBox(box, key, [px, py], { others = [], threshold = 0.3, fr
     guides.length = 0;
   }
   const round = v => Math.round(v * 1000) / 1000;
-  return { cx: round((l + r) / 2), cy: round((t + b) / 2), w: round(r - l), h: round(b - t), guides };
+  const out = { cx: round((l + r) / 2), cy: round((t + b) / 2), w: round(r - l), h: round(b - t), guides };
+  return { ...out, gaps: box.area ? measureGaps({ ...box, ...out }, others, box.area) : [] };
 }

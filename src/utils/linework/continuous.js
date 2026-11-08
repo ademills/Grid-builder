@@ -36,7 +36,7 @@
 // opts.edit { at } switches the turn cell there between the two. The edit
 // made comes back as `edited`.
 
-import { mulberry32, hash, shuffle, polyContour, contoursBounds, rectPoly } from './geometry';
+import { mulberry32, hash, shuffle, polyContour, contoursBounds, rectPoly, filletPoly } from './geometry';
 import { shapeCutter } from './shapeClip';
 
 const keyOf = p => `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
@@ -602,10 +602,14 @@ export function continuousLayer(L, cfg, seed, insideCell, opts = {}) {
 
   // Group into items: each path, and each cell's gap lines.
   const hw = (L.lineW ?? p * (L.ratio ?? 0.5)) / 2;
+  // Round corners (v1.16): each line's centre turns on a radius of
+  // roundCorners pitches, and the outline keeps the line's width round it.
+  const R = (cfg.roundCorners ?? 0) * p;
   const groups = new Map();
   for (const l of joined) {
     const g = groups.get(l.group) ?? { key: l.group, name: String(l.group).startsWith('g') ? 'Gap lines' : 'Path', contours: [], lines: [] };
-    const pts = l.pts.map(([x, y]) => [x + ox, y + oy]);
+    let pts = l.pts.map(([x, y]) => [x + ox, y + oy]);
+    if (R > 0) pts = filletPoly(pts, l.closed, () => R);
     g.lines.push({ pts, closed: l.closed });
     g.contours.push(...lineOutline(pts, hw, l.closed));
     groups.set(l.group, g);

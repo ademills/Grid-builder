@@ -271,12 +271,16 @@ export const SHIPPED = [
     also: 'Linework style C: lines run edge to edge through every cell (Straight, Diagonal or a 90° Corner) on the cell boundaries, so cells read as squares; shared edges drawn once, every line ends on a line. Merge cells into bigger squares, gap lines in the diagonals’ empty halves, the Build tool switches a turn. Columns now only offer counts that divide the sheet into equal squares, and the grid always sits inside the border.' },
   { ver: '1.15.1', date: '5 Nov', title: 'Plate shapes & outlines', items: [],
     also: 'Circle (or ellipse), Hexagon, Octagon and Triangle plates, cut out exactly. Rim becomes Outlines: as many as you like, each its own colour (Ink, Ground, a swatch, any colour, or a Gap) and width in line widths, stacked from the edge outwards, inwards or centred on it; the shadow falls from the outer edge. Old rims and shape outlines convert.' },
+  { ver: '1.15.2', date: '8 Nov', title: 'Linework tools', items: [],
+    also: 'Weave, Rotate / Reflect and Shape Builder tools; Select picks lines or cells (re-run, swap crossings, lock, delete); line scale up to 6×.' },
+  { ver: '1.16.0', date: '8 Nov', title: 'Print, plot & present', items: [],
+    also: 'Colour separations (a file per ink or one file, registration marks) and a Plotter SVG (each outline once, joined and ordered). Units in px, mm or inches, with real sizes in exported SVGs. Typed sums in number fields. Outline view (Ctrl+Y) and Presentation Mode (F). Round corners for angular and continuous lines, smart guides and equal spacing for plates, and radial repeat for a plate or the whole artboard.' },
 ];
 
 // Proposed releases. Order is the suggestion. (Output was 1.11 in the 1 Nov
-// plan, then 1.15; the Linework releases took those numbers.)
+// plan, then 1.15 and 1.16; other releases took those numbers.)
 export const PLAN = [
-  { ver: '1.16', name: 'Output', theme: 'Get designs out in more forms',
+  { ver: '1.17', name: 'Output', theme: 'Get designs out in more forms',
     items: ['8.12','8.5','8.6','8.4','8.8','5.7'],
     why: 'Copy as SVG, batch export, seamless repeats and print PDF.' },
 ];

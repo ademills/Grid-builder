@@ -64,7 +64,7 @@ export const COMMANDS = {
 
   // Edit
   'edit.undo':      { label: 'Undo', shortcut: 'Ctrl+Z', enabled: c => c.hasDoc && !!c.status?.canUndo, run: c => c.cmds.undo() },
-  'edit.redo':      { label: 'Redo', shortcut: 'Ctrl+Shift+Z', keys: ['Ctrl+Y'], enabled: c => c.hasDoc && !!c.status?.canRedo, run: c => c.cmds.redo() },
+  'edit.redo':      { label: 'Redo', shortcut: 'Ctrl+Shift+Z', enabled: c => c.hasDoc && !!c.status?.canRedo, run: c => c.cmds.redo() },
   'edit.cut':       { label: 'Cut', shortcut: 'Ctrl+X', enabled: hasSel, run: c => c.cmds.clipboard.cut() },
   'edit.copy':      { label: 'Copy', shortcut: 'Ctrl+C', enabled: hasSel, run: c => c.cmds.clipboard.copy() },
   'edit.paste':     { label: 'Paste', shortcut: 'Ctrl+V', enabled: c => c.gridDoc && !!c.app.clipboard, run: c => c.cmds.clipboard.paste() },
@@ -137,6 +137,9 @@ export const COMMANDS = {
   'view.rulers':   { label: 'Rulers', shortcut: 'Ctrl+R', enabled: hasDoc, checked: c => c.app.showRulers, run: c => c.app.setShowRulers(!c.app.showRulers) },
   'view.guides':   { label: 'Guides', shortcut: 'Ctrl+;', enabled: hasDoc, checked: c => c.app.showGuides, run: c => c.app.setShowGuides(!c.app.showGuides) },
   'view.grid':     { label: 'Grid', shortcut: "Ctrl+'", enabled: hasDoc, checked: c => c.app.showGrid, run: c => c.app.setShowGrid(!c.app.showGrid) },
+  // Ctrl+Y was a second Redo; it's Outline, as in Illustrator (Redo stays Ctrl+Shift+Z).
+  'view.outline':  { label: 'Outline', shortcut: 'Ctrl+Y', enabled: hasDoc, checked: c => c.app.outlineView, run: c => c.app.setOutlineView(!c.app.outlineView) },
+  'view.present':  { label: 'Presentation Mode', shortcut: 'F', enabled: hasDoc, checked: c => c.app.presenting, run: c => c.app.setPresenting(!c.app.presenting) },
   ...Object.fromEntries(['dark', 'grey', 'light'].map(k => [`view.pasteboard.${k}`, {
     label: k[0].toUpperCase() + k.slice(1), checked: c => c.app.pasteboard === k, run: c => c.app.setViewOption({ pasteboard: k }),
   }])),

@@ -37,6 +37,12 @@ export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayo
   const [svgLayers, setSvgLayers] = useState('colour');
   const [svgReuse, setSvgReuse] = useState(false);
   const [svgPrecision, setSvgPrecision] = useState(3);
+  // v1.16: split by ink, and/or hairline outlines for a pen plotter.
+  const [separate, setSeparate] = useState('off'); // 'off' | 'files' | 'layers'
+  const [regMarks, setRegMarks] = useState(true);
+  const [sepBlack, setSepBlack] = useState(false);
+  const [plotter, setPlotter] = useState(false);
+  const [penWidth, setPenWidth] = useState(0.3); // mm
   const outScale = format === 'svg' ? 1 : scale;
 
   return (
@@ -105,11 +111,53 @@ export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayo
                 ))}
               </div>
             </div>
+            {!plotter && (
+              <label className={styles.formRow} style={{ cursor: 'pointer' }}
+                title="Identical shapes are defined once and placed with <use>. Smaller files; Figma imports them less tidily.">
+                <span className={styles.label}>Reuse repeated shapes</span>
+                <input type="checkbox" checked={svgReuse} onChange={e => setSvgReuse(e.target.checked)} />
+              </label>
+            )}
+
+            <div className={styles.formRow}>
+              <span className={styles.label}>Separations</span>
+              <div className={styles.modeToggle}>
+                {[['off', 'Off', 'The artwork as one SVG'], ['files', 'File per ink', 'One SVG for each colour, all the same size'], ['layers', 'One file', 'One SVG with a group for each colour']].map(([k, label, title]) => (
+                  <button key={k} className={`${styles.modeBtn} ${separate === k ? styles.modeBtnActive : ''}`}
+                    onClick={() => setSeparate(k)} title={title}>{label}</button>
+                ))}
+              </div>
+            </div>
+            {separate !== 'off' && (
+              <>
+                <label className={styles.formRow} style={{ cursor: 'pointer' }}
+                  title="Targets in a 10 mm margin round the artwork, and each ink's name, so the sheets line up">
+                  <span className={styles.label}>Registration marks</span>
+                  <input type="checkbox" checked={regMarks} onChange={e => setRegMarks(e.target.checked)} />
+                </label>
+                <label className={styles.formRow} style={{ cursor: 'pointer' }} title="For films and screens: each ink printed in black">
+                  <span className={styles.label}>Every ink in black</span>
+                  <input type="checkbox" checked={sepBlack} onChange={e => setSepBlack(e.target.checked)} />
+                </label>
+                <div className={styles.gridNote}>Flat colours only: the background (paper), gradients and images are left out. Shapes overprint, as drawn.</div>
+              </>
+            )}
+
             <label className={styles.formRow} style={{ cursor: 'pointer' }}
-              title="Identical shapes are defined once and placed with <use>. Smaller files; Figma imports them less tidily.">
-              <span className={styles.label}>Reuse repeated shapes</span>
-              <input type="checkbox" checked={svgReuse} onChange={e => setSvgReuse(e.target.checked)} />
+              title="Every outline drawn once as a hairline, one pen per colour: shared edges once, runs joined and ordered to cut pen-up travel. No fills, background or shadows.">
+              <span className={styles.label}>Plotter</span>
+              <input type="checkbox" checked={plotter} onChange={e => setPlotter(e.target.checked)} />
             </label>
+            {plotter && (
+              <div className={styles.formRow}>
+                <span className={styles.label}>Pen width</span>
+                <div className={styles.sliderRow}>
+                  <input type="range" className={styles.slider} min="0.05" max="2" step="0.05"
+                    value={penWidth} onChange={e => setPenWidth(+e.target.value)} />
+                  <span className={styles.sliderVal}>{penWidth.toFixed(2)} mm</span>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -158,7 +206,8 @@ export function ExportDialog({ onClose, onExport, workArea, hasBackdrop, hasLayo
               jpegQuality,
               photoComposite,
               includeWireframeLayer: wireframeLayer,
-              svgLayers, svgReuse, svgPrecision,
+              svgLayers, svgReuse: svgReuse && !plotter, svgPrecision,
+              separate, regMarks, sepBlack, plotter, penWidth,
             });
             onClose();
           }}
@@ -192,7 +241,7 @@ const SHORTCUTS = [
   { keys: 'Drag (Z)', desc: 'Zoom to the dragged area' },
   { group: 'Editing' },
   { keys: 'Ctrl + Z', desc: 'Undo' },
-  { keys: 'Ctrl + Shift + Z / Ctrl + Y', desc: 'Redo' },
+  { keys: 'Ctrl + Shift + Z', desc: 'Redo' },
   { keys: 'Ctrl + X / C / V', desc: 'Cut / copy / paste (pastes under the pointer)' },
   { keys: 'Ctrl + D', desc: 'Duplicate beside the selection' },
   { keys: 'Ctrl + G', desc: 'Group (Shift: ungroup)' },
@@ -211,6 +260,8 @@ const SHORTCUTS = [
   { keys: 'Ctrl + R', desc: 'Show / hide rulers' },
   { keys: "Ctrl + '", desc: 'Show / hide the grid' },
   { keys: 'Ctrl + ;', desc: 'Show / hide guides' },
+  { keys: 'Ctrl + Y', desc: 'Outline view: paths only, no fills' },
+  { keys: 'F', desc: 'Presentation Mode (B or ← → background · F or Esc leaves)' },
   { keys: 'Drag from a ruler', desc: 'New guide (Shift: no snapping)' },
   { keys: '?', desc: 'Show this list' },
 ];

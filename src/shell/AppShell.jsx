@@ -99,6 +99,18 @@ function useShellShortcuts(activeId, activeMode) {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (useAppStore.getState().prompt) return;
+      // Presentation Mode takes every key: F / Esc leave, B / ← → change the background.
+      if (useAppStore.getState().presenting) {
+        const app = useAppStore.getState();
+        const key = e.key.toLowerCase();
+        if (key === 'f' || key === 'escape') app.setPresenting(false);
+        else if (key === 'b' || key === 'arrowright' || key === ' ') app.cyclePresentBg(1);
+        else if (key === 'arrowleft') app.cyclePresentBg(-1);
+        else if (!(e.ctrlKey || e.metaKey)) return;
+        else { const id = commandForEvent(e); if (id && id !== 'view.present') runCommand(id); }
+        e.preventDefault();
+        return;
+      }
       const id = commandForEvent(e);
       if (id) {
         if (runCommand(id)) e.preventDefault();
@@ -137,6 +149,31 @@ function useShellShortcuts(activeId, activeMode) {
   }, [activeId, activeMode]);
 }
 
+// Presentation Mode fills the screen (the window in the desktop app, the
+// page in a browser) and leaves full screen again when it ends. Leaving full
+// screen some other way (the browser's own Esc) ends it too.
+function usePresentation(presenting) {
+  useEffect(() => {
+    if (!presenting) return;
+    const win = isTauri ? getCurrentWindow() : null;
+    let wasFull = false;
+    if (win) {
+      win.isFullscreen().then((full) => { wasFull = full; if (!full) return win.setFullscreen(true); }).catch(() => {});
+    } else if (document.fullscreenEnabled && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+    const onChange = () => { if (!document.fullscreenElement) useAppStore.getState().setPresenting(false); };
+    if (!win) document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      if (win) { if (!wasFull) win.setFullscreen(false).catch(() => {}); }
+      else {
+        document.removeEventListener('fullscreenchange', onChange);
+        if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+      }
+    };
+  }, [presenting]);
+}
+
 // Menu structure: command ids, 'separator', or { heading }.
 const MENUS = [
   { label: 'File', items: ['file.newGrid', 'file.newMeander', 'file.newLinework', 'separator', 'file.open', 'recent', 'separator',
@@ -153,6 +190,7 @@ const MENUS = [
     'generate.flipH', 'generate.flipV', 'generate.clearLayout', 'generate.clear', 'separator',
     'meander.fill', 'meander.recolour'] },
   { label: 'View', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', 'view.wheelZooms', 'separator',
+    'view.outline', 'view.present', 'separator',
     'view.grid', 'view.rulers', 'view.guides', 'view.clearGuides', 'view.effects', 'separator', { heading: 'Overlays' },
     'view.overlay.thirds', 'view.overlay.golden', 'view.overlay.centre', 'view.overlay.ig45', 'view.overlay.ig916',
     'view.overlay.none', 'separator', { heading: 'Pasteboard' },
@@ -172,6 +210,7 @@ function useMenus() {
   useAppStore(s => s.showGrid);
   useAppStore(s => s.wheelZooms);
   useAppStore(s => s.pasteboard);
+  useAppStore(s => s.outlineView);
   useDocumentStore(selectActiveDoc);
   const recentFiles = useAppStore(s => s.recentFiles);
 
@@ -217,6 +256,8 @@ export function AppShell() {
   useWindowTitle(activeDoc);
   const dropping = useFileDrop();
   const selectedCount = useAppStore(s => s.editorStatus?.selectedCount ?? 0);
+  const presenting = useAppStore(s => s.presenting) && !!activeId;
+  usePresentation(presenting);
 
   // Each mode has its own tool set — fall back to Selection if the active
   // tool isn't available in the newly active document's mode.
@@ -227,14 +268,14 @@ export function AppShell() {
   }, [activeMode]);
 
   return (
-    <div className={styles.shell}>
-      <MenuBar menus={menus} />
-      <TabBar />
+    <div className={`${styles.shell} ${presenting ? styles.presenting : ''}`}>
+      {!presenting && <MenuBar menus={menus} />}
+      {!presenting && <TabBar />}
       {activeId ? (
         <DocContext.Provider value={activeId}>
-          <ControlBar mode={activeMode} selectedCount={selectedCount} />
+          {presenting ? <div /> : <ControlBar mode={activeMode} selectedCount={selectedCount} />}
           <div className={styles.workspace}>
-            <ToolBar mode={activeMode} />
+            {!presenting && <ToolBar mode={activeMode} />}
             <main className={styles.stage}>
               <DocumentErrorBoundary key={activeId} docId={activeId} docName={activeDoc.name}>
                 <DocumentEditor mode={activeMode} />
@@ -250,7 +291,7 @@ export function AppShell() {
           </div>
         </>
       )}
-      <StatusBar doc={activeDoc} />
+      {!presenting && <StatusBar doc={activeDoc} />}
       <PromptDialog />
       <ShapeImportDialog />
       <CommandPalette />

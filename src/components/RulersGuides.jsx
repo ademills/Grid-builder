@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import { RULER } from '../hooks/useGuideDrag';
+import { toArt } from '../utils/units';
 import styles from './Canvas.module.css';
 
 // Rulers along the top and left of the canvas, and the guides dragged out of
@@ -47,17 +48,19 @@ export function GuideLines({ guides, drag, onStartDrag, interactive, scale }) {
   );
 }
 
-function Ruler({ axis, length, offset, scale, pointer, onMouseDown }) {
-  // Ticks in artboard px, labelled every `step`.
-  const step = niceStep(70 / scale);
+function Ruler({ axis, length, offset, scale, pointer, onMouseDown, units }) {
+  // Ticks in the document's unit (px, mm or in), labelled every `step`.
+  const per = toArt(1, units) * scale; // screen px per unit
+  const step = niceStep(70 / per);
   const minor = step / (String(step).startsWith('2') ? 4 : 5);
-  const from = Math.floor((-offset / scale) / minor) * minor;
-  const to = (length - offset) / scale;
+  const from = Math.floor((-offset / per) / minor) * minor;
+  const to = (length - offset) / per;
+  const digits = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
   const ticks = [];
-  for (let v = from; v <= to; v += minor) {
+  for (let i = 0, v = from; v <= to && i < 2000; i++, v = from + i * minor) {
     const major = Math.abs(v / step - Math.round(v / step)) < 1e-6;
-    const s = offset + v * scale;
-    ticks.push({ s, major, label: major ? Math.round(v) : null });
+    const s = offset + v * per;
+    ticks.push({ s, major, label: major ? +(Math.round(v / step) * step).toFixed(digits) : null });
   }
   const horiz = axis === 'h';
   return (
@@ -80,16 +83,16 @@ function Ruler({ axis, length, offset, scale, pointer, onMouseDown }) {
 }
 
 // Rulers, positioned over the canvas container's top and left edges.
-export function Rulers({ viewTransform, viewportSize, onStartDrag }) {
+export function Rulers({ viewTransform, viewportSize, onStartDrag, units = 'px' }) {
   const cursor = useAppStore(s => s.cursor);
   const ref = useRef(null);
   if (!viewportSize) return null;
   const rect = () => ref.current.getBoundingClientRect();
   return (
     <div ref={ref} className={styles.rulers}>
-      <Ruler axis="h" length={viewportSize.width} offset={viewTransform.x} scale={viewTransform.scale} pointer={cursor?.x}
+      <Ruler axis="h" length={viewportSize.width} offset={viewTransform.x} scale={viewTransform.scale} pointer={cursor?.x} units={units}
         onMouseDown={e => e.button === 0 && onStartDrag('h', null, rect(), e)} />
-      <Ruler axis="v" length={viewportSize.height} offset={viewTransform.y} scale={viewTransform.scale} pointer={cursor?.y}
+      <Ruler axis="v" length={viewportSize.height} offset={viewTransform.y} scale={viewTransform.scale} pointer={cursor?.y} units={units}
         onMouseDown={e => e.button === 0 && onStartDrag('v', null, rect(), e)} />
       <div className={styles.rulerCorner} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} />
     </div>

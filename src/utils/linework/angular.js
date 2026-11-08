@@ -23,7 +23,7 @@
 
 import {
   add, sub, mul, dot, len, lerp, xLines, edgesOf, inset, clipHalf, signedArea, rectPoly, rngAt, hash,
-  perp, unit, halfPlanesOf, clipToPlanes,
+  perp, unit, halfPlanesOf, clipToPlanes, seamIndex, roundBandShape,
 } from './geometry';
 import { tilingCells, centroid } from './tilings';
 
@@ -452,7 +452,10 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = nul
   // longer shared, so each one is drawn full width.
   const G = Math.max(0, cfg.gap ?? 0) * C / 2;
   const outlineW = w * (cfg.outlineWeight ?? 1) * (G > 0 ? 2 : 1);
+  // Every tile's, cell's and part's outline: where round corners stay sharp.
+  const seams = [];
   const pushOutline = (P) => {
+    seams.push(P);
     if (!cfg.outline) return;
     const band = outlineBand(P, outlineW);
     if (band) outlines.push(band);
@@ -957,6 +960,20 @@ export function angularLayer(L, cfg, seed, dom, insideMask, sym = {}, hand = nul
     }
   }
   for (const reg of regions) reg.name = KIND_NAMES[reg.kind];
+  // Round corners (v1.16): every turn inside a tile on a radius of
+  // roundCorners pitches; corners on a tile's edge stay square so lines meet
+  // the next tile's.
+  if (cfg.roundCorners > 0) {
+    const seam = seamIndex([...seams, rectPoly(x0, y0, L.w, L.h)], Math.max(Tw, Th, 1e-6));
+    const R = cfg.roundCorners * p, eps = Math.max(1e-6, w * 1e-3);
+    // Where pieces of a fill meet (a zigzag's strokes at each peak), their
+    // corners are a joint, not a turn: kept sharp too.
+    const at = (q) => `${Math.round(q[0] / eps)},${Math.round(q[1] / eps)}`;
+    const uses = new Map();
+    for (const reg of regions) for (const sh of reg.shapes) for (const P of [sh.s, sh.h]) for (const q of P ?? []) uses.set(at(q), (uses.get(at(q)) ?? 0) + 1);
+    const onSeam = (q, e) => (uses.get(at(q)) ?? 0) > 1 || seam(q, e);
+    for (const reg of regions) reg.shapes = reg.shapes.map(sh => roundBandShape(sh, R, w, onSeam, eps));
+  }
   const square = !cfg.tiling || cfg.tiling === 'square';
   return { regions, outlines, tiles, grid: square ? { x0, y0, Tw, Th, nx, ny, mergeable } : null };
 }

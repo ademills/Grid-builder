@@ -2,6 +2,7 @@ import { CELL as LINEWORK_CELL } from '../utils/linework/compose';
 import { normaliseSymmetry } from '../utils/symmetry';
 import { useAppStore } from '../store/appStore';
 import { brushCells, brushOrigin, clampBrush } from '../utils/brush';
+import { formatLength } from '../utils/units';
 
 // Artboard overlays drawn for the active tool (never exported).
 
@@ -101,8 +102,33 @@ export function MoveGhost({ plan, gridComputed }) {
 // Linework plates under the Move tool (utils/linework/plateDrag.js): the
 // plate being edited, with its resize handles, or while dragging, where it
 // was (faint), where it will land and the lines it snaps to. Boxes in cells.
-export function PlateGhost({ ghost, editBox, handles, gridComputed, workArea, scale = 1 }) {
-  if (!gridComputed || (!ghost && !editBox)) return null;
+// Smart guides' gap labels (v1.16): a line across each gap with its length
+// in the document's units; equal gaps in pink.
+function GapLabels({ gaps, X, Y, cellSize, scale, units }) {
+  if (!gaps?.length) return null;
+  const fs = 10.5 / scale, pad = 3 / scale, tick = 4 / scale;
+  return gaps.map((g, i) => {
+    const colour = g.equal ? '#ff3d9a' : '#0aa5d8';
+    const horiz = g.axis === 'x';
+    const [x1, y1, x2, y2] = horiz ? [X(g.from), Y(g.at), X(g.to), Y(g.at)] : [X(g.at), Y(g.from), X(g.at), Y(g.to)];
+    const text = `${g.equal ? '= ' : ''}${formatLength((g.to - g.from) * cellSize, units)}`;
+    const tw = text.length * fs * 0.56 + pad * 2, th = fs + pad * 2;
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    return (
+      <g key={i}>
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={colour} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+        {(horiz ? [x1, x2] : [y1, y2]).map((v, k) => (horiz
+          ? <line key={k} x1={v} x2={v} y1={y1 - tick} y2={y1 + tick} stroke={colour} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          : <line key={k} y1={v} y2={v} x1={x1 - tick} x2={x1 + tick} stroke={colour} strokeWidth={1} vectorEffect="non-scaling-stroke" />))}
+        <rect x={mx - tw / 2} y={my - th / 2} width={tw} height={th} rx={2 / scale} fill={colour} />
+        <text x={mx} y={my + fs * 0.35} fontSize={fs} textAnchor="middle" fill="#fff" fontFamily="system-ui, sans-serif">{text}</text>
+      </g>
+    );
+  });
+}
+
+export function PlateGhost({ ghost, editBox, handles, gridComputed, workArea, scale = 1, units = 'px', radialCentre = null }) {
+  if (!gridComputed || (!ghost && !editBox && !radialCentre)) return null;
   const { cellSize, gridOriginX, gridOriginY } = gridComputed;
   const X = v => gridOriginX + v * cellSize, Y = v => gridOriginY + v * cellSize;
   const poly = (box) => {
@@ -115,13 +141,24 @@ export function PlateGhost({ ghost, editBox, handles, gridComputed, workArea, sc
   const hs = 7 / scale;
   return (
     <g pointerEvents="none" data-noexport="true">
-      {ghost && <polygon points={poly(ghost.from)} fill="none" stroke={accent} strokeOpacity={0.35} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
-      {ghost?.guides.map((g, i) => (g.x != null
+      {radialCentre && (() => {
+        // The radial repeat's centre: drag it to move the copies round.
+        const x = X(radialCentre[0]), y = Y(radialCentre[1]), r = 6 / scale, arm = 11 / scale;
+        return (
+          <g>
+            <circle cx={x} cy={y} r={r} fill="rgba(255,255,255,0.85)" stroke={accent} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+            <path d={`M${x - arm} ${y}H${x + arm}M${x} ${y - arm}V${y + arm}`} stroke={accent} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+          </g>
+        );
+      })()}
+      {ghost?.from && <polygon points={poly(ghost.from)} fill="none" stroke={accent} strokeOpacity={0.35} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+      {ghost?.guides?.map((g, i) => (g.x != null
         ? <line key={i} x1={X(g.x)} x2={X(g.x)} y1={0} y2={workArea.height} stroke="#ff3d9a" strokeWidth={1} vectorEffect="non-scaling-stroke" />
         : <line key={i} y1={Y(g.y)} y2={Y(g.y)} x1={0} x2={workArea.width} stroke="#ff3d9a" strokeWidth={1} vectorEffect="non-scaling-stroke" />))}
+      {ghost && <GapLabels gaps={ghost.gaps} X={X} Y={Y} cellSize={cellSize} scale={scale} units={units} />}
       {(ghost?.box ?? editBox) && (
-        <polygon points={poly(ghost?.box ?? editBox)} fill={ghost ? 'rgba(124,58,237,0.08)' : 'none'}
-          stroke={accent} strokeWidth={1.5} strokeDasharray={ghost ? '5 3' : undefined} vectorEffect="non-scaling-stroke" />
+        <polygon points={poly(ghost?.box ?? editBox)} fill={ghost?.box ? 'rgba(124,58,237,0.08)' : 'none'}
+          stroke={accent} strokeWidth={1.5} strokeDasharray={ghost?.box ? '5 3' : undefined} vectorEffect="non-scaling-stroke" />
       )}
       {!ghost && handles?.map(h => (
         <rect key={h.key} x={X(h.x) - hs / 2} y={Y(h.y) - hs / 2} width={hs} height={hs}

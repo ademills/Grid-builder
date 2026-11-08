@@ -26,6 +26,11 @@ export function createDefaultDocState() {
     // Artboard & grid
     presetKey: 'a4-portrait',
     customSize: { width: 800, height: 600 },
+    // What sizes are shown and typed in (utils/units.js): 'px' | 'mm' | 'in'.
+    // Sizes are always stored in points (= px), so this never moves anything.
+    units: 'px',
+    // Radial repeat of the whole artboard (utils/kaleidoscope.js): count 1 is off.
+    radialRepeat: { count: 1, mirror: true },
     gridSettings: { cols: 8, borderPct: 5 },
     maxScale: 1,
     scaleFreq: 0,

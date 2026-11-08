@@ -19,7 +19,7 @@ import { continuousLayer } from './continuous';
 import { tilingCells } from './tilings';
 import { shapeCutter, shapeSubtracter, cellsForShape, shapeInPlate, intersectRings, insetRings, subtractRings, ringsContours, isShapePlate, builtinShapeRings } from './shapeClip';
 import {
-  add, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
+  add, sub, inset, clipToPlanes, halfPlanesOf, rectPoly, polyContour, mapContour,
   SYM_OPS, SYM_DOMAIN, fitSymmetry, applyLinear, contoursBounds, roundedRectPoly, hash,
 } from './geometry';
 
@@ -749,9 +749,34 @@ export function composeLinework(settings, grid, { maskFor = () => null, maskShap
     items.push(...kept);
   };
 
+  // Radial repeat (v1.16): a plate drawn `radial` times round a centre
+  // (radialX / radialY cells from the canvas's centre, on the canvas), each
+  // copy turned a further 360° / radial and cut to the canvas. The copies
+  // are live: they're the plate's own items, redrawn with it.
+  const repeatRadially = (cfg, frame, from) => {
+    const n = Math.min(24, Math.max(1, Math.round(cfg.radial ?? 1)));
+    if (n < 2) return;
+    const c = add(frame.centre, [(cfg.radialX ?? 0) * CELL, (cfg.radialY ?? 0) * CELL]);
+    const cut = shapeCutter([frame.areaRect]);
+    const own = items.slice(from);
+    for (let k = 1; k < n; k++) {
+      const m = rotation((360 * k) / n);
+      const t = sub(c, applyLinear(m, c));
+      for (const it of own) {
+        const contours = cut(it.contours.map(cc => mapContour(cc, m, t)));
+        if (!contours?.length) continue;
+        items.push({ ...it, key: `${it.key}~${k}`, contours, centre: it.centre ? add(applyLinear(m, it.centre), t) : it.centre, repeatOf: it.key });
+      }
+    }
+  };
+
   layers.forEach((cfg, li) => {
     if (!shown(cfg, li)) return;
-    for (const [f, tag] of framesOf(cfg, li)) buildLayer(cfg, li, f, tag);
+    for (const [f, tag] of framesOf(cfg, li)) {
+      const from = items.length;
+      buildLayer(cfg, li, f, tag);
+      if (li > 0) repeatRadially(cfg, f, from);
+    }
   });
 
   for (const it of items) it.centre ??= frames[0].centre;

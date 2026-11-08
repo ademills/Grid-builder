@@ -1,5 +1,6 @@
 import { useAppStore } from '../store/appStore';
 import { MODE_REGISTRY } from '../modes/registry';
+import { formatLength } from '../utils/units';
 import styles from './Shell.module.css';
 
 const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 8];
@@ -38,7 +39,7 @@ export function StatusBar({ doc }) {
         </select>
       </span>
       <span className={styles.statusItem}>{MODE_REGISTRY[doc.mode].label}</span>
-      <span className={styles.statusItem}>{status.width} × {status.height}</span>
+      <span className={styles.statusItem}>{formatLength(status.width, status.units, { suffix: false })} × {formatLength(status.height, status.units)}</span>
       <span className={styles.statusItem}>Grid {status.cols} × {status.rows}</span>
       <span className={styles.statusItem}>
         {status.blockCount} {status.blockCount === 1 ? 'object' : 'objects'}

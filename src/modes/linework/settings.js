@@ -26,6 +26,9 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // 'none', or for circuits 'outline' | 'sticker' | 'infill' (pad: cells
   // of margin round the lines for outline and sticker).
   backing: 'square', corner: 0, pad: 0.15,
+  // Radial repeat (v1.16): the plate drawn `radial` times (1: once) round a
+  // centre radialX / radialY cells from the canvas's centre.
+  radial: 1, radialX: 0, radialY: 0,
   // Any layer
   scale: 1, invert: false, style: 'angular', sym: 'mirror-both', seed: randomSeed(),
   // Colour mode and shuffle seed of its own, or null for the document's
@@ -60,6 +63,9 @@ export const lineworkLayerDefaults = (over = {}) => ({
   // 'off' | 'random' | 'vertical' | 'horizontal' | 'diagonal'; mergeCells:
   // join some squares of cells into one, up to mergeMax × mergeMax.
   cornerShare: 0.4, gapLines: 'random', mergeCells: false, mergeMax: 3,
+  // Angular and continuous lines (v1.16): how round they turn, the centre
+  // line's radius in pitches (0 square).
+  roundCorners: 0,
   // Region mask: a Generate-panel fill or 'word'. maskMode 'remove' empties
   // the masked area, 'invert' keeps only the masked area; what's kept takes
   // the layer's own fills. maskSettings holds this layer's own settings for

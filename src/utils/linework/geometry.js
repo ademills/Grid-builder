@@ -111,6 +111,137 @@ export function roundedRectPoly(x, y, w, h, r, seg = 8) {
   return out;
 }
 
+// ── Round corners (v1.16) ────────────────────────────────────────────────────
+
+// pts with each corner i replaced by an arc of radius radiusAt(i, convex)
+// (0 keeps it sharp), each arc no longer than half the edges beside it, so
+// neighbouring arcs never overlap. convex: the corner turns the way the
+// polygon winds (always true for an open line's corners, whose sign is
+// meaningless). Open lines keep their two ends.
+export function filletPoly(pts, closed, radiusAt) {
+  const n = pts.length;
+  if (n < 3) return pts;
+  const wind = closed ? Math.sign(signedArea(pts)) || 1 : 0;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const B = pts[i];
+    if (!closed && (i === 0 || i === n - 1)) { out.push(B); continue; }
+    const A = pts[(i - 1 + n) % n], C = pts[(i + 1) % n];
+    const u = sub(A, B), v = sub(C, B);
+    const lu = len(u), lv = len(v);
+    const turn = cross(sub(B, A), sub(C, B));
+    const convex = !closed || Math.sign(turn) === wind;
+    const r = lu > 1e-9 && lv > 1e-9 ? radiusAt(i, convex) : 0;
+    const cosT = Math.max(-1, Math.min(1, dot(u, v) / (lu * lv)));
+    const theta = Math.acos(cosT); // the angle inside the corner
+    if (!(r > 1e-9) || theta > Math.PI - 1e-3 || theta < 1e-3) { out.push(B); continue; }
+    const tanH = Math.tan(theta / 2);
+    const t = Math.min(r / tanH, lu / 2, lv / 2); // tangent length
+    const R = t * tanH;
+    const du = mul(u, 1 / lu), dv = mul(v, 1 / lv);
+    const T1 = add(B, mul(du, t)), T2 = add(B, mul(dv, t));
+    const bis = unit(add(du, dv));
+    const O = add(B, mul(bis, R / Math.sin(theta / 2)));
+    const a1 = Math.atan2(T1[1] - O[1], T1[0] - O[0]);
+    let da = Math.atan2(T2[1] - O[1], T2[0] - O[0]) - a1;
+    while (da > Math.PI) da -= 2 * Math.PI;
+    while (da < -Math.PI) da += 2 * Math.PI;
+    const steps = Math.max(2, Math.ceil(Math.abs(da) / (Math.PI / 16)));
+    for (let s = 0; s <= steps; s++) {
+      const a = a1 + (da * s) / steps;
+      out.push(s === 0 ? T1 : s === steps ? T2 : [O[0] + R * Math.cos(a), O[1] + R * Math.sin(a)]);
+    }
+  }
+  return out;
+}
+
+// A spatial index of seam edges (the outlines of tiles, cells and their
+// parts): corners on a seam are left sharp, so lines still meet the
+// neighbouring tile's lines edge to edge.
+export function seamIndex(polys, size) {
+  const buckets = new Map();
+  const key = (i, j) => `${i},${j}`;
+  for (const P of polys) {
+    for (let i = 0; i < P.length; i++) {
+      const a = P[i], b = P[(i + 1) % P.length];
+      const i0 = Math.floor(Math.min(a[0], b[0]) / size), i1 = Math.floor(Math.max(a[0], b[0]) / size);
+      const j0 = Math.floor(Math.min(a[1], b[1]) / size), j1 = Math.floor(Math.max(a[1], b[1]) / size);
+      for (let x = i0; x <= i1; x++) for (let y = j0; y <= j1; y++) {
+        const k = key(x, y);
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push([a, b]);
+      }
+    }
+  }
+  return (q, eps) => {
+    const list = buckets.get(key(Math.floor(q[0] / size), Math.floor(q[1] / size)));
+    if (!list) return false;
+    for (const [a, b] of list) {
+      const d = sub(b, a), l2 = dot(d, d);
+      const t = l2 > 0 ? Math.max(0, Math.min(1, dot(sub(q, a), d) / l2)) : 0;
+      if (len(sub(q, add(a, mul(d, t)))) < eps) return true;
+    }
+    return false;
+  };
+}
+
+// A corner's angle inside (θ) and the longest arc it can take: tangents
+// no longer than half of either edge beside it.
+function cornerAt(P, i) {
+  const m = P.length, A = P[(i - 1 + m) % m], B = P[i], C = P[(i + 1) % m];
+  const u = sub(A, B), v = sub(C, B), lu = len(u), lv = len(v);
+  if (lu < 1e-9 || lv < 1e-9) return { theta: Math.PI, rMax: 0, lu, lv };
+  const theta = Math.acos(Math.max(-1, Math.min(1, dot(u, v) / (lu * lv))));
+  return { theta, rMax: (Math.min(lu, lv) / 2) * Math.tan(theta / 2), lu, lv };
+}
+
+// A band shape { s, h } (angular.js) with its corners rounded: the line's
+// centre turns on radius R, so its outside edge turns on R + w/2 and its
+// inside edge on R − w/2 and the line keeps its width. A hole's corners
+// are the band's inside ones. Corners on a seam stay sharp.
+// Where a turn is too tight for R (short edges either side), the outside
+// corner takes what fits and its inside partner -- the inside corner
+// nearest it, across the line -- follows it, so the line never thins.
+export function roundBandShape(sh, R, w, onSeam, eps) {
+  const polys = sh.h ? [[sh.s, false], [sh.h, true]] : [[sh.s, false]];
+  const plan = polys.map(([P, hole]) => {
+    const wind = Math.sign(signedArea(P)) || 1;
+    return P.map((B, i) => {
+      const m = P.length;
+      const turn = cross(sub(B, P[(i - 1 + m) % m]), sub(P[(i + 1) % m], B));
+      const outside = (Math.sign(turn) === wind) !== hole;
+      return { B, outside, seam: onSeam(B, eps), ...cornerAt(P, i) };
+    });
+  });
+  // Outside corners first: the centre-line radius each one gets.
+  const outs = [];
+  for (const corners of plan) {
+    for (const c of corners) {
+      if (c.seam || !c.outside) continue;
+      // A corner beside an edge about one line wide is a line's end: it
+      // rounds by R alone, so ends go from square to round as R grows.
+      const end = Math.min(c.lu, c.lv) < w * 1.05;
+      c.r = end ? Math.min(R, w / 2, c.rMax) : Math.min(R + w / 2, c.rMax);
+      if (!end) outs.push({ B: c.B, rc: c.r - w / 2 });
+    }
+  }
+  // Inside corners: their partner's centre-line radius, less half a line.
+  for (const corners of plan) {
+    for (const c of corners) {
+      if (c.seam || c.outside) continue;
+      const reach = (w / Math.max(0.2, Math.sin(c.theta / 2))) * 1.25;
+      let rc = R, best = reach;
+      for (const o of outs) {
+        const d = len(sub(o.B, c.B));
+        if (d <= best) { best = d; rc = Math.min(R, o.rc); }
+      }
+      c.r = Math.max(0, rc - w / 2);
+    }
+  }
+  const go = (P, k) => filletPoly(P, true, (i) => plan[k][i].r ?? 0);
+  return { ...sh, s: go(sh.s, 0), h: sh.h ? go(sh.h, 1) : sh.h };
+}
+
 // ── Symmetry ─────────────────────────────────────────────────────────────────
 // Each mode is its group's linear maps [a, b, c, d] (x' = a x + b y,
 // y' = c x + d y, about the layer centre) plus its fundamental domain as

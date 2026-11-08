@@ -6,6 +6,7 @@ import { useAllAssets } from '../utils/assetRegistry';
 import { blockSlotColours } from '../utils/blockColours';
 import { assetThumb } from './panelUtils';
 import { SwatchColourField } from './SwatchColourField';
+import { formatLength } from '../utils/units';
 import styles from './Panel.module.css';
 
 const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
@@ -40,6 +41,7 @@ export function InfoPanel() {
   const { selectedIds, selectionActions, colourCtx } = useEditor();
   const [placedBlocks] = useDocField('placedBlocks');
   const [shapeStroke] = useDocField('shapeStroke');
+  const [units = 'px'] = useDocField('units');
   const cursor = useAppStore(s => s.cursor);
   const setToolOption = useAppStore(s => s.setToolOption);
 
@@ -61,7 +63,7 @@ export function InfoPanel() {
   const pointer = (
     <div className={styles.gridInfo} style={{ marginTop: 10 }}>
       {cursor
-        ? <>Pointer: {cursor.x}, {cursor.y} px{cursor.col != null && <> · cell {cursor.col + 1}, {cursor.row + 1}</>}{cursor.shape && <> · {cursor.shape}</>}</>
+        ? <>Pointer: {formatLength(cursor.x, units, { suffix: false })}, {formatLength(cursor.y, units)}{cursor.col != null && <> · cell {cursor.col + 1}, {cursor.row + 1}</>}{cursor.shape && <> · {cursor.shape}</>}</>
         : 'Move the pointer over the artboard to see its position.'}
     </div>
   );

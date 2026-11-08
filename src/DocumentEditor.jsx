@@ -34,7 +34,7 @@ import { useLibraryStore } from './store/libraryStore';
 import { isTauri } from './shell/fileIO';
 import { runCommand } from './shell/commands';
 import { useDocField, useDocId } from './store/useDocField';
-import { useAppStore, PASTEBOARDS } from './store/appStore';
+import { useAppStore, PASTEBOARDS, PRESENT_BACKGROUNDS } from './store/appStore';
 import { buildSwatchMap, resolvePins, blockColourBreakdown, blockSlotColours, dominantColour } from './utils/blockColours';
 import { shapeTransform, unTransformUV, rotateBlock } from './utils/blockTransform';
 import { slotAt } from './utils/slotCoverage';
@@ -56,6 +56,10 @@ import { SymmetryAxes, MoveGhost, BrushOutline, LassoPath, PlateGhost, CellPicks
 import { silhouetteCoverage, silhouetteCells, silhouetteRaster } from './utils/silhouetteMask';
 import { traceRings, rasterWord, rasterSize } from './utils/linework/traceMask';
 import { tidySvg } from './utils/svgExport';
+import { separations as separateInks } from './utils/separations';
+import { plotterSvg } from './utils/plotter';
+import { svgLength, toArt } from './utils/units';
+import { radialOn, radialSvg, wedgePoints, pointsToPath } from './utils/kaleidoscope';
 import { composeLinework, lineworkGridCells, baseFrame as lineworkBaseFrame, CELL as LINEWORK_CELL, plateBoxes, plateOffsetFor } from './utils/linework/compose';
 import { hitPlate, handlesOf, snapMove, snappedOffset, resizeBox } from './utils/linework/plateDrag';
 import { isShapePlate, shapeMaskSettings } from './utils/linework/shapeClip';
@@ -571,8 +575,11 @@ export function DocumentEditor({ mode: appMode }) {
   const viewTransform = storedView ?? DEFAULT_VIEW;
   const [viewportSize, setViewportSize] = useState(null);
   const activeTool = useAppStore(s => s.toolOverride ?? s.activeTool);
-  const bgColor = useAppStore(s => PASTEBOARDS[s.pasteboard] ?? PASTEBOARDS.dark);
+  const pasteboardColour = useAppStore(s => PASTEBOARDS[s.pasteboard] ?? PASTEBOARDS.dark);
   const [canvasBg, setCanvasBg] = useDocField('canvasBg');
+  const [units = 'px'] = useDocField('units');
+  const [radialRepeat] = useDocField('radialRepeat');
+  const radial = radialOn(radialRepeat);
   const [maxScale] = useDocField('maxScale');
   const [scaleFreq] = useDocField('scaleFreq');
 
@@ -2210,6 +2217,8 @@ export function DocumentEditor({ mode: appMode }) {
       svgLayers = 'colour',
       svgReuse = false,
       svgPrecision = 3,
+      separate = 'off', regMarks = true, sepBlack = false,
+      plotter = false, penWidth = 0.3,
     } = options;
     if (!placedBlocks.length || !gridComputed) return;
 
@@ -2238,22 +2247,62 @@ export function DocumentEditor({ mode: appMode }) {
         colourName: (hex) => names.get(hex) ?? null,
         groupNames,
       });
-      const svgString = new XMLSerializer().serializeToString(svgEl);
+      // A real size in mm or inches (print and plotter software use it);
+      // px documents stay plain numbers, as before.
+      svgEl.setAttribute('width', svgLength(workArea.width, units));
+      svgEl.setAttribute('height', svgLength(workArea.height, units));
+      const vb = svgEl.getAttribute('viewBox').split(/\s+/).map(Number);
+      radialSvg(svgEl, radialRepeat, { w: vb[2], h: vb[3] });
+      const title = useDocumentStore.getState().docs[docId]?.name;
+      const colourName = (hex) => names.get(hex) ?? null;
+      // viewBox units per pt, for sizes given in mm.
+      const vbPerPt = (+svgEl.getAttribute('viewBox').split(/\s+/)[2] || workArea.width) / workArea.width;
+      const mm = (v) => toArt(v, 'mm') * vbPerPt;
+
+      // What to write: the artwork, or a sheet per ink / one file of inks.
+      let outputs = [{ suffix: '', el: svgEl }];
+      if (separate !== 'off') {
+        const sep = separateInks(svgEl, {
+          marks: regMarks, margin: mm(10), page: workArea, units, black: sepBlack, colourName, title,
+        });
+        if (!sep.inks.length) { showToast('No flat colours to separate'); return; }
+        const slug = (t) => t.toLowerCase().replace(/#/g, '').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '');
+        outputs = separate === 'files'
+          ? sep.inks.map((ink) => ({ suffix: `-${slug(ink.name)}`, el: ink.svg }))
+          : [{ suffix: '-separations', el: sep.combined }];
+        if (sep.skipped) showToast(`${sep.skipped} ${sep.skipped === 1 ? 'shape' : 'shapes'} with a gradient or image left out of the separations`);
+      }
+      if (plotter) {
+        let before = 0, after = 0, pens = 0, runs = 0;
+        outputs = outputs.map((o) => {
+          const { svg, stats } = plotterSvg(o.el, { penWidth: mm(penWidth), precision: Math.min(svgPrecision, 2), colourName, title });
+          before += stats.before; after += stats.after; pens += stats.pens; runs += stats.runs;
+          return { ...o, el: svg };
+        });
+        const saved = before > 0 ? Math.round((1 - after / before) * 100) : 0;
+        showToast(`Plotter: ${pens} ${pens === 1 ? 'pen' : 'pens'}, ${runs.toLocaleString()} paths · pen-up travel ${saved > 0 ? `${saved}% shorter` : 'unchanged'}`);
+      }
+
       const filename = `grid-layout-${timestamp}.svg`;
+      const texts = outputs.map(o => ({ suffix: o.suffix, text: new XMLSerializer().serializeToString(o.el) }));
       if (isTauri) {
         try {
           const path = await tauriSaveDialog({
-            title: 'Export SVG',
+            title: texts.length > 1 ? `Export ${texts.length} SVGs (one per ink)` : 'Export SVG',
             defaultPath: filename,
             filters: [{ name: 'SVG Files', extensions: ['svg'] }],
           });
           if (!path) return;
-          await writeTextFile(path, svgString);
+          const base = path.replace(/\.svg$/i, '');
+          for (const t of texts) await writeTextFile(texts.length > 1 || t.suffix ? `${base}${t.suffix}.svg` : path, t.text);
+          if (texts.length > 1) showToast(`Exported ${texts.length} SVGs beside ${base.split(/[\\/]/).pop()}`);
         } catch (err) {
           alert('Export failed: ' + err.message);
         }
       } else {
-        downloadBlob(new Blob([svgString], { type: 'image/svg+xml' }), filename);
+        for (const t of texts) {
+          downloadBlob(new Blob([t.text], { type: 'image/svg+xml' }), filename.replace(/\.svg$/, `${t.suffix}.svg`));
+        }
       }
       return;
     }
@@ -2280,6 +2329,7 @@ export function DocumentEditor({ mode: appMode }) {
       });
       if (!path) return;
       const { svgEl } = buildFlatSvgElement({ ...commonBuildArgs, layer: transparentBg ? 'shapes' : 'all' });
+      { const vb = svgEl.getAttribute('viewBox').split(/\s+/).map(Number); radialSvg(svgEl, radialRepeat, { w: vb[2], h: vb[3] }); }
       useAppStore.getState().showToast(`Exporting ${targetW} × ${targetH} px…`);
       try {
         await invoke('render_raster', {
@@ -2304,6 +2354,7 @@ export function DocumentEditor({ mode: appMode }) {
 
     try {
       const { svgEl } = buildFlatSvgElement({ ...commonBuildArgs, layer: transparentBg ? 'shapes' : 'all' });
+      { const vb = svgEl.getAttribute('viewBox').split(/\s+/).map(Number); radialSvg(svgEl, radialRepeat, { w: vb[2], h: vb[3] }); }
       const svgString = new XMLSerializer().serializeToString(svgEl);
       if (withEffects) useAppStore.getState().showToast(`Exporting ${targetW} × ${targetH} px with effects…`);
       let finalCanvas = await rasterizeSvgToCanvas(svgString, targetW, targetH, supersample);
@@ -2323,7 +2374,7 @@ export function DocumentEditor({ mode: appMode }) {
     } catch (err) {
       alert('Export failed: ' + err.message);
     }
-  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap, shapeStroke, shapeColors, bgColors, docId, colourCtx, groupNames, effects]);
+  }, [placedBlocks, gridComputed, workArea, colorMode, activePalette, activeBgColors, canvasBg, imagePixels, activeGradientSettings, meshSettings, randomReverseEnabled, imageColourRemap, backdropSrc, backdropSettings, blendMode, swatchMap, shapeStroke, shapeColors, bgColors, docId, colourCtx, groupNames, effects, units, showToast, radialRepeat]);
 
   // Full-canvas data URI for the Meander single-motif tile preview --
   // same buildFlatSvgElement path handleExport uses, so the preview always
@@ -2718,6 +2769,11 @@ export function DocumentEditor({ mode: appMode }) {
   const lineworkPlateBoxes = useMemo(() => (isLinework && gridComputed
     ? plateBoxes(lineworkSettings, gridComputed, { areas: lineworkAreas }) : []), [isLinework, gridComputed, lineworkSettings, lineworkAreas]);
   const editPlateBox = lineworkPlateBoxes.find(b => b.id === lineworkEditLayers[0]) ?? null;
+  // The plate being edited's radial repeat centre, in grid cells (v1.16), or null.
+  const editPlateCfg = lineworkSettings.layers.find(l => l.id === lineworkEditLayers[0]);
+  const radialCentre = useMemo(() => (editPlateBox && (editPlateCfg?.radial ?? 1) > 1
+    ? [editPlateBox.area.x + editPlateBox.area.w / 2 + (editPlateCfg.radialX ?? 0), editPlateBox.area.y + editPlateBox.area.h / 2 + (editPlateCfg.radialY ?? 0)]
+    : null), [editPlateBox, editPlateCfg]);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape' || !plateDrag.current) return;
@@ -2738,6 +2794,11 @@ export function DocumentEditor({ mode: appMode }) {
 
     if (phase === 'down') {
       const p = cellsOf(pt);
+      // The radial repeat's ✛: drag it to move the centre.
+      if (radialCentre && Math.hypot(radialCentre[0] - p[0], radialCentre[1] - p[1]) <= 9 * px) {
+        plateDrag.current = { id: lineworkEditLayers[0], centre: radialCentre, start: p, result: null, box: editPlateBox };
+        return;
+      }
       const own = boxes.find(b => b.id === lineworkEditLayers[0]);
       const handle = own && handlesOf(own).find(h => Math.hypot(h.x - p[0], h.y - p[1]) <= 8 * px);
       const box = handle ? own : hitPlate(boxes, p);
@@ -2754,6 +2815,16 @@ export function DocumentEditor({ mode: appMode }) {
     if (phase === 'move' && pt) {
       const p = cellsOf(pt);
       let box, result;
+      if (drag.centre) {
+        // Snaps to the canvas centre, else to half cells (Alt: free).
+        const { area } = drag.box;
+        const mid = [area.x + area.w / 2, area.y + area.h / 2];
+        let c = [drag.centre[0] + p[0] - drag.start[0], drag.centre[1] + p[1] - drag.start[1]];
+        if (!pt.altKey) c = c.map((v, i) => (Math.abs(v - mid[i]) <= 8 * px ? mid[i] : Math.round(v * 2) / 2));
+        drag.result = { centre: c, rx: Math.round((c[0] - mid[0]) * 1000) / 1000, ry: Math.round((c[1] - mid[1]) * 1000) / 1000 };
+        setPlateGhost({ centre: c, guides: [] });
+        return;
+      }
       if (drag.handle) {
         const cfg = lineworkSettings.layers.find(l => l.id === drag.id);
         // Shape plates keep their proportions from a corner unless Shift is held; others the other way round.
@@ -2767,7 +2838,7 @@ export function DocumentEditor({ mode: appMode }) {
       // A click that barely moves is just a click.
       if (!drag.result && Math.hypot(p[0] - drag.start[0], p[1] - drag.start[1]) < 3 * px) return;
       drag.result = result;
-      setPlateGhost({ box, from: drag.box, guides: result.guides });
+      setPlateGhost({ box, from: drag.box, guides: result.guides, gaps: result.gaps });
       return;
     }
     // Up: apply (or cancel, if the pointer left the canvas).
@@ -2775,6 +2846,10 @@ export function DocumentEditor({ mode: appMode }) {
     setPlateGhost(null);
     const r = drag.result;
     if (!pt || !r) return;
+    if (drag.centre) {
+      updateLinework(prev => updateLayers(prev, [drag.id], { radialX: r.rx, radialY: r.ry }), 'Move Repeat Centre');
+      return;
+    }
     if (drag.handle) {
       const [ox, oy] = plateOffsetFor(drag.box, r.cx, r.cy).map(v => Math.round(v * 1000) / 1000);
       updateLinework(prev => updateLayers(prev, [drag.id], { sizing: 'cells', w: r.w, h: r.h, ox, oy }), 'Resize Plate');
@@ -2782,7 +2857,7 @@ export function DocumentEditor({ mode: appMode }) {
       const [ox, oy] = snappedOffset(plateOffsetFor(drag.box, r.cx, r.cy), r.grid);
       updateLinework(prev => updateLayers(prev, [drag.id], { ox, oy }), 'Move Plate');
     }
-  }, [gridComputed, docId, lineworkPlateBoxes, lineworkEditLayers, lockedLineworkLayers, showToast, editLineworkLayer, lineworkSettings.layers, updateLinework]);
+  }, [gridComputed, docId, lineworkPlateBoxes, lineworkEditLayers, lockedLineworkLayers, showToast, editLineworkLayer, lineworkSettings.layers, updateLinework, radialCentre, editPlateBox]);
 
   // Pins the main colour of each block to `hex` (Object › Paint, Eyedropper Alt+click).
   const addRecentColour = useAppStore(s => s.addRecentColour);
@@ -3274,6 +3349,23 @@ export function DocumentEditor({ mode: appMode }) {
   const showRulers = useAppStore(s => s.showRulers);
   const showGuides = useAppStore(s => s.showGuides);
   const showGrid = useAppStore(s => s.showGrid);
+  const outlineView = useAppStore(s => s.outlineView);
+  // Presentation Mode: the artboard fitted to the screen on a plain
+  // background, with nothing else drawn. Its view isn't saved, so the
+  // document comes back to where it was.
+  const presenting = useAppStore(s => s.presenting);
+  const presentBg = useAppStore(s => PRESENT_BACKGROUNDS[s.presentBg] ?? PRESENT_BACKGROUNDS[0]);
+  const presentView = useMemo(() => {
+    if (!presenting || !viewportSize) return null;
+    const pad = 32;
+    const scale = Math.min((viewportSize.width - pad * 2) / workArea.width, (viewportSize.height - pad * 2) / workArea.height);
+    return { x: (viewportSize.width - workArea.width * scale) / 2, y: (viewportSize.height - workArea.height * scale) / 2, scale };
+  }, [presenting, viewportSize, workArea]);
+  const shownView = presentView ?? viewTransform;
+  const noViewChange = useCallback(() => {}, []);
+  useEffect(() => {
+    if (presenting) showToast('Presentation Mode · B or ← → changes the background · F or Esc to leave');
+  }, [presenting, showToast]);
   // Guides snap to the artboard edges and centre, and to grid cell lines.
   const snapLines = useMemo(() => {
     const v = [0, workArea.width / 2, workArea.width];
@@ -3473,6 +3565,7 @@ export function DocumentEditor({ mode: appMode }) {
     rows: gridComputed?.rows ?? 0,
     width: workArea.width,
     height: workArea.height,
+    units,
     blockCount: placedBlocks.length,
     selectedCount: selectedIds.size,
     selectionFill,
@@ -3485,7 +3578,7 @@ export function DocumentEditor({ mode: appMode }) {
     selectionFrozen: selectedBlocks.length > 0 && selectedBlocks.every(b => b.colorLocked),
     selectionPinned: selectedBlocks.some(b => b.slotPins),
     lineworkCells: cellSummary,
-  }), [cellSummary, viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer, lineworkEditLayers, colorMode, selectedBlocks]);
+  }), [units, cellSummary, viewTransform.scale, gridComputed, workArea.width, workArea.height, placedBlocks.length, selectedIds.size, selectionFill, historySize, lineworkEditLayer, lineworkEditLayers, colorMode, selectedBlocks]);
   useEffect(() => { setEditorBridge(editorCommands, editorStatus); }, [setEditorBridge, editorCommands, editorStatus]);
   useEffect(() => () => setEditorBridge(null, null), [setEditorBridge]);
 
@@ -3494,11 +3587,11 @@ export function DocumentEditor({ mode: appMode }) {
     <div className={styles.editor}>
       <div className={styles.canvasArea}>
         <Canvas
-          viewTransform={viewTransform}
+          viewTransform={shownView}
           needsFit={storedView == null}
-          setViewTransform={setViewTransform}
-          activeTool={activeTool}
-          bgColor={bgColor}
+          setViewTransform={presenting ? noViewChange : setViewTransform}
+          activeTool={presenting ? 'hand' : activeTool}
+          bgColor={presenting ? presentBg : pasteboardColour}
           canvasBg={canvasBg}
           workArea={workArea}
           onDeselectAll={handleDeselectAll}
@@ -3510,16 +3603,18 @@ export function DocumentEditor({ mode: appMode }) {
           onViewportResize={setViewportSize}
           underlay={
             <ShapeCanvas
-              viewTransform={viewTransform}
+              viewTransform={shownView}
               viewportSize={viewportSize}
-              visibleRect={visibleRect}
+              visibleRect={presenting ? null : visibleRect}
               workArea={workArea}
               canvasBg={canvasBg}
               backdropSrc={backdropSrc}
               backdropSettings={backdropSettings}
               gridComputed={gridComputed}
               gridSettings={gridSettings}
-              showGrid={showGrid}
+              showGrid={showGrid && !presenting && !outlineView}
+              outline={outlineView && !presenting}
+              radialRepeat={radialRepeat}
               gridCells={lineworkCells}
               blocks={movePreview?.ok ? movePreview.blocks : placedBlocks}
               colourCtx={colourCtx}
@@ -3533,8 +3628,8 @@ export function DocumentEditor({ mode: appMode }) {
           }
           overlay={
             <>
-              {showRulers && <Rulers viewTransform={viewTransform} viewportSize={viewportSize} onStartDrag={startGuideDrag} />}
-              {tilePreviewDataUri && (
+              {showRulers && !presenting && <Rulers viewTransform={viewTransform} viewportSize={viewportSize} onStartDrag={startGuideDrag} units={units} />}
+              {tilePreviewDataUri && !presenting && (
                 <div className={styles.tilePreview}>
                   <div className={styles.tilePreviewGrid}>
                     {Array.from({ length: 9 }).map((_, i) => (
@@ -3556,16 +3651,23 @@ export function DocumentEditor({ mode: appMode }) {
               selection outlines and overlays. */}
           <PlacedBlocks
             placedBlocks={movePreview?.ok ? movePreview.blocks : placedBlocks}
-            visibleRect={visibleRect}
+            visibleRect={presenting ? null : visibleRect}
             gridComputed={gridComputed}
-            activeTool={cellMode && activeTool === 'select' ? 'selectCells' : activeTool}
-            selectedIds={selectedIds}
+            activeTool={presenting ? 'hand' : cellMode && activeTool === 'select' ? 'selectCells' : activeTool}
+            selectedIds={presenting ? null : selectedIds}
+            outline={outlineView && !presenting}
             onSelect={handleSelectBlock}
             onContextMenu={handleOpenContextMenu}
             blendMode={blendMode}
-            highlightIds={layerHighlight}
-            hideImages={liveEffects || !!backdropSettings.cutout}
+            highlightIds={presenting ? null : layerHighlight}
+            hideImages={!(outlineView && !presenting) && (liveEffects || radial || !!backdropSettings.cutout)}
           />
+          {!presenting && radial && !outlineView && (
+            // The wedge the copies come from: edit inside it.
+            <path d={pointsToPath(wedgePoints(workArea.width / 2, workArea.height / 2, Math.max(workArea.width, workArea.height) * 0.75, Math.round(radialRepeat.count)))}
+              fill="none" stroke="#ff3d9a" strokeOpacity={0.7} strokeWidth={1} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" pointerEvents="none" data-noexport="true" />
+          )}
+          {!presenting && (<>
           <Overlays ids={overlayIds} width={workArea.width} height={workArea.height} scale={viewTransform.scale} />
           {(activeTool === 'stamp' || activeTool === 'eraser' || activeTool === 'bucket') && (
             <SymmetryAxes mode={toolOptions.symmetry} gridComputed={gridComputed} />
@@ -3574,7 +3676,8 @@ export function DocumentEditor({ mode: appMode }) {
           <MoveGhost plan={movePreview} gridComputed={gridComputed} />
           {isLinework && activeTool === 'move' && (
             <PlateGhost ghost={plateGhost} editBox={editPlateBox} handles={editPlateBox ? handlesOf(editPlateBox) : null}
-              gridComputed={gridComputed} workArea={workArea} scale={viewTransform.scale} />
+              gridComputed={gridComputed} workArea={workArea} scale={viewTransform.scale} units={units}
+              radialCentre={plateGhost?.centre ?? radialCentre} />
           )}
           <LassoPath points={lassoPath?.points ?? lassoPath} open={!!lassoPath?.open} />
           {cellMode && activeTool === 'select' && <CellPicks cells={pickedCells} gridComputed={gridComputed} />}
@@ -3583,6 +3686,7 @@ export function DocumentEditor({ mode: appMode }) {
             <GuideLines guides={guides} drag={guideDrag.drag} onStartDrag={startGuideDrag}
               interactive={activeTool === 'select'} scale={viewTransform.scale} />
           )}
+          </>)}
         </Canvas>
 
         {contextMenu && (
@@ -3623,7 +3727,7 @@ export function DocumentEditor({ mode: appMode }) {
 
       </div>
 
-      <Inspector mode={appMode} groups={MODE_REGISTRY[appMode].dock} />
+      {!presenting && <Inspector mode={appMode} groups={MODE_REGISTRY[appMode].dock} />}
 
       {showExport && (
         <ExportDialog

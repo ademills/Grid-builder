@@ -30,6 +30,8 @@ function saveJson(key, value) {
 // pasteboard: the area round the artboard, a key of PASTEBOARDS.
 const DEFAULT_VIEW = { overlays: [], showRulers: false, showGuides: true, showGrid: true, wheelZooms: false, pasteboard: 'dark' };
 export const PASTEBOARDS = { dark: '#2d2d2d', grey: '#535353', light: '#d4d4d4' };
+// Presentation Mode backgrounds, cycled with B / ← →.
+export const PRESENT_BACKGROUNDS = ['#000000', '#1e1e1e', '#535353', '#d4d4d4', '#ffffff'];
 
 function loadDock() {
   try { const { width = 300, groups = {} } = JSON.parse(localStorage.getItem(DOCK_KEY) || '{}'); return { width, groups }; }
@@ -93,6 +95,17 @@ export const useAppStore = create((set, get) => ({
   setShowRulers: (showRulers) => get().setViewOption({ showRulers }),
   setShowGuides: (showGuides) => get().setViewOption({ showGuides }),
   setShowGrid: (showGrid) => get().setViewOption({ showGrid }),
+
+  // View › Outline (Ctrl+Y): shapes drawn as hairline paths, no fills. Not
+  // saved, as in Illustrator, so the app never opens looking broken.
+  outlineView: false,
+  setOutlineView: (outlineView) => set({ outlineView }),
+  // View › Presentation Mode (F): every panel hidden, the artboard fitted on
+  // a plain background (presentBg, an index into PRESENT_BACKGROUNDS).
+  presenting: false,
+  presentBg: 0,
+  setPresenting: (presenting) => set({ presenting }),
+  cyclePresentBg: (by = 1) => set(s => ({ presentBg: (s.presentBg + by + PRESENT_BACKGROUNDS.length) % PRESENT_BACKGROUNDS.length })),
 
   // Copied shapes, shared by every document so they can be pasted into
   // another tab: { blocks } with positions relative to the copied group's

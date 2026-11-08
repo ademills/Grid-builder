@@ -10,6 +10,11 @@
   user-select: none;
 }
 
+/* Presentation Mode: only the canvas, edge to edge. */
+.presenting {
+  grid-template-rows: 0 1fr;
+}
+
 .workspace {
   display: flex;
   min-height: 0;

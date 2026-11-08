@@ -9,7 +9,29 @@ import { newDocument, openDocument, openRecent } from './documentActions';
 import { isTauri } from './fileIO';
 import { useRecoveryStore, openRecovered, discardRecovered } from './session';
 import { FolderIcon, CloseIcon } from './icons';
+import { evalNumber } from '../utils/numberExpr';
+import { typedToUnit } from '../utils/units';
 import styles from './HomeScreen.module.css';
+
+// A custom artboard side in px: a number, a sum, or another unit (210mm, 8.5in).
+function DimInput({ value, onChange, label }) {
+  const [draft, setDraft] = useState(null);
+  const commit = () => {
+    const v = evalNumber(draft, { current: value, toUnit: typedToUnit('px') });
+    setDraft(null);
+    if (v != null) onChange(v);
+  };
+  return (
+    <input type="text" inputMode="decimal" value={draft ?? value} aria-label={label}
+      title="A size in px, a sum, or another unit: 210mm, 8.5in"
+      onFocus={e => { setDraft(String(value)); requestAnimationFrame(() => e.target.select()); }}
+      onChange={e => setDraft(e.target.value)} onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        else if (e.key === 'Escape') { setDraft(null); requestAnimationFrame(() => e.target.blur()); }
+      }} />
+  );
+}
 
 const presetByKey = Object.fromEntries(PRESETS.map(p => [p.key, p]));
 
@@ -169,9 +191,9 @@ function NewDocument({ sizeKey, setSizeKey, custom, setCustom, size }) {
         </button>
         {sizeKey === 'custom' && (
           <span className={styles.customDims}>
-            <input type="number" min={1} value={custom.width} aria-label="Width" onChange={e => setDim('width', e.target.value)} />
+            <DimInput value={custom.width} label="Width" onChange={v => setDim('width', v)} />
             <span>×</span>
-            <input type="number" min={1} value={custom.height} aria-label="Height" onChange={e => setDim('height', e.target.value)} />
+            <DimInput value={custom.height} label="Height" onChange={v => setDim('height', v)} />
             <span>px</span>
           </span>
         )}

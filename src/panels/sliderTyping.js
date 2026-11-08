@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { setInputValue } from './scrub';
+import { evalNumber } from '../utils/numberExpr';
 import styles from './Panel.module.css';
 
 // Click a slider's value readout to type a number. Works for every
@@ -12,6 +13,8 @@ import styles from './Panel.module.css';
 // (Shift: 1.0) and apply it at once; Escape puts the original back. A
 // slider of whole numbers moves by its own step instead (Shift: × 10).
 // Fine values aren't snapped to a fractional slider's step, so 0.1 counts.
+// A typed value can be a sum (12*3), or start with * or / to scale the
+// current value (*2) -- see utils/numberExpr.js.
 
 const NUMBER = /-?\d*\.?\d+/;
 
@@ -66,9 +69,9 @@ function beginEdit(readout, slider) {
   const finish = (commit) => {
     if (done) return;
     done = true;
-    const typed = input.value.match(NUMBER);
+    const typed = evalNumber(input.value, { current: +original * factor });
     input.remove();
-    if (commit && typed) apply(+typed[0]);
+    if (commit && typed != null) apply(typed);
     else if (!commit && slider.isConnected && slider.value !== original) setInputValue(slider, original);
   };
   input.addEventListener('keydown', (e) => {
@@ -78,7 +81,7 @@ function beginEdit(readout, slider) {
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const by = whole ? rawStep * factor * (e.shiftKey ? 10 : 1) : (e.shiftKey ? 1 : 0.1);
-      const cur = +(input.value.match(NUMBER)?.[0] ?? +slider.value * factor);
+      const cur = evalNumber(input.value) ?? +slider.value * factor;
       const next = Math.min(hi, Math.max(lo, +(cur + (e.key === 'ArrowUp' ? by : -by)).toFixed(4)));
       input.value = String(apply(next));
       input.select();

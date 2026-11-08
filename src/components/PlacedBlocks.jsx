@@ -17,14 +17,17 @@ function blockBox(block, { cellSize, gridOriginX, gridOriginY }) {
   };
 }
 
-const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSelect, onContextMenu, ghost }) {
+// View › Outline: what a vector block, image or text box is drawn as.
+const OUTLINE = { fill: 'none', stroke: '#1b1b1b', strokeWidth: 1, vectorEffect: 'non-scaling-stroke' };
+
+const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSelect, onContextMenu, ghost, outline }) {
   const { x, y, w, h } = box;
   // Locked blocks (Layers panel) can't be selected or edited on the canvas.
   const interactive = activeTool === 'select' && !block.locked;
   return (
     <g
-      opacity={block.opacity ?? undefined}
-      style={block.blendMode && block.blendMode !== 'normal' ? { mixBlendMode: block.blendMode } : undefined}
+      opacity={outline ? undefined : block.opacity ?? undefined}
+      style={!outline && block.blendMode && block.blendMode !== 'normal' ? { mixBlendMode: block.blendMode } : undefined}
       onClick={e => { if (interactive) { e.stopPropagation(); onSelect(block.id, e.shiftKey); } }}
       onContextMenu={e => {
         if (!interactive) return;
@@ -34,7 +37,17 @@ const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSele
       }}
     >
       {block.type !== 'vector' && <rect x={x} y={y} width={w} height={h} fill="transparent" style={{ pointerEvents: 'all' }} />}
-      {block.type === 'vector' ? (
+      {outline ? (
+        block.type === 'vector' ? (
+          // Clicks still land anywhere inside the path ('fill' ignores fill="none").
+          <path d={block.d} transform={vectorTransform(block, box)} {...OUTLINE} style={{ pointerEvents: 'fill' }} />
+        ) : (
+          <g style={{ pointerEvents: 'none' }} {...OUTLINE}>
+            <rect x={x} y={y} width={w} height={h} />
+            <path d={`M${x} ${y}L${x + w} ${y + h}M${x + w} ${y}L${x} ${y + h}`} />
+          </g>
+        )
+      ) : block.type === 'vector' ? (
         <>
           {block.blur > 0 && (
             <defs>
@@ -88,7 +101,7 @@ const ContentBlock = memo(function ContentBlock({ block, box, activeTool, onSele
 
 export const PlacedBlocks = memo(function PlacedBlocks({
   placedBlocks, visibleRect, gridComputed, activeTool,
-  selectedIds, onSelect, onContextMenu, blendMode, highlightIds, hideImages = false,
+  selectedIds, onSelect, onContextMenu, blendMode, highlightIds, hideImages = false, outline = false,
 }) {
   // Image and text blocks, culled to the visible area.
   const content = useMemo(() => {
@@ -137,13 +150,13 @@ export const PlacedBlocks = memo(function PlacedBlocks({
           id="placed-blocks"
           style={{
             pointerEvents: activeTool === 'hand' ? 'none' : 'auto',
-            mixBlendMode: blendMode && blendMode !== 'normal' ? blendMode : undefined,
-            isolation: blendMode && blendMode !== 'normal' ? 'isolate' : undefined,
+            mixBlendMode: !outline && blendMode && blendMode !== 'normal' ? blendMode : undefined,
+            isolation: !outline && blendMode && blendMode !== 'normal' ? 'isolate' : undefined,
           }}
         >
           {content.map(({ block, box }) => (
             <ContentBlock key={block.id} block={block} box={box} activeTool={activeTool}
-              onSelect={onSelect} onContextMenu={onContextMenu} ghost={hideImages && block.type === 'vector'} />
+              onSelect={onSelect} onContextMenu={onContextMenu} ghost={hideImages && block.type === 'vector'} outline={outline} />
           ))}
         </g>
       )}

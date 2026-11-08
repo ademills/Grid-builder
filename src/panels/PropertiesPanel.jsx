@@ -6,6 +6,8 @@ import { Stepper, Toggle, InfoTip, Section, Segmented } from './controls';
 import { SwatchColourField } from './SwatchColourField';
 import { SettingsForm } from './schema';
 import { LINEWORK_GRID_SCHEMA, LINEWORK_LINES_SCHEMA } from '../modes/linework/schema';
+import { evalNumber } from '../utils/numberExpr';
+import { UNITS, UNIT_KEYS, fromArt, toArt, typedToUnit, formatLength } from '../utils/units';
 import styles from './Panel.module.css';
 
 // Document setup, like Illustrator's Properties panel with nothing selected:
@@ -14,10 +16,24 @@ import styles from './Panel.module.css';
 // lines, which every layer shares). Actions (fill gaps, flip, export) live in the
 // menus and the inspector's Generate bar, and the artboard size in the
 // status bar.
+// The width Linework's base-layer lines are drawn at, at the artboard's
+// size: a cell / lines per cell × line ratio × the layer's scale.
+function lineWidthInfo(mode, cellSize, lw, units) {
+  if (mode === 'linework' && lw) {
+    const base = lw.layers?.[0];
+    const n = Math.max(1, lw.linesPerCell ?? 3), ratio = Math.min(0.95, Math.max(0.05, lw.lineRatio ?? 0.5));
+    const w = (cellSize * (base?.scale ?? 1) / n) * ratio;
+    return <> · lines {formatLength(w, units, { fine: true })}</>;
+  }
+  return null;
+}
+
 export function PropertiesPanel() {
   const { mode, gridComputed, validCols, actions, linework } = useEditor();
   const [presetKey, setPresetKey] = useDocField('presetKey');
   const [customSize, setCustomSize] = useDocField('customSize');
+  const [units = 'px', setUnits] = useDocField('units');
+  const [radialRepeat = { count: 1, mirror: true }, setRadialRepeat] = useDocField('radialRepeat');
   const [gridSettings, setGridSettings] = useDocSettings('gridSettings');
   const [maxScale, setMaxScale] = useDocField('maxScale');
   const [scaleFreq, setScaleFreq] = useDocField('scaleFreq');
@@ -35,20 +51,36 @@ export function PropertiesPanel() {
     } }
     : null;
 
-  // Typed-but-uncommitted width/height; reset whenever the stored size changes.
-  const [rawWidth, setRawWidth] = useState(String(customSize?.width ?? ''));
-  const [rawHeight, setRawHeight] = useState(String(customSize?.height ?? ''));
-  const [sizeSource, setSizeSource] = useState(customSize);
-  if (sizeSource !== customSize) {
-    setSizeSource(customSize);
-    setRawWidth(String(customSize?.width ?? ''));
-    setRawHeight(String(customSize?.height ?? ''));
+  // Typed-but-uncommitted width/height, in the document's unit; reset
+  // whenever the stored size or the unit changes. A size can be a sum or
+  // carry its own unit (210mm, 8.5in, 1080px).
+  const shownDim = (v) => (v == null ? '' : formatLength(v, units, { suffix: false }));
+  const [rawWidth, setRawWidth] = useState(shownDim(customSize?.width));
+  const [rawHeight, setRawHeight] = useState(shownDim(customSize?.height));
+  const [sizeSource, setSizeSource] = useState([customSize, units]);
+  if (sizeSource[0] !== customSize || sizeSource[1] !== units) {
+    setSizeSource([customSize, units]);
+    setRawWidth(shownDim(customSize?.width));
+    setRawHeight(shownDim(customSize?.height));
   }
   const commitDim = (axis, raw) => {
-    const n = parseInt(raw, 10);
-    const clamped = isNaN(n) ? 50 : Math.min(10000, Math.max(50, n));
+    const typed = evalNumber(raw, { current: fromArt(customSize?.[axis] ?? 0, units), toUnit: typedToUnit(units) });
+    const n = typed == null ? customSize?.[axis] ?? 50 : Math.round(toArt(typed, units));
+    const clamped = Math.min(10000, Math.max(50, n));
     setCustomSize({ ...customSize, [axis]: clamped });
+    // The same size can come back (or be clamped to it): show it again.
+    (axis === 'width' ? setRawWidth : setRawHeight)(shownDim(clamped));
   };
+  // ↑ ↓ nudge a size by one unit (Shift: ten), as the steppers do.
+  const nudgeDim = (axis, e) => {
+    if (e.key === 'Enter') { commitDim(axis, e.currentTarget.value); return; }
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const cur = evalNumber(e.currentTarget.value, { toUnit: typedToUnit(units) }) ?? fromArt(customSize?.[axis] ?? 0, units);
+    const by = (units === 'px' ? 1 : units === 'mm' ? 1 : 0.1) * (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+    commitDim(axis, String(+(cur + by).toFixed(4)));
+  };
+  const size = presetKey === 'custom' ? customSize : PRESETS.find(p => p.key === presetKey);
 
   // Meander bakes the canvas colour into its generated block, so it needs
   // the editor's handler that regenerates; the other modes just set the field.
@@ -67,23 +99,49 @@ export function PropertiesPanel() {
         <div className={styles.formRow}>
           <span className={styles.label} />
           <div className={styles.dimRow}>
-            <input type="number" className={styles.dimInput} value={rawWidth}
+            <input type="text" inputMode="decimal" className={styles.dimInput} value={rawWidth} aria-label="Width"
+              title="Type a size, a sum (210*2) or another unit (8.5in, 297mm, 1080px)"
               onChange={e => setRawWidth(e.target.value)}
               onBlur={() => commitDim('width', rawWidth)}
-              onKeyDown={e => e.key === 'Enter' && commitDim('width', rawWidth)} />
+              onKeyDown={e => nudgeDim('width', e)} />
             <span className={styles.dimX}>×</span>
-            <input type="number" className={styles.dimInput} value={rawHeight}
+            <input type="text" inputMode="decimal" className={styles.dimInput} value={rawHeight} aria-label="Height"
+              title="Type a size, a sum (210*2) or another unit (8.5in, 297mm, 1080px)"
               onChange={e => setRawHeight(e.target.value)}
               onBlur={() => commitDim('height', rawHeight)}
-              onKeyDown={e => e.key === 'Enter' && commitDim('height', rawHeight)} />
-            <span className={styles.dimUnit}>px</span>
+              onKeyDown={e => nudgeDim('height', e)} />
+            <span className={styles.dimUnit}>{UNITS[units]?.label ?? 'px'}</span>
           </div>
         </div>
       )}
+      {presetKey !== 'custom' && size?.width && (
+        <div className={styles.gridInfo}>{formatLength(size.width, units, { suffix: false })} × {formatLength(size.height, units)}</div>
+      )}
+      <div className={styles.formRow}>
+        <span className={styles.label}>Units</span>
+        <Segmented value={units} onChange={setUnits}
+          options={UNIT_KEYS.map(k => ({ key: k, label: UNITS[k].label, title: 'What sizes, rulers and the pointer are shown in. SVGs are exported at their size in mm or inches.' }))} />
+      </div>
       <div className={styles.formRow}>
         <span className={styles.label}>Canvas</span>
         <SwatchColourField value={canvasBg} onChange={onCanvasBg} title="Canvas colour — a document swatch or any colour" />
       </div>
+      </Section>
+
+      <Section id="properties.radial" title="Radial repeat"
+        info="The design inside one wedge (dashed on the canvas, pointing up from the centre) drawn round the artboard's centre, in every mode. The background isn't repeated.">
+        <div className={styles.formRow}>
+          <span className={styles.label}>Copies</span>
+          <Stepper value={radialRepeat.count ?? 1} min={1} max={24} format={v => (v > 1 ? `${v}` : 'Off')}
+            onChange={v => setRadialRepeat({ ...radialRepeat, count: v })} />
+        </div>
+        {(radialRepeat.count ?? 1) > 1 && (
+          <div className={styles.formRow}>
+            <span className={styles.label}>Mirror</span>
+            <Toggle value={!!radialRepeat.mirror} onChange={v => setRadialRepeat({ ...radialRepeat, mirror: v })}
+              title="Every other copy mirrored, like a kaleidoscope, so wedges meet seamlessly (best with an even number)" />
+          </div>
+        )}
       </Section>
 
       <Section id="properties.grid" title="Grid">
@@ -99,7 +157,8 @@ export function PropertiesPanel() {
       </div>
       {gridComputed && (
         <div className={styles.gridInfo}>
-          {gridComputed.cols} × {gridComputed.rows} cells · {gridComputed.cellSize.toFixed(1)}px each
+          {gridComputed.cols} × {gridComputed.rows} cells · {formatLength(gridComputed.cellSize, units, { fine: true })} each
+          {lineWidthInfo(mode, gridComputed.cellSize, linework?.settings, units)}
           {validCols && !validCols.includes(gridSettings.cols) && <span className={styles.snapNote} title="This count doesn't divide the artboard into whole rows of squares, so the grid is fitted inside the border with a gap. Step Columns to pick one that fits."> (not an even fit)</span>}
         </div>
       )}

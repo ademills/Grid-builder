@@ -1,3 +1,4 @@
+import { PRESETS } from '../gridPresets';
 import { useDocumentStore } from '../store/documentStore';
 import { useAppStore } from '../store/appStore';
 import { serializeProject, parseProject, fileNameFromPath } from '../store/projectFormat';
@@ -13,8 +14,10 @@ const docs = () => useDocumentStore.getState();
 const app = () => useAppStore.getState();
 
 // `state` overrides document defaults (e.g. a palette from the home screen).
+// Print sizes start in their own unit (A4 in mm, Letter in inches); the rest in px.
 export function newDocument(mode, { presetKey, state } = {}) {
-  return docs().createDocument(mode, { state: { ...(presetKey ? { presetKey } : {}), ...state }, fresh: true });
+  const units = PRESETS.find(p => p.key === (presetKey ?? 'a4-portrait'))?.units ?? 'px';
+  return docs().createDocument(mode, { state: { ...(presetKey ? { presetKey } : {}), units, ...state }, fresh: true });
 }
 
 function openParsed(text, path, fileName) {
